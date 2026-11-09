@@ -758,7 +758,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
 
         .toast {{
             position: fixed;
-            bottom: calc(20px + var(--fnx-host-bottom-offset, 0px) + env(safe-area-inset-bottom, 0px));
+            bottom: calc(20px + var(--fnx-host-bottom-offset, 0px) + max(env(safe-area-inset-bottom, 0px), 12px));
             right: 20px;
             background: var(--fnx-elevated);
             border: 1px solid var(--fnx-accent);
@@ -778,7 +778,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
                 display: flex;
                 flex-direction: column;
                 padding-top: var(--fnx-host-top-offset, 0px);
-                padding-bottom: calc(var(--fnx-host-bottom-offset, 54px) + env(safe-area-inset-bottom, 0px) + 24px);
+                padding-bottom: calc(var(--fnx-host-bottom-offset, 54px) + max(env(safe-area-inset-bottom, 0px), 12px) + 24px);
             }}
             .sidebar {{
                 position: sticky;

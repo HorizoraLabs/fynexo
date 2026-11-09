@@ -260,7 +260,7 @@ pub fn assemble_hud_script(initial_json: &str) -> String {
     }}
 
     function isMobilePlatform() {{
-        return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     }}
 
     function computeDesktopTopHeight() {{
@@ -595,7 +595,7 @@ pub fn assemble_hud_script(initial_json: &str) -> String {
             if (mobPos === 'top') {{
                 mobPaddingRules += `padding-top: calc(${{mobH}} + env(safe-area-inset-top, 0px)) !important;`;
             }} else {{
-                mobPaddingRules += `padding-bottom: calc(${{mobH}} + env(safe-area-inset-bottom, 0px)) !important;`;
+                mobPaddingRules += `padding-bottom: calc(${{mobH}} + max(env(safe-area-inset-bottom, 0px), 12px)) !important;`;
             }}
         }}
 
@@ -807,10 +807,10 @@ pub fn assemble_hud_script(initial_json: &str) -> String {
             }}
 
             #__fynexo_bottom_bar__ {{
-                height: calc(${{mb.height || '54px'}} + ${{mobIsTop ? 'env(safe-area-inset-top, 0px)' : 'env(safe-area-inset-bottom, 0px)'}});
+                height: calc(${{mb.height || '54px'}} + ${{mobIsTop ? 'env(safe-area-inset-top, 0px)' : 'max(env(safe-area-inset-bottom, 0px), 12px)'}});
                 padding-left: max(env(safe-area-inset-left, 0px), ${{mb.padding_x || '8px'}});
                 padding-right: max(env(safe-area-inset-right, 0px), ${{mb.padding_x || '8px'}});
-                padding-bottom: ${{mobIsTop ? '0px' : 'env(safe-area-inset-bottom, 0px)'}};
+                padding-bottom: ${{mobIsTop ? '0px' : 'max(env(safe-area-inset-bottom, 0px), 12px)'}};
                 padding-top: ${{mobIsTop ? 'env(safe-area-inset-top, 0px)' : '0px'}};
                 top: ${{mobIsTop ? '0' : 'auto'}};
                 bottom: ${{mobIsTop ? 'auto' : '0'}};
@@ -2463,8 +2463,19 @@ pub fn assemble_hud_script(initial_json: &str) -> String {
         applyShadowStyles();
     }}
 
+    function getDeepActiveElement() {{
+        let el = document.activeElement;
+        while (el && el.shadowRoot && el.shadowRoot.activeElement) {{
+            el = el.shadowRoot.activeElement;
+        }}
+        return el;
+    }}
+
     function isEditableWebElement(el) {{
         if (!el || el.id === '__fynexo_host__') return false;
+        while (el && el.shadowRoot && el.shadowRoot.activeElement) {{
+            el = el.shadowRoot.activeElement;
+        }}
         const tag = (el.tagName || '').toLowerCase();
         if (tag === 'textarea') return true;
         if (tag === 'input') {{
@@ -2477,6 +2488,18 @@ pub fn assemble_hud_script(initial_json: &str) -> String {
     function initInterface() {{
         try {{
             if (document.getElementById('__fynexo_host__')) return;
+
+            if (isMobilePlatform()) {{
+                try {{
+                    let vp = document.querySelector('meta[name="viewport"]');
+                    if (!vp && (document.head || document.documentElement)) {{
+                        vp = document.createElement('meta');
+                        vp.name = 'viewport';
+                        vp.content = 'width=device-width, initial-scale=1.0, maximum-scale=5.0';
+                        (document.head || document.documentElement).appendChild(vp);
+                    }}
+                }} catch (_) {{}}
+            }}
 
             try {{
                 if (!window.__fynexo_scroll_proxied__) {{
@@ -4462,8 +4485,16 @@ pub fn assemble_hud_script(initial_json: &str) -> String {
             // Mobile Webpage Input Auto-Hide
             document.addEventListener('focusin', (e) => {{
                 if (window.innerWidth <= 768 && hudRoot.style.display !== 'flex') {{
-                    if (isEditableWebElement(e.target)) {{
+                    const targetEl = isEditableWebElement(e.target) ? (getDeepActiveElement() || e.target) : null;
+                    if (targetEl) {{
                         setKeyboardHiddenState(true);
+                        try {{
+                            setTimeout(() => {{
+                                if (targetEl && typeof targetEl.scrollIntoView === 'function') {{
+                                    targetEl.scrollIntoView({{ block: 'nearest', behavior: 'smooth' }});
+                                }}
+                            }}, 300);
+                        }} catch (_) {{}}
                     }}
                 }}
             }}, true);
@@ -4471,7 +4502,7 @@ pub fn assemble_hud_script(initial_json: &str) -> String {
             document.addEventListener('focusout', () => {{
                 if (window.innerWidth <= 768) {{
                     setTimeout(() => {{
-                        if (!isEditableWebElement(document.activeElement)) {{
+                        if (!isEditableWebElement(getDeepActiveElement())) {{
                             setKeyboardHiddenState(false);
                         }}
                     }}, 120);
@@ -4482,8 +4513,16 @@ pub fn assemble_hud_script(initial_json: &str) -> String {
                 window.visualViewport.addEventListener('resize', () => {{
                     if (window.innerWidth <= 768 && hudRoot.style.display !== 'flex') {{
                         const ratio = window.visualViewport.height / Math.max(window.screen.height, window.innerHeight, 1);
-                        if (ratio < 0.68 || isEditableWebElement(document.activeElement)) {{
+                        const activeEl = getDeepActiveElement();
+                        if (ratio < 0.68 || isEditableWebElement(activeEl)) {{
                             setKeyboardHiddenState(true);
+                            if (activeEl && isEditableWebElement(activeEl)) {{
+                                try {{
+                                    if (typeof activeEl.scrollIntoView === 'function') {{
+                                        activeEl.scrollIntoView({{ block: 'nearest', behavior: 'smooth' }});
+                                    }}
+                                }} catch (_) {{}}
+                            }}
                         }} else {{
                             setKeyboardHiddenState(false);
                         }}
@@ -4496,7 +4535,7 @@ pub fn assemble_hud_script(initial_json: &str) -> String {
 
                 // Protect plain single-key shortcuts when typing inside webpage inputs
                 if (!e.ctrlKey && !e.metaKey && !e.altKey && !/^f\d+$/i.test(e.key || '') && e.key !== 'Escape') {{
-                    if (isEditableWebElement(e.target)) return;
+                    if (isEditableWebElement(e.target) || isEditableWebElement(getDeepActiveElement())) return;
                 }}
 
                 if (matchesKeybind(e, keybinds.omnibox) || (e.altKey && !e.ctrlKey && !e.shiftKey && (e.key || '').toLowerCase() === 'd')) {{

@@ -355,13 +355,19 @@ impl TabManager {
         }
 
         let was_active = self.active_id == id;
+        let pos = self.tabs.iter().position(|t| t.id == id);
         self.tabs.retain(|t| t.id != id);
 
         let res = if was_active {
-            if let Some(last) = self.tabs.last_mut() {
-                last.is_active = true;
-                self.active_id = last.id;
-                Some(last.url.clone())
+            let next_idx = match pos {
+                Some(idx) if idx < self.tabs.len() => idx,
+                Some(_) if !self.tabs.is_empty() => self.tabs.len() - 1,
+                _ => 0,
+            };
+            if let Some(next) = self.tabs.get_mut(next_idx) {
+                next.is_active = true;
+                self.active_id = next.id;
+                Some(next.url.clone())
             } else {
                 None
             }

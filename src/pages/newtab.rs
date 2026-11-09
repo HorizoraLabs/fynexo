@@ -610,7 +610,7 @@ pub fn newtab_html(payload: &RuntimePayload) -> String {
         @media (max-width: 768px) {{
             #__fynexo_newtab_app__ {{
                 padding-top: calc(var(--fnx-host-top-offset, 0px) + 16px);
-                padding-bottom: calc(var(--fnx-host-bottom-offset, 54px) + env(safe-area-inset-bottom, 0px) + 24px);
+                padding-bottom: calc(var(--fnx-host-bottom-offset, 54px) + max(env(safe-area-inset-bottom, 0px), 12px) + 24px);
                 padding-left: 14px;
                 padding-right: 14px;
             }}

@@ -870,7 +870,7 @@
                     border-top: 1px solid var(--fnx-border-hover);
                     display: flex;
                     flex-direction: column;
-                    padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+                    padding: 10px 14px calc(12px + max(env(safe-area-inset-bottom, 0px), 12px));
                 }
                 .fnx-sheet-handle {
                     width: 36px;
@@ -1118,12 +1118,12 @@
                     }
                     #__fynexo_reader__ {
                         top: 0;
-                        padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+                        padding-bottom: calc(56px + max(env(safe-area-inset-bottom, 0px), 12px));
                     }
                     #__fynexo_hud_toast__ {
                         left: 14px;
                         right: 14px;
-                        bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+                        bottom: calc(64px + max(env(safe-area-inset-bottom, 0px), 12px));
                         justify-content: center;
                     }
                 }
