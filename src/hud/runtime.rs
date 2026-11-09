@@ -1,414 +1,19 @@
-use crate::config::{HudBootPayload, RuntimePayload, SiteRule};
+﻿use super::defaults::DEFAULTS_SCRIPT;
+use super::icons::ICONS_SCRIPT;
+use super::styles::BASE_STYLES_CSS;
 
-pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::TabState>) -> String {
-    let history_slice = &payload.history[..payload.history.len().min(25)];
-    let enabled_rules: Vec<&SiteRule> = payload.site_rules.iter().filter(|r| r.enabled).collect();
-    let slim_boot = HudBootPayload {
-        config: &payload.config,
-        styles: &payload.styles,
-        active_theme: &payload.active_theme,
-        keybinds: &payload.keybinds,
-        enabled_rules,
-        bookmarks: &payload.bookmarks,
-        history: history_slice,
-        tabs,
-    };
-    let initial_json = serde_json::to_string(&slim_boot).unwrap_or_else(|_| "{}".to_string());
-
+pub fn assemble_hud_script(initial_json: &str) -> String {
+    let base_css_json = serde_json::to_string(BASE_STYLES_CSS).unwrap_or_else(|_| "\"\"".to_string());
     format!(
         r##"
 (function() {{
     // 1. Iframe Isolation: Only the top-level browsing context hosts Fynexo Chrome
     if (window.top !== window.self) return;
 
-    // 2. Cached Pure-DOM SVG Factory (100% Trusted Types Immune + C++ cloneNode Speed)
-    const iconCache = Object.create(null);
 
-    function buildSvg(w, h, viewBox, elements) {{
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('width', String(w));
-        svg.setAttribute('height', String(h));
-        svg.setAttribute('viewBox', viewBox);
-        svg.setAttribute('fill', 'none');
-        svg.setAttribute('aria-hidden', 'true');
-        for (const [tag, attrs] of elements) {{
-            const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
-            for (const [k, v] of Object.entries(attrs)) {{
-                el.setAttribute(k, v);
-            }}
-            svg.appendChild(el);
-        }}
-        return svg;
-    }}
+{icons_script}
 
-    function createIcon(name) {{
-        if (iconCache[name]) return iconCache[name].cloneNode(true);
-        let svg;
-        switch (name) {{
-            case 'back':
-                svg = buildSvg(16, 16, '0 0 16 16', [
-                    ['path', {{ d: 'M10 12.5L5.5 8L10 3.5', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'forward':
-                svg = buildSvg(16, 16, '0 0 16 16', [
-                    ['path', {{ d: 'M6 3.5L10.5 8L6 12.5', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'reload':
-                svg = buildSvg(16, 16, '0 0 16 16', [
-                    ['path', {{ d: 'M13.2 8a5.2 5.2 0 1 1-1.35-3.5', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}],
-                    ['path', {{ d: 'M13.2 2.6v2.3h-2.3', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'plus':
-                svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['path', {{ d: 'M8 3.2v9.6M3.2 8h9.6', stroke: 'currentColor', 'stroke-width': '1.6', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'search':
-                svg = buildSvg(12.5, 12.5, '0 0 16 16', [
-                    ['circle', {{ cx: '7.2', cy: '7.2', r: '4.5', stroke: 'currentColor', 'stroke-width': '1.5' }}],
-                    ['path', {{ d: 'M10.5 10.5L13.8 13.8', stroke: 'currentColor', 'stroke-width': '1.6', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'lock':
-                svg = buildSvg(12, 12, '0 0 16 16', [
-                    ['rect', {{ x: '3.2', y: '7.2', width: '9.6', height: '6.6', rx: '1.8', stroke: 'currentColor', 'stroke-width': '1.45' }}],
-                    ['path', {{ d: 'M5.4 7.2V5.2a2.6 2.6 0 0 1 5.2 0v2', stroke: 'currentColor', 'stroke-width': '1.45', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'settings':
-                svg = buildSvg(14.5, 14.5, '0 0 16 16', [
-                    ['path', {{ d: 'M2.5 4.5h11M2.5 8h11M2.5 11.5h11', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }}],
-                    ['circle', {{ cx: '5.5', cy: '4.5', r: '1.6', fill: 'var(--fnx-panel)', stroke: 'currentColor', 'stroke-width': '1.3' }}],
-                    ['circle', {{ cx: '10.5', cy: '8', r: '1.6', fill: 'var(--fnx-panel)', stroke: 'currentColor', 'stroke-width': '1.3' }}],
-                    ['circle', {{ cx: '6.5', cy: '11.5', r: '1.6', fill: 'var(--fnx-panel)', stroke: 'currentColor', 'stroke-width': '1.3' }}]
-                ]);
-                break;
-            case 'clear':
-                svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['circle', {{ cx: '8', cy: '8', r: '6', fill: 'var(--fnx-border-hover)' }}],
-                    ['path', {{ d: 'M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4', stroke: 'var(--fnx-fg)', 'stroke-width': '1.4', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'go':
-                svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['path', {{ d: 'M3.2 8h9.6M8.8 4l4 4-4 4', stroke: 'currentColor', 'stroke-width': '1.6', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'closeSmall':
-                svg = buildSvg(9, 9, '0 0 12 12', [
-                    ['path', {{ d: 'M2.5 2.5l7 7M9.5 2.5l-7 7', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'winMin':
-                svg = buildSvg(10, 10, '0 0 10 10', [
-                    ['path', {{ d: 'M1 5h8', stroke: 'currentColor', 'stroke-width': '1.2' }}]
-                ]);
-                break;
-            case 'winMax':
-                svg = buildSvg(10, 10, '0 0 10 10', [
-                    ['rect', {{ x: '1.5', y: '1.5', width: '7', height: '7', rx: '0.8', stroke: 'currentColor', 'stroke-width': '1.2' }}]
-                ]);
-                break;
-            case 'winClose':
-                svg = buildSvg(10, 10, '0 0 10 10', [
-                    ['path', {{ d: 'M1.5 1.5l7 7M8.5 1.5l-7 7', stroke: 'currentColor', 'stroke-width': '1.3', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'star':
-                svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['path', {{ d: 'M8 2.1l1.78 3.61 3.98.58-2.88 2.81.68 3.97L8 11.2l-3.56 1.87.68-3.97L2.24 6.29l3.98-.58L8 2.1z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'starFilled':
-                svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['path', {{ d: 'M8 2.1l1.78 3.61 3.98.58-2.88 2.81.68 3.97L8 11.2l-3.56 1.87.68-3.97L2.24 6.29l3.98-.58L8 2.1z', fill: 'currentColor', stroke: 'currentColor', 'stroke-width': '1.2', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'history':
-                svg = buildSvg(13, 13, '0 0 16 16', [
-                    ['circle', {{ cx: '8', cy: '8', r: '5.5', stroke: 'currentColor', 'stroke-width': '1.4' }}],
-                    ['path', {{ d: 'M8 5v3.3l2.3 1.4', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'home':
-                svg = buildSvg(16, 16, '0 0 16 16', [
-                    ['path', {{ d: 'M2.6 7.4L8 2.8l5.4 4.6v5.4a.8.8 0 0 1-.8.8H3.4a.8.8 0 0 1-.8-.8V7.4z', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'pin':
-                svg = buildSvg(12, 12, '0 0 16 16', [
-                    ['path', {{ d: 'M9.8 2.5l3.7 3.7-1.4 1.4-.9-.3-2.6 2.6.4 2.2-1.3 1.3-2.6-2.6-2.9 2.9-.7-.7 2.9-2.9-2.6-2.6 1.3-1.3 2.2.4 2.6-2.6-.3-.9 1.2-1.6z', stroke: 'currentColor', 'stroke-width': '1.3', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'reader':
-                svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['rect', {{ x: '2.5', y: '2.2', width: '11', height: '11.6', rx: '1.6', stroke: 'currentColor', 'stroke-width': '1.35' }}],
-                    ['path', {{ d: 'M5.2 5.4h5.6M5.2 8h5.6M5.2 10.6h3.6', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'moon':
-                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
-                    ['path', {{ d: 'M12.8 9.8A5.2 5.2 0 0 1 6.2 3.2a5.3 5.3 0 1 0 6.6 6.6z', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'fullscreen':
-                svg = buildSvg(12, 12, '0 0 16 16', [
-                    ['path', {{ d: 'M2.8 6V2.8H6M10 2.8h3.2V6M13.2 10v3.2H10M6 13.2H2.8V10', stroke: 'currentColor', 'stroke-width': '1.45', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'chevUp':
-            case 'chevronUp':
-                svg = buildSvg(13, 13, '0 0 16 16', [
-                    ['path', {{ d: 'M3.8 9.8L8 5.6l4.2 4.2', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'chevDown':
-            case 'chevronDown':
-                svg = buildSvg(16, 16, '0 0 16 16', [
-                    ['path', {{ d: 'M3.8 6.2L8 10.4l4.2-4.2', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'undo':
-                svg = buildSvg(13, 13, '0 0 16 16', [
-                    ['path', {{ d: 'M3.2 6.2h5.6a3.8 3.8 0 1 1 0 7.6H6.2', stroke: 'currentColor', 'stroke-width': '1.45', 'stroke-linecap': 'round' }}],
-                    ['path', {{ d: 'M5.6 3.6L3 6.2l2.6 2.6', stroke: 'currentColor', 'stroke-width': '1.45', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'bookmarksBar':
-                svg = buildSvg(14.5, 14.5, '0 0 16 16', [
-                    ['rect', {{ x: '2.2', y: '2.6', width: '11.6', height: '10.8', rx: '2', stroke: 'currentColor', 'stroke-width': '1.35' }}],
-                    ['path', {{ d: 'M2.5 6.4h11', stroke: 'currentColor', 'stroke-width': '1.35' }}]
-                ]);
-                break;
-            case 'grid':
-                svg = buildSvg(12.5, 12.5, '0 0 16 16', [
-                    ['rect', {{ x: '2.4', y: '2.4', width: '4.4', height: '4.4', rx: '1', stroke: 'currentColor', 'stroke-width': '1.35' }}],
-                    ['rect', {{ x: '9.2', y: '2.4', width: '4.4', height: '4.4', rx: '1', stroke: 'currentColor', 'stroke-width': '1.35' }}],
-                    ['rect', {{ x: '2.4', y: '9.2', width: '4.4', height: '4.4', rx: '1', stroke: 'currentColor', 'stroke-width': '1.35' }}],
-                    ['rect', {{ x: '9.2', y: '9.2', width: '4.4', height: '4.4', rx: '1', stroke: 'currentColor', 'stroke-width': '1.35' }}]
-                ]);
-                break;
-            case 'more':
-            case 'dots':
-                svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['circle', {{ cx: '8', cy: '3.2', r: '1.4', fill: 'currentColor' }}],
-                    ['circle', {{ cx: '8', cy: '8', r: '1.4', fill: 'currentColor' }}],
-                    ['circle', {{ cx: '8', cy: '12.8', r: '1.4', fill: 'currentColor' }}]
-                ]);
-                break;
-            case 'shield':
-                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
-                    ['path', {{ d: 'M8 1.8l5 2v4.8c0 3.6-2.2 6-5 6.8-2.8-.8-5-3.2-5-6.8V3.8l5-2z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }}]
-                ]);
-                break;
-            case 'media':
-            case 'music':
-                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
-                    ['path', {{ d: 'M6 12V3.5l7-1.8V10', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}],
-                    ['circle', {{ cx: '4.2', cy: '12', r: '2', fill: 'currentColor' }}],
-                    ['circle', {{ cx: '11.2', cy: '10', r: '2', fill: 'currentColor' }}]
-                ]);
-                break;
-            case 'download':
-                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
-                    ['path', {{ d: 'M8 2.2v8.2M4.5 7.6L8 11.2l3.5-3.6', stroke: 'currentColor', 'stroke-width': '1.45', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }}],
-                    ['path', {{ d: 'M2.5 13.5h11', stroke: 'currentColor', 'stroke-width': '1.45', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'volumeUp':
-                svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['path', {{ d: 'M2.5 6h2.5l3.5-3.2v10.4L5 10H2.5a.8.8 0 0 1-.8-.8v-2.4a.8.8 0 0 1 .8-.8z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }}],
-                    ['path', {{ d: 'M11.5 5.5a3.8 3.8 0 0 1 0 5M13.5 3.5a6.5 6.5 0 0 1 0 9', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'volumeMute':
-                svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['path', {{ d: 'M2.5 6h2.5l3.5-3.2v10.4L5 10H2.5a.8.8 0 0 1-.8-.8v-2.4a.8.8 0 0 1 .8-.8z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }}],
-                    ['path', {{ d: 'M11.5 6.5l3 3M14.5 6.5l-3 3', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'play':
-                svg = buildSvg(12, 12, '0 0 16 16', [
-                    ['path', {{ d: 'M4.5 2.8l8.5 5.2-8.5 5.2V2.8z', fill: 'currentColor' }}]
-                ]);
-                break;
-            case 'pause':
-                svg = buildSvg(12, 12, '0 0 16 16', [
-                    ['rect', {{ x: '4', y: '3', width: '2.8', height: '10', rx: '0.8', fill: 'currentColor' }}],
-                    ['rect', {{ x: '9.2', y: '3', width: '2.8', height: '10', rx: '0.8', fill: 'currentColor' }}]
-                ]);
-                break;
-            case 'minus':
-                svg = buildSvg(12, 12, '0 0 16 16', [
-                    ['path', {{ d: 'M3.2 8h9.6', stroke: 'currentColor', 'stroke-width': '1.55', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'sidepanel':
-            case 'sidebar':
-                svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['rect', {{ x: '2.2', y: '2.5', width: '11.6', height: '11', rx: '1.8', stroke: 'currentColor', 'stroke-width': '1.35' }}],
-                    ['path', {{ d: 'M10 2.8v10.4', stroke: 'currentColor', 'stroke-width': '1.35' }}]
-                ]);
-                break;
-            case 'cpu':
-            case 'taskmgr':
-                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
-                    ['rect', {{ x: '4', y: '4', width: '8', height: '8', rx: '1.5', stroke: 'currentColor', 'stroke-width': '1.35' }}],
-                    ['path', {{ d: 'M6 1.8v2.2M10 1.8v2.2M6 12v2.2M10 12v2.2M1.8 6h2.2M1.8 10h2.2M12 6h2.2M12 10h2.2', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linecap': 'round' }}]
-                ]);
-                break;
-            case 'workspace':
-                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
-                    ['rect', {{ x: '2.5', y: '3', width: '11', height: '10', rx: '1.5', stroke: 'currentColor', 'stroke-width': '1.35' }}],
-                    ['path', {{ d: 'M2.5 7h11M7.5 7v6', stroke: 'currentColor', 'stroke-width': '1.35' }}]
-                ]);
-                break;
-            default:
-                return document.createElement('span');
-        }}
-        iconCache[name] = svg;
-        return svg.cloneNode(true);
-    }}
-
-    // Default Fallback Tokens, Engines, Bangs & Keybinds
-    const DEFAULT_ENGINES = [
-        {{ id: 'google', name: 'Google', url: 'https://www.google.com/search?q={{query}}' }},
-        {{ id: 'duckduckgo', name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q={{query}}' }},
-        {{ id: 'bing', name: 'Bing', url: 'https://www.bing.com/search?q={{query}}' }},
-        {{ id: 'baidu', name: 'Baidu', url: 'https://www.baidu.com/s?wd={{query}}' }}
-    ];
-
-    const DEFAULT_BANGS = [
-        {{ trigger: '!gh', name: 'GitHub', url: 'https://github.com/search?q={{query}}' }},
-        {{ trigger: '!yt', name: 'YouTube', url: 'https://www.youtube.com/results?search_query={{query}}' }},
-        {{ trigger: '!b', name: 'Bilibili', url: 'https://search.bilibili.com/all?keyword={{query}}' }},
-        {{ trigger: '!w', name: 'Wikipedia', url: 'https://en.wikipedia.org/w/index.php?search={{query}}' }},
-        {{ trigger: '!rd', name: 'Reddit', url: 'https://www.reddit.com/search/?q={{query}}' }},
-        {{ trigger: '!tr', name: 'Translate', url: 'https://translate.google.com/?sl=auto&tl=zh-CN&text={{query}}' }}
-    ];
-
-    const DEFAULT_KEYBINDS = {{
-        omnibox: 'Ctrl+L',
-        new_tab: 'Ctrl+T',
-        close_tab: 'Ctrl+W',
-        reopen_closed_tab: 'Ctrl+Shift+T',
-        next_tab: 'Ctrl+Tab',
-        bookmark_page: 'Ctrl+D',
-        find_in_page: 'Ctrl+F',
-        reader_mode: 'Alt+R',
-        force_dark: 'Alt+Shift+D',
-        fullscreen: 'F11',
-        preferences: 'Ctrl+,',
-        zoom_in: 'Ctrl+=',
-        zoom_out: 'Ctrl+-',
-        zoom_reset: 'Ctrl+0'
-    }};
-
-    const DEFAULT_STYLES = {{
-        colors: {{
-            use_custom_colors: false,
-            bg: '#19191c',
-            panel: '#29292e',
-            surface: '#212126',
-            elevated: '#35353c',
-            border: '#37373f',
-            border_hover: '#4b4b56',
-            fg: '#f0f0f3',
-            secondary: '#c2c2cb',
-            muted: '#8a8a95',
-            accent: '#7a88f7',
-            accent_bg: '#262942',
-            hover: '#33333a',
-            tab_active: '#29292e',
-            tab_inactive: 'transparent'
-        }},
-        topbar: {{
-            visible_on_desktop: true,
-            visible_on_mobile: false,
-            layout: 'deck',
-            bookmarks_bar: 'always',
-            height: '38px',
-            titlebar_height: '40px',
-            padding_x: '6px',
-            background: 'var(--fnx-panel)',
-            border_bottom: '1px solid var(--fnx-border)',
-            button_size: '28px',
-            button_radius: '6px',
-            custom_css: ''
-        }},
-        tabs: {{
-            height: '36px',
-            width: '184px',
-            min_width: '76px',
-            gap: '0px',
-            border_radius: '6px',
-            font_size: '12px',
-            show_indicator_dot: true,
-            close_on_hover_only: false,
-            custom_css: ''
-        }},
-        address_bar: {{
-            mode: 'inline',
-            position: 'center',
-            height: '30px',
-            width: '340px',
-            border_radius: '9px',
-            font_size: '12.5px',
-            background: 'var(--fnx-bg)',
-            border: '1px solid var(--fnx-border)',
-            custom_css: ''
-        }},
-        search_modal: {{
-            width: '580px',
-            top_offset: '66px',
-            border_radius: '12px',
-            input_font_size: '14.5px',
-            backdrop_color: 'rgba(0, 0, 0, 0.56)',
-            background: 'var(--fnx-panel)',
-            border: '1px solid var(--fnx-border-hover)',
-            custom_css: ''
-        }},
-        mobile_bar: {{
-            visible: true,
-            position: 'bottom',
-            height: '54px',
-            padding_x: '8px',
-            background: 'var(--fnx-panel)',
-            border: '1px solid var(--fnx-border)',
-            pill_height: '38px',
-            pill_radius: '11px',
-            button_size: '38px',
-            auto_hide_on_keyboard: true,
-            custom_css: ''
-        }},
-        tab_drawer: {{
-            max_height: '80vh',
-            border_radius: '16px',
-            card_radius: '10px',
-            card_padding: '11px 13px',
-            custom_css: ''
-        }},
-        settings_page: {{
-            full_width: true,
-            sidebar_width: '244px',
-            content_padding: '32px 40px',
-            card_radius: '10px',
-            custom_css: ''
-        }},
-        newtab: {{
-            title: 'Fynexo',
-            subtitle: 'Single-WebView studio browser · Zero-FX compositing',
-            show_clock: true,
-            use_24h_clock: true,
-            show_shortcuts: true,
-            shortcuts_columns: 0,
-            show_history: true,
-            custom_css: ''
-        }}
-    }};
+{defaults_script}
 
     function mergeStyles(raw) {{
         const s = raw || {{}};
@@ -593,14 +198,14 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
     }}
 
     function extractMonogram(rawUrl, title) {{
-        if (isInternalNewtab(rawUrl)) return '✦';
-        if (!rawUrl || isInternalSettings(rawUrl)) return '⚙';
+        if (isInternalNewtab(rawUrl)) return 'âœ¦';
+        if (!rawUrl || isInternalSettings(rawUrl)) return 'âš™';
         try {{
             const host = new URL(rawUrl).hostname.replace(/^(www|m)\./, '');
             if (host) return host.charAt(0).toUpperCase();
         }} catch (_) {{}}
         const clean = (title || '').trim();
-        return clean ? clean.charAt(0).toUpperCase() : '•';
+        return clean ? clean.charAt(0).toUpperCase() : 'â€¢';
     }}
 
     function monogramAccentColor(rawUrl) {{
@@ -1313,7 +918,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
         if (items.length === 0) {{
             const emptyHint = document.createElement('span');
             emptyHint.style.cssText = 'font-size: 11.5px; color: var(--fnx-muted); padding: 0 6px;';
-            emptyHint.textContent = 'No shortcuts saved — click ★ in the address bar to pin sites here';
+            emptyHint.textContent = 'No shortcuts saved â€” click â˜… in the address bar to pin sites here';
             frag.appendChild(emptyHint);
         }} else {{
             items.forEach((b) => {{
@@ -1322,7 +927,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
                 pill.type = 'button';
                 pill.className = 'fnx-bm-pill';
                 const label = b.title || formatHostLabel(b.url);
-                pill.title = `${{label}}\n${{b.url}} (Middle-click for new tab · Right-click to remove)`;
+                pill.title = `${{label}}\n${{b.url}} (Middle-click for new tab Â· Right-click to remove)`;
 
                 const iconBadge = document.createElement('span');
                 iconBadge.className = 'fnx-bm-icon';
@@ -1450,7 +1055,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
                 bmAddBtn.textContent = 'Manage';
                 bmAddBtn.title = 'Manage shortcuts in Studio Preferences';
             }} else {{
-                bmAddBtn.textContent = starred ? '★ Saved' : '+ Save page';
+                bmAddBtn.textContent = starred ? 'â˜… Saved' : '+ Save page';
                 bmAddBtn.title = starred ? 'Remove current page from shortcuts' : 'Pin current page to shortcuts bar';
             }}
         }}
@@ -1502,7 +1107,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
                 if (schemeEl) schemeEl.textContent = 'fynexo://';
                 domEl.textContent = 'settings';
                 domEl.style.color = 'var(--fnx-fg)';
-                pathEl.textContent = ' · Studio Preferences';
+                pathEl.textContent = ' Â· Studio Preferences';
                 pathEl.style.color = 'var(--fnx-muted)';
             }} else {{
                 try {{
@@ -1832,7 +1437,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
 
         const mins = Math.max(1, Math.round(charCount / 900));
         if (metaSpan) {{
-            metaSpan.textContent = `${{formatHostLabel(window.location.href)}} · ~${{mins}} min read`;
+            metaSpan.textContent = `${{formatHostLabel(window.location.href)}} Â· ~${{mins}} min read`;
         }}
 
         readerSavedScroll = window.scrollY || window.pageYOffset || 0;
@@ -1859,7 +1464,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
         if (reopenBtn) {{
             const cc = Number(tabState.closed_count) || 0;
             reopenBtn.style.display = cc > 0 ? 'inline-flex' : 'none';
-            reopenBtn.textContent = cc > 1 ? `↺ Reopen (${{cc}})` : '↺ Reopen';
+            reopenBtn.textContent = cc > 1 ? `â†º Reopen (${{cc}})` : 'â†º Reopen';
         }}
 
         const sig = computeTabsSig();
@@ -1888,7 +1493,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             const t = document.createElement('div');
             t.className = 'fnx-drawer-title';
             const cleanTitle = isSet ? 'Preferences' : (isNt ? 'Start page' : (tab.title || 'New tab'));
-            t.textContent = tab.pinned ? `📌 ${{cleanTitle}}` : cleanTitle;
+            t.textContent = tab.pinned ? `ðŸ“Œ ${{cleanTitle}}` : cleanTitle;
 
             const u = document.createElement('div');
             u.className = 'fnx-drawer-url';
@@ -2297,7 +1902,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
                     pushCandidate({{
                         kind: 'bang',
                         trigger: trig,
-                        title: `${{trig}} — Search ${{b.name || trig}}`,
+                        title: `${{trig}} â€” Search ${{b.name || trig}}`,
                         url: b.url || '',
                         badge: '!Bang'
                     }});
@@ -2445,7 +2050,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
         }}));
 
         if ((Number(tabState.closed_count) || 0) > 0) {{
-            leftGroup.appendChild(makeChip('↺ Reopen', false, () => {{
+            leftGroup.appendChild(makeChip('â†º Reopen', false, () => {{
                 if (closeFn) closeFn();
                 triggerProgress();
                 sendIpc({{ type: 'REOPEN_CLOSED_TAB' }});
@@ -2487,7 +2092,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
         rightGroup.className = 'fnx-quick-actions';
 
         const zoomPct = Math.round((Number(config.default_zoom) || 1) * 100);
-        rightGroup.appendChild(makeChip('−', false, () => {{
+        rightGroup.appendChild(makeChip('âˆ’', false, () => {{
             sendIpc({{ type: 'SET_ZOOM', delta: -0.1 }});
         }}));
         rightGroup.appendChild(makeChip(`${{zoomPct}}%`, zoomPct !== 100, () => {{
@@ -2953,1136 +2558,9 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             shadowRoot = host.attachShadow({{ mode: 'open' }});
 
             const baseStyle = document.createElement('style');
-            baseStyle.textContent = `
-                *, *::before, *::after {{
-                    box-sizing: border-box !important;
-                    margin: 0;
-                    padding: 0;
-                    font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                    -webkit-font-smoothing: antialiased;
-                    font-variant-numeric: tabular-nums;
-                    -webkit-tap-highlight-color: transparent;
-                    box-shadow: none !important;
-                    text-shadow: none !important;
-                    backdrop-filter: none !important;
-                }}
-                button, input {{
-                    font-family: inherit;
-                    touch-action: manipulation;
-                }}
-                #__fynexo_tabs_container__::-webkit-scrollbar {{ display: none; }}
-                #__fynexo_mobile_drawer__, #__fynexo_drawer_list__, #__fynexo_reader__ {{
-                    overscroll-behavior: contain;
-                    -webkit-overflow-scrolling: touch;
-                }}
 
-                #__fynexo_progress__ {{
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    height: 2px;
-                    width: 0%;
-                    background: var(--fnx-accent);
-                    opacity: 0;
-                    z-index: 2147483647;
-                    pointer-events: none;
-                    will-change: width, opacity;
-                }}
+            baseStyle.textContent = {base_styles_css};
 
-                #__fynexo_topbar__ {{
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    display: flex;
-                    flex-direction: column;
-                    z-index: 2147483646;
-                    user-select: none;
-                }}
-
-                #__fynexo_tab_row__ {{
-                    width: 100%;
-                    display: flex;
-                    align-items: flex-end;
-                    justify-content: space-between;
-                    position: relative;
-                }}
-
-                #__fynexo_tabs_deck_cluster__ {{
-                    display: flex;
-                    align-items: flex-end;
-                    flex: 1;
-                    min-width: 0;
-                    height: 100%;
-                }}
-
-                #__fynexo_nav_row__ {{
-                    width: 100%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: 6px;
-                    position: relative;
-                }}
-
-                #__fynexo_bm_row__ {{
-                    width: 100%;
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                }}
-
-                #__fynexo_bm_list__ {{
-                    display: flex;
-                    align-items: center;
-                    gap: 2px;
-                    flex: 1;
-                    min-width: 0;
-                    overflow-x: auto;
-                    scrollbar-width: none;
-                }}
-                #__fynexo_bm_list__::-webkit-scrollbar {{ display: none; }}
-
-                .fnx-bm-pill {{
-                    height: 22px;
-                    padding: 0 7px;
-                    border-radius: 5px;
-                    border: 1px solid transparent;
-                    background: transparent;
-                    color: var(--fnx-secondary);
-                    font-size: 11.5px;
-                    font-weight: 450;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 5px;
-                    cursor: pointer;
-                    white-space: nowrap;
-                    flex-shrink: 0;
-                    max-width: 168px;
-                    transition: background 0.1s ease, color 0.1s ease;
-                }}
-                .fnx-bm-pill:hover {{
-                    background: var(--fnx-hover);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-bm-icon {{
-                    width: 14px;
-                    height: 14px;
-                    border-radius: 3.5px;
-                    background: rgba(128, 128, 128, 0.14);
-                    font-size: 9px;
-                    font-weight: 700;
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    flex-shrink: 0;
-                }}
-                .fnx-bm-label {{
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }}
-
-                .fnx-icon-btn {{
-                    background: transparent;
-                    border: 1px solid transparent;
-                    color: var(--fnx-secondary);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    outline: none;
-                    flex-shrink: 0;
-                    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
-                }}
-                .fnx-icon-btn:hover {{
-                    background: var(--fnx-hover);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-icon-btn:active {{
-                    transform: scale(0.94);
-                }}
-                .fnx-icon-btn.active-route {{
-                    background: var(--fnx-accent-bg);
-                    border-color: var(--fnx-accent);
-                    color: var(--fnx-fg);
-                }}
-
-                .fnx-studio-pill {{
-                    height: 26px;
-                    padding: 0 9px;
-                    border-radius: 8px;
-                    background: var(--fnx-surface);
-                    border: 1px solid var(--fnx-border);
-                    color: var(--fnx-secondary);
-                    font-size: 11.5px;
-                    font-weight: 500;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 5px;
-                    cursor: pointer;
-                    flex-shrink: 0;
-                    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-                }}
-                .fnx-studio-pill:hover {{
-                    background: var(--fnx-hover);
-                    border-color: var(--fnx-border-hover);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-studio-pill.active-route {{
-                    background: var(--fnx-accent-bg);
-                    border-color: var(--fnx-accent);
-                    color: var(--fnx-fg);
-                }}
-
-                .fnx-incog-pill {{
-                    display: none;
-                    align-items: center;
-                    height: 24px;
-                    padding: 0 8px;
-                    margin-right: 2px;
-                    border-radius: 6px;
-                    background: var(--fnx-accent-bg);
-                    border: 1px solid var(--fnx-accent);
-                    color: var(--fnx-fg);
-                    font-size: 11px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    flex-shrink: 0;
-                }}
-
-                .fnx-tab-item {{
-                    position: relative;
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                    padding: 0 6px 6px 6px;
-                    font-weight: 450;
-                    cursor: pointer;
-                    border: 1px solid transparent;
-                    color: var(--fnx-secondary);
-                    white-space: nowrap;
-                    user-select: none;
-                    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-                }}
-                .fnx-tab-item.active {{
-                    font-weight: 500;
-                    background: var(--fnx-tab-active);
-                    border-color: var(--fnx-border);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-tab-item:not(.active)::after {{
-                    content: "";
-                    position: absolute;
-                    right: 0;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    width: 1px;
-                    height: 14px;
-                    background: var(--fnx-border);
-                    pointer-events: none;
-                }}
-                .fnx-tab-item:not(.active):hover::after,
-                .fnx-tab-item:has(+ .fnx-tab-item.active)::after,
-                .fnx-tab-item:has(+ .fnx-tab-item:hover)::after {{
-                    opacity: 0;
-                }}
-                .fnx-tab-item:not(.active):hover {{
-                    background: rgba(128, 128, 128, 0.12);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-tab-monogram {{
-                    width: 20px;
-                    height: 20px;
-                    font-size: 20px;
-                    font-weight: 700;
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    flex-shrink: 0;
-                    line-height: 1;
-                }}
-                .fnx-tab-title {{
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                    flex: 1;
-                    pointer-events: none;
-                    letter-spacing: -0.01em;
-                }}
-                .fnx-tab-close {{
-                    width: 16px;
-                    height: 16px;
-                    border: none;
-                    background: transparent;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    color: var(--fnx-secondary);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    flex-shrink: 0;
-                    opacity: 0.7;
-                    transition: background 0.1s ease, color 0.1s ease, opacity 0.1s ease;
-                }}
-                .fnx-tab-close:hover {{
-                    opacity: 1 !important;
-                    color: var(--fnx-fg);
-                    background: var(--fnx-hover);
-                }}
-
-                #__fynexo_addr_slot__ {{
-                    position: relative;
-                    display: flex;
-                    align-items: center;
-                    margin: 0 2px;
-                    min-width: 160px;
-                    padding: 0 3px 0 0;
-                    transition: border-color 0.12s ease, background 0.12s ease;
-                }}
-                #__fynexo_addr_slot__:hover:not(.editing) {{
-                    border-color: var(--fnx-border-hover);
-                }}
-
-                #__fynexo_address_btn__ {{
-                    background: transparent;
-                    border: none;
-                    color: var(--fnx-fg);
-                    padding: 0 6px 0 10px;
-                    cursor: text;
-                    outline: none;
-                    display: flex;
-                    align-items: center;
-                    gap: 7px;
-                    flex: 1;
-                    min-width: 0;
-                }}
-                #__fynexo_cmd_label__ {{
-                    display: flex;
-                    align-items: baseline;
-                    overflow: hidden;
-                    white-space: nowrap;
-                    flex: 1;
-                    min-width: 0;
-                    text-align: left;
-                    letter-spacing: -0.01em;
-                }}
-                #__fynexo_addr_scheme__ {{
-                    color: var(--fnx-muted);
-                    font-weight: 400;
-                    flex-shrink: 0;
-                }}
-                #__fynexo_addr_domain__ {{
-                    font-weight: 500;
-                    color: var(--fnx-fg);
-                    flex-shrink: 0;
-                }}
-                #__fynexo_addr_path__ {{
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                    color: var(--fnx-muted);
-                    font-weight: 400;
-                    min-width: 0;
-                }}
-                #__fynexo_addr_actions__ {{
-                    display: flex;
-                    align-items: center;
-                    gap: 2px;
-                    flex-shrink: 0;
-                    padding-right: 2px;
-                }}
-                #__fynexo_addr_slot__.editing .fnx-addr-hint {{
-                    display: none;
-                }}
-                .fnx-addr-action-btn {{
-                    width: 22px;
-                    height: 22px;
-                    border-radius: 5px;
-                    border: 1px solid transparent;
-                    background: transparent;
-                    color: var(--fnx-muted);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    flex-shrink: 0;
-                    transition: background 0.1s ease, color 0.1s ease;
-                }}
-                .fnx-addr-action-btn:hover {{
-                    background: var(--fnx-hover);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-addr-action-btn.active-route {{
-                    color: var(--fnx-accent);
-                    background: var(--fnx-accent-bg);
-                }}
-                .fnx-addr-hint {{
-                    font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-                    font-size: 9.5px;
-                    color: var(--fnx-muted);
-                    background: rgba(128, 128, 128, 0.1);
-                    border: 1px solid var(--fnx-border);
-                    padding: 1px 5px;
-                    border-radius: 4px;
-                    margin-right: 2px;
-                    flex-shrink: 0;
-                }}
-
-                /* Active Inline <input> Mode (Mounted ONLY while focused/clicked) */
-                #__fynexo_inline_box__ {{
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    padding: 0 4px 0 6px;
-                    flex: 1;
-                    min-width: 0;
-                    background: transparent;
-                    border: none;
-                }}
-                #__fynexo_inline_engine__ {{
-                    height: 20px;
-                    padding: 0 7px;
-                    border-radius: 5px;
-                    border: 1px solid var(--fnx-border-hover);
-                    background: var(--fnx-surface);
-                    color: var(--fnx-fg);
-                    font-size: 11px;
-                    font-weight: 500;
-                    cursor: pointer;
-                    white-space: nowrap;
-                    flex-shrink: 0;
-                }}
-                #__fynexo_inline_engine__:hover {{
-                    border-color: var(--fnx-accent);
-                    background: var(--fnx-accent-bg);
-                }}
-                #__fynexo_inline_input__ {{
-                    flex: 1;
-                    min-width: 0;
-                    height: 100%;
-                    background: transparent;
-                    border: none;
-                    outline: none;
-                    color: var(--fnx-fg);
-                    font-size: inherit;
-                    letter-spacing: -0.01em;
-                    user-select: auto;
-                }}
-                #__fynexo_inline_input__::placeholder {{
-                    color: var(--fnx-muted);
-                }}
-                .fnx-inline-clear {{
-                    width: 20px;
-                    height: 20px;
-                    border: none;
-                    background: transparent;
-                    color: var(--fnx-secondary);
-                    display: none;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    flex-shrink: 0;
-                    border-radius: 4px;
-                }}
-                .fnx-inline-clear:hover {{
-                    background: var(--fnx-hover);
-                    color: var(--fnx-fg);
-                }}
-                #__fynexo_inline_dropdown__ {{
-                    position: fixed;
-                    background: var(--fnx-panel);
-                    border: 1px solid var(--fnx-border-hover);
-                    border-radius: 10px;
-                    overflow: hidden;
-                    display: flex;
-                    flex-direction: column;
-                    z-index: 2147483647;
-                }}
-
-                #__fynexo_tab_context_menu__ {{
-                    position: fixed !important;
-                    z-index: 2147483647 !important;
-                    min-width: 195px;
-                    padding: 5px;
-                    background: var(--fnx-panel);
-                    border: 1px solid var(--fnx-border);
-                    border-radius: 9px;
-                    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.72) !important;
-                    font-size: 12.5px;
-                    user-select: none;
-                    display: none;
-                    flex-direction: column;
-                    gap: 2px;
-                }}
-
-                #__fynexo_btn_bm_toggle__ {{
-                    width: 30px;
-                    height: 30px;
-                    margin: 5px;
-                    border-radius: 8px;
-                    align-self: flex-end;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: var(--fnx-surface);
-                    color: var(--fnx-secondary);
-                    flex-shrink: 0;
-                    cursor: pointer;
-                    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
-                }}
-                #__fynexo_btn_bm_toggle__:hover {{
-                    background: var(--fnx-hover);
-                    border-color: var(--fnx-border-hover);
-                    color: var(--fnx-fg);
-                }}
-                #__fynexo_btn_bm_toggle__:active {{
-                    transform: scale(0.94);
-                }}
-
-                .fnx-nav-popover {{
-                    position: fixed !important;
-                    z-index: 2147483647 !important;
-                    background: var(--fnx-panel);
-                    border: 1px solid var(--fnx-border);
-                    border-radius: 12px;
-                    box-shadow: 0 16px 42px rgba(0, 0, 0, 0.72) !important;
-                    font-size: 13px;
-                    user-select: none;
-                    display: none;
-                    flex-direction: column;
-                    padding: 8px;
-                    color: var(--fnx-fg);
-                    animation: fnxPopoverIn 0.12s cubic-bezier(0.16, 1, 0.3, 1);
-                }}
-                @keyframes fnxPopoverIn {{
-                    from {{ opacity: 0; transform: translateY(-4px) scale(0.98); }}
-                    to {{ opacity: 1; transform: translateY(0) scale(1); }}
-                }}
-                .fnx-menu-item {{
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    padding: 7px 10px;
-                    border-radius: 8px;
-                    color: var(--fnx-fg);
-                    cursor: pointer;
-                    transition: background 0.08s ease;
-                    gap: 12px;
-                    font-size: 12.5px;
-                }}
-                .fnx-menu-item:hover {{
-                    background: var(--fnx-hover);
-                }}
-                .fnx-menu-sep {{
-                    height: 1px;
-                    background: var(--fnx-border);
-                    margin: 4px 6px;
-                }}
-                .fnx-btn-badge {{
-                    position: absolute;
-                    top: 1px;
-                    right: 1px;
-                    min-width: 14px;
-                    height: 14px;
-                    padding: 0 3px;
-                    border-radius: 8px;
-                    background: var(--fnx-accent);
-                    color: #fff;
-                    font-size: 9px;
-                    font-weight: 700;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    line-height: 1;
-                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-                    pointer-events: none;
-                }}
-                .fnx-pulse-dot {{
-                    width: 6px;
-                    height: 6px;
-                    border-radius: 50%;
-                    background: #34d399;
-                    box-shadow: 0 0 6px #34d399;
-                    display: inline-block;
-                    pointer-events: none;
-                }}
-                .fnx-chip {{
-                    font-size: 11.5px;
-                    padding: 3px 8px;
-                    border-radius: 6px;
-                    background: var(--fnx-surface);
-                    border: 1px solid var(--fnx-border);
-                    color: var(--fnx-secondary);
-                    cursor: pointer;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 4px;
-                    transition: all 0.1s ease;
-                }}
-                .fnx-chip:hover {{
-                    background: var(--fnx-hover);
-                    color: var(--fnx-fg);
-                    border-color: var(--fnx-border-hover);
-                }}
-                .fnx-chip.active {{
-                    background: var(--fnx-accent-bg);
-                    color: var(--fnx-fg);
-                    border-color: var(--fnx-accent);
-                }}
-
-                #__fynexo_win_controls__ {{
-                    display: flex;
-                    align-items: center;
-                    height: 40px;
-                    flex-shrink: 0;
-                }}
-                .fnx-win-btn {{
-                    background: transparent;
-                    border: none;
-                    color: var(--fnx-secondary);
-                    width: 38px;
-                    height: 100%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    outline: none;
-                    transition: background 0.1s ease, color 0.1s ease;
-                }}
-                .fnx-win-btn:hover {{
-                    background: var(--fnx-hover);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-win-btn.close:hover {{
-                    background: #e11d48;
-                    color: #ffffff;
-                }}
-
-                /* Find in Page Floating Bar */
-                #__fynexo_find_bar__ {{
-                    position: fixed;
-                    top: calc(var(--fnx-topbar-live, 38px) + 8px);
-                    right: 14px;
-                    height: 36px;
-                    padding: 0 6px 0 10px;
-                    background: var(--fnx-panel);
-                    border: 1px solid var(--fnx-border-hover);
-                    border-radius: 9px;
-                    display: none;
-                    align-items: center;
-                    gap: 6px;
-                    z-index: 2147483647;
-                }}
-                #__fynexo_find_input__ {{
-                    width: 175px;
-                    height: 28px;
-                    background: transparent;
-                    border: none;
-                    outline: none;
-                    color: var(--fnx-fg);
-                    font-size: 12.5px;
-                }}
-                #__fynexo_find_count__ {{
-                    font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-                    font-size: 11px;
-                    color: var(--fnx-muted);
-                    padding: 0 4px;
-                    white-space: nowrap;
-                }}
-                .fnx-find-btn {{
-                    width: 26px;
-                    height: 26px;
-                    border: 1px solid transparent;
-                    border-radius: 6px;
-                    background: transparent;
-                    color: var(--fnx-secondary);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                }}
-                .fnx-find-btn:hover {{
-                    background: var(--fnx-hover);
-                    color: var(--fnx-fg);
-                }}
-
-                /* Pure-DOM Reader Mode Overlay */
-                #__fynexo_reader__ {{
-                    position: fixed;
-                    top: var(--fnx-topbar-live, 38px);
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background: var(--fnx-bg);
-                    color: var(--fnx-fg);
-                    display: none;
-                    flex-direction: column;
-                    align-items: center;
-                    overflow-y: auto;
-                    z-index: 2147483645;
-                }}
-                .fnx-rd-toolbar {{
-                    position: sticky;
-                    top: 0;
-                    width: 100%;
-                    background: var(--fnx-panel);
-                    border-bottom: 1px solid var(--fnx-border);
-                    padding: 9px 18px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: 12px;
-                    z-index: 2;
-                    flex-shrink: 0;
-                }}
-                .fnx-rd-meta {{
-                    font-size: 12px;
-                    font-weight: 500;
-                    color: var(--fnx-secondary);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }}
-                .fnx-rd-controls {{
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    flex-shrink: 0;
-                }}
-                .fnx-rd-btn {{
-                    height: 28px;
-                    padding: 0 10px;
-                    border-radius: 6px;
-                    border: 1px solid var(--fnx-border);
-                    background: var(--fnx-surface);
-                    color: var(--fnx-fg);
-                    font-size: 12px;
-                    font-weight: 500;
-                    cursor: pointer;
-                }}
-                .fnx-rd-btn:hover {{
-                    border-color: var(--fnx-border-hover);
-                    background: var(--fnx-elevated);
-                }}
-                #__fynexo_reader_article__ {{
-                    width: 100%;
-                    max-width: 680px;
-                    padding: 36px 24px 96px;
-                    line-height: 1.78;
-                    color: var(--fnx-fg);
-                    user-select: text;
-                }}
-                .fnx-rd-h1 {{ font-size: 1.65em; font-weight: 700; line-height: 1.28; margin: 0 0 0.75em; letter-spacing: -0.025em; }}
-                .fnx-rd-h2 {{ font-size: 1.32em; font-weight: 650; line-height: 1.35; margin: 1.5em 0 0.55em; letter-spacing: -0.015em; }}
-                .fnx-rd-h3, .fnx-rd-h4 {{ font-size: 1.12em; font-weight: 600; margin: 1.25em 0 0.45em; }}
-                .fnx-rd-p {{ margin: 0 0 1.08em; color: var(--fnx-fg); }}
-                .fnx-rd-blockquote {{
-                    margin: 1.1em 0;
-                    padding: 8px 16px;
-                    border-left: 3px solid var(--fnx-accent);
-                    background: var(--fnx-panel);
-                    color: var(--fnx-secondary);
-                    border-radius: 0 6px 6px 0;
-                }}
-                .fnx-rd-pre {{
-                    margin: 1.1em 0;
-                    padding: 13px 15px;
-                    background: var(--fnx-panel);
-                    border: 1px solid var(--fnx-border);
-                    border-radius: 8px;
-                    overflow-x: auto;
-                    font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-                    font-size: 0.84em;
-                    line-height: 1.55;
-                }}
-                .fnx-rd-list {{
-                    margin: 0 0 1.1em 1.35em;
-                }}
-                .fnx-rd-list li {{
-                    margin-bottom: 0.4em;
-                }}
-                .fnx-rd-img {{
-                    display: block;
-                    max-width: 100%;
-                    height: auto;
-                    margin: 1.2em auto;
-                    border-radius: 8px;
-                    border: 1px solid var(--fnx-border);
-                }}
-
-                /* Studio Mobile Bottom Dock */
-                #__fynexo_bottom_bar__ {{
-                    position: fixed;
-                    left: 0;
-                    right: 0;
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    z-index: 2147483646;
-                    user-select: none;
-                }}
-                .fnx-mb-btn {{
-                    border: 1px solid transparent;
-                    background: transparent;
-                    color: var(--fnx-secondary);
-                    border-radius: 10px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    outline: none;
-                    flex-shrink: 0;
-                    transition: transform 0.08s ease, background 0.12s ease;
-                }}
-                .fnx-mb-btn:active {{
-                    transform: scale(0.92);
-                    background: var(--fnx-hover);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-mb-btn.active-route {{
-                    background: var(--fnx-accent-bg);
-                    border-color: var(--fnx-accent);
-                    color: var(--fnx-fg);
-                }}
-                #__fynexo_mb_pill__ {{
-                    flex: 1;
-                    min-width: 0;
-                    background: var(--fnx-surface);
-                    border: 1px solid var(--fnx-border);
-                    display: flex;
-                    align-items: center;
-                    padding: 0 4px 0 11px;
-                    gap: 6px;
-                }}
-                #__fynexo_mb_pill_trigger__ {{
-                    flex: 1;
-                    min-width: 0;
-                    height: 100%;
-                    border: none;
-                    background: transparent;
-                    color: var(--fnx-fg);
-                    display: flex;
-                    align-items: center;
-                    gap: 7px;
-                    cursor: pointer;
-                    outline: none;
-                    text-align: left;
-                }}
-                #__fynexo_mb_label__ {{
-                    font-size: 13px;
-                    font-weight: 450;
-                    letter-spacing: -0.01em;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                    flex: 1;
-                }}
-                #__fynexo_mb_reload__ {{
-                    width: 30px;
-                    height: 30px;
-                    border: none;
-                    background: transparent;
-                    color: var(--fnx-muted);
-                    border-radius: 8px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    flex-shrink: 0;
-                }}
-                #__fynexo_mb_reload__:active {{
-                    transform: scale(0.9);
-                    background: var(--fnx-hover);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-tab-badge {{
-                    border: 1.5px solid var(--fnx-secondary);
-                    border-radius: 6px;
-                    min-width: 21px;
-                    height: 21px;
-                    padding: 0 4px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: var(--fnx-fg);
-                }}
-
-                /* Ergonomic Thumb-First Mobile Tab Sheet */
-                #__fynexo_mobile_drawer__ {{
-                    position: fixed;
-                    inset: 0;
-                    background: rgba(0, 0, 0, 0.66);
-                    z-index: 2147483647;
-                    display: none;
-                    flex-direction: column;
-                    justify-content: flex-end;
-                }}
-                #__fynexo_drawer_sheet__ {{
-                    background: var(--fnx-panel);
-                    border-top: 1px solid var(--fnx-border-hover);
-                    display: flex;
-                    flex-direction: column;
-                    padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
-                }}
-                .fnx-sheet-handle {{
-                    width: 36px;
-                    height: 4px;
-                    border-radius: 2px;
-                    background: var(--fnx-border-hover);
-                    margin: 0 auto 10px;
-                    flex-shrink: 0;
-                }}
-                .fnx-drawer-card {{
-                    display: flex;
-                    align-items: center;
-                    gap: 9px;
-                    margin-bottom: 8px;
-                    background: var(--fnx-surface);
-                    border: 1px solid var(--fnx-border);
-                    cursor: pointer;
-                    user-select: none;
-                }}
-                .fnx-drawer-card.active {{
-                    background: var(--fnx-accent-bg);
-                    border-color: var(--fnx-accent);
-                }}
-                .fnx-drawer-monogram {{
-                    width: 32px;
-                    height: 32px;
-                    border-radius: 8px;
-                    background: var(--fnx-bg);
-                    border: 1px solid var(--fnx-border);
-                    color: var(--fnx-secondary);
-                    font-size: 13px;
-                    font-weight: 600;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    flex-shrink: 0;
-                }}
-                .fnx-drawer-card.active .fnx-drawer-monogram {{
-                    border-color: var(--fnx-accent);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-drawer-meta {{
-                    overflow: hidden;
-                    flex: 1;
-                    min-width: 0;
-                }}
-                .fnx-drawer-title {{
-                    font-size: 13.5px;
-                    font-weight: 500;
-                    color: var(--fnx-fg);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }}
-                .fnx-drawer-url {{
-                    font-size: 11.5px;
-                    color: var(--fnx-muted);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                    margin-top: 1px;
-                }}
-                .fnx-drawer-close {{
-                    width: 30px;
-                    height: 30px;
-                    border: 1px solid var(--fnx-border);
-                    background: var(--fnx-panel);
-                    color: var(--fnx-muted);
-                    border-radius: 8px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    flex-shrink: 0;
-                }}
-                .fnx-sheet-bottom-bar {{
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    padding-top: 12px;
-                    margin-top: 4px;
-                    border-top: 1px solid var(--fnx-border);
-                }}
-
-                /* Spotlight Omnibox Modal */
-                #__fynexo_hud_root__ {{
-                    position: fixed;
-                    inset: 0;
-                    display: none;
-                    flex-direction: column;
-                    align-items: center;
-                    z-index: 2147483647;
-                }}
-                #__fynexo_hud_card__ {{
-                    overflow: hidden;
-                    display: flex;
-                    flex-direction: column;
-                }}
-                #__fynexo_hud_suggest__,
-                #__fynexo_inline_suggest__ {{
-                    display: none;
-                    flex-direction: column;
-                    background: var(--fnx-panel);
-                    max-height: 272px;
-                    overflow-y: auto;
-                }}
-                #__fynexo_hud_suggest__ {{
-                    border-top: 1px solid var(--fnx-border);
-                }}
-                #__fynexo_inline_suggest__ {{
-                    border-bottom: 1px solid var(--fnx-border);
-                }}
-                .fnx-suggest-row {{
-                    width: 100%;
-                    border: none;
-                    border-bottom: 1px solid var(--fnx-border);
-                    background: transparent;
-                    color: var(--fnx-fg);
-                    padding: 8px 11px;
-                    display: flex;
-                    align-items: center;
-                    gap: 9px;
-                    cursor: pointer;
-                    text-align: left;
-                    outline: none;
-                    transition: background 0.1s ease;
-                }}
-                .fnx-suggest-row:last-child {{
-                    border-bottom: none;
-                }}
-                .fnx-suggest-row:hover,
-                .fnx-suggest-row.selected {{
-                    background: var(--fnx-hover);
-                }}
-                .fnx-suggest-icon {{
-                    width: 24px;
-                    height: 24px;
-                    border-radius: 6px;
-                    background: var(--fnx-surface);
-                    border: 1px solid var(--fnx-border);
-                    color: var(--fnx-muted);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    flex-shrink: 0;
-                }}
-                .fnx-suggest-main {{
-                    display: flex;
-                    flex-direction: column;
-                    min-width: 0;
-                    flex: 1;
-                }}
-                .fnx-suggest-title {{
-                    font-size: 12.5px;
-                    font-weight: 500;
-                    color: var(--fnx-fg);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }}
-                .fnx-suggest-url {{
-                    font-size: 11px;
-                    color: var(--fnx-muted);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }}
-                .fnx-suggest-badge {{
-                    font-size: 10px;
-                    font-weight: 600;
-                    color: var(--fnx-secondary);
-                    background: var(--fnx-surface);
-                    border: 1px solid var(--fnx-border);
-                    border-radius: 5px;
-                    padding: 2px 6px;
-                    flex-shrink: 0;
-                }}
-                #__fynexo_hud_quick__,
-                #__fynexo_inline_quick__ {{
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: 8px;
-                    padding: 7px 11px;
-                    background: var(--fnx-bg);
-                }}
-                #__fynexo_hud_quick__ {{
-                    border-top: 1px solid var(--fnx-border);
-                }}
-                .fnx-quick-tabs, .fnx-quick-actions {{
-                    display: flex;
-                    align-items: center;
-                    gap: 5px;
-                    overflow-x: auto;
-                    scrollbar-width: none;
-                }}
-                .fnx-quick-tabs::-webkit-scrollbar, .fnx-quick-actions::-webkit-scrollbar {{ display: none; }}
-                .fnx-quick-chip {{
-                    padding: 3px 8px;
-                    font-size: 11px;
-                    font-weight: 500;
-                    color: var(--fnx-secondary);
-                    background: var(--fnx-surface);
-                    border: 1px solid var(--fnx-border);
-                    border-radius: 6px;
-                    cursor: pointer;
-                    white-space: nowrap;
-                    flex-shrink: 0;
-                }}
-                .fnx-quick-chip:hover {{
-                    border-color: var(--fnx-border-hover);
-                    color: var(--fnx-fg);
-                }}
-                .fnx-quick-chip.active {{
-                    border-color: var(--fnx-accent);
-                    background: var(--fnx-accent-bg);
-                    color: var(--fnx-fg);
-                }}
-                #__fynexo_hud_toast__ {{
-                    position: fixed;
-                    bottom: 22px;
-                    right: 18px;
-                    background: var(--fnx-elevated);
-                    border: 1px solid var(--fnx-accent);
-                    color: var(--fnx-fg);
-                    font-size: 12px;
-                    font-weight: 500;
-                    padding: 7px 12px;
-                    border-radius: 8px;
-                    display: none;
-                    align-items: center;
-                    gap: 7px;
-                    z-index: 2147483647;
-                    pointer-events: none;
-                }}
-                @media (max-width: 768px) {{
-                    #__fynexo_find_bar__ {{
-                        top: 10px;
-                        left: 10px;
-                        right: 10px;
-                    }}
-                    #__fynexo_find_input__ {{
-                        flex: 1;
-                        width: auto;
-                    }}
-                    #__fynexo_reader__ {{
-                        top: 0;
-                        padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
-                    }}
-                    #__fynexo_hud_toast__ {{
-                        left: 14px;
-                        right: 14px;
-                        bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-                        justify-content: center;
-                    }}
-                }}
-            `;
             shadowRoot.appendChild(baseStyle);
 
             const shell = document.createElement('div');
@@ -4333,7 +2811,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             incogBadge.type = 'button';
             incogBadge.id = '__fynexo_incog_badge__';
             incogBadge.className = 'fnx-incog-pill';
-            incogBadge.title = 'Private mode active — click to exit Private mode';
+            incogBadge.title = 'Private mode active â€” click to exit Private mode';
             incogBadge.textContent = 'Private';
             incogBadge.style.display = config.incognito ? 'inline-flex' : 'none';
             incogBadge.onclick = () => {{
@@ -4692,7 +3170,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             const mediaHeaderLeft = document.createElement('div');
             mediaHeaderLeft.style.cssText = 'display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px;';
             const mediaIconSpan = document.createElement('span');
-            mediaIconSpan.textContent = '🎵';
+            mediaIconSpan.textContent = 'ðŸŽµ';
             const mediaHeaderTxt = document.createElement('span');
             mediaHeaderTxt.textContent = 'Media Control';
             mediaHeaderLeft.appendChild(mediaIconSpan);
@@ -4783,9 +3261,9 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             const volPresets = [
                 {{ val: 50, label: '50%' }},
                 {{ val: 100, label: '100%' }},
-                {{ val: 150, label: '150% 🔥' }},
-                {{ val: 200, label: '200% 🔥' }},
-                {{ val: 300, label: '300% ⚡' }}
+                {{ val: 150, label: '150% ðŸ”¥' }},
+                {{ val: 200, label: '200% ðŸ”¥' }},
+                {{ val: 300, label: '300% âš¡' }}
             ];
             volPresets.forEach(p => {{
                 const chip = document.createElement('button');
@@ -4821,7 +3299,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
                     volPercentLabel.textContent = 'Muted';
                     volPercentLabel.style.color = 'var(--fnx-muted)';
                 }} else if (mediaGainValue > 100) {{
-                    volPercentLabel.textContent = mediaGainValue + '% 🔥';
+                    volPercentLabel.textContent = mediaGainValue + '% ðŸ”¥';
                     volPercentLabel.style.color = '#fb923c';
                 }} else {{
                     volPercentLabel.textContent = mediaGainValue + '%';
@@ -4882,7 +3360,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             const shieldHeaderLeft = document.createElement('div');
             shieldHeaderLeft.style.cssText = 'display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px;';
             const shieldHIcon = document.createElement('span');
-            shieldHIcon.textContent = '🛡️';
+            shieldHIcon.textContent = 'ðŸ›¡ï¸';
             const shieldHTxt = document.createElement('span');
             shieldHTxt.textContent = 'Adblock Shield';
             shieldHeaderLeft.appendChild(shieldHIcon);
@@ -4967,7 +3445,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             const dlHeaderLeft = document.createElement('div');
             dlHeaderLeft.style.cssText = 'display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px;';
             const dlHIcon = document.createElement('span');
-            dlHIcon.textContent = '📥';
+            dlHIcon.textContent = 'ðŸ“¥';
             const dlHTxt = document.createElement('span');
             dlHTxt.textContent = 'Downloads';
             dlHeaderLeft.appendChild(dlHIcon);
@@ -5014,7 +3492,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
                     nameSpan.textContent = dl.name;
                     const timeSpan = document.createElement('span');
                     timeSpan.style.cssText = 'font-size: 10px; color: var(--fnx-muted);';
-                    timeSpan.textContent = dl.time + ' · ' + dl.status;
+                    timeSpan.textContent = dl.time + ' Â· ' + dl.status;
                     nameWrap.appendChild(nameSpan);
                     nameWrap.appendChild(timeSpan);
                     rowLeft.appendChild(nameWrap);
@@ -5150,7 +3628,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             btnTrimMem.type = 'button';
             btnTrimMem.className = 'fnx-chip';
             btnTrimMem.style.cssText = 'width: 100%; justify-content: center; padding: 7px 0; font-size: 11.5px; font-weight: 500; background: var(--fnx-accent); color: #000; cursor: pointer; border-radius: 6px; margin-top: 4px;';
-            btnTrimMem.textContent = '⚡ Flush Working Set / Trim';
+            btnTrimMem.textContent = 'âš¡ Flush Working Set / Trim';
             btnTrimMem.onclick = () => {{
                 sendIpc({{ type: 'FORCE_TRIM_MEMORY' }});
             }};
@@ -5299,7 +3777,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             const btnRdSmaller = document.createElement('button');
             btnRdSmaller.type = 'button';
             btnRdSmaller.className = 'fnx-rd-btn';
-            btnRdSmaller.textContent = 'A−';
+            btnRdSmaller.textContent = 'Aâˆ’';
             btnRdSmaller.onclick = () => {{
                 readerFontPx = Math.max(14, readerFontPx - 2);
                 syncReaderTypography();
@@ -5432,7 +3910,7 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             btnDrawerReopen.type = 'button';
             btnDrawerReopen.id = '__fynexo_drawer_reopen__';
             btnDrawerReopen.style.cssText = 'display: none; padding: 3px 9px; font-size: 11.5px; font-weight: 500; border-radius: 6px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); cursor: pointer;';
-            btnDrawerReopen.textContent = '↺ Reopen';
+            btnDrawerReopen.textContent = 'â†º Reopen';
             btnDrawerReopen.onclick = () => {{
                 closeMobileDrawer();
                 triggerProgress();
@@ -5533,11 +4011,11 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
             spTabsWrap.style.cssText = 'display: flex; align-items: center; gap: 4px;';
             const btnSpWeb = document.createElement('button');
             btnSpWeb.className = 'fnx-chip active';
-            btnSpWeb.textContent = '🌐 Web Panel';
+            btnSpWeb.textContent = 'ðŸŒ Web Panel';
             btnSpWeb.style.cssText = 'font-size: 11px; padding: 3px 8px; cursor: pointer;';
             const btnSpNotes = document.createElement('button');
             btnSpNotes.className = 'fnx-chip';
-            btnSpNotes.textContent = '📝 Quick Notes';
+            btnSpNotes.textContent = 'ðŸ“ Quick Notes';
             btnSpNotes.style.cssText = 'font-size: 11px; padding: 3px 8px; cursor: pointer;';
             spTabsWrap.appendChild(btnSpWeb);
             spTabsWrap.appendChild(btnSpNotes);
@@ -6552,6 +5030,10 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
     ensureMounted();
     document.addEventListener('DOMContentLoaded', ensureMounted, {{ once: true }});
 }})();
-"##
+"##,
+        initial_json = initial_json,
+        icons_script = ICONS_SCRIPT,
+        defaults_script = DEFAULTS_SCRIPT,
+        base_styles_css = base_css_json
     )
 }
