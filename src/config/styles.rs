@@ -316,11 +316,11 @@ pub struct ComponentStyles {
 
 impl ComponentStyles {
     pub fn styles_path() -> PathBuf {
-        synced_json_path("fynexo_styles.json")
+        synced_json_path("styles.json")
     }
 
     pub fn styles_path_display() -> String {
-        display_path_preferring_local("fynexo_styles.json")
+        display_path_preferring_local("styles.json")
     }
 
     pub fn load() -> Self {
@@ -339,11 +339,11 @@ impl ComponentStyles {
 
     pub fn save(&self) {
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            synced_json_save("fynexo_styles.json", &json);
+            synced_json_save("styles.json", &json);
         }
     }
 
     pub fn mtime() -> Option<SystemTime> {
-        synced_json_mtime("fynexo_styles.json")
+        synced_json_mtime("styles.json")
     }
 }

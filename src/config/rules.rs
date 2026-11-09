@@ -57,15 +57,15 @@ pub struct SiteRulesStore;
 
 impl SiteRulesStore {
     pub fn path() -> PathBuf {
-        synced_json_path("fynexo_rules.json")
+        synced_json_path("rules.json")
     }
 
     pub fn path_display() -> String {
-        display_path_preferring_local("fynexo_rules.json")
+        display_path_preferring_local("rules.json")
     }
 
     pub fn mtime() -> Option<SystemTime> {
-        synced_json_mtime("fynexo_rules.json")
+        synced_json_mtime("rules.json")
     }
 
     pub fn parse_flexible(raw: &str) -> Result<Vec<SiteRule>, String> {
@@ -98,7 +98,7 @@ impl SiteRulesStore {
 
     pub fn save(rules: &[SiteRule]) {
         if let Ok(json) = serde_json::to_string_pretty(rules) {
-            synced_json_save("fynexo_rules.json", &json);
+            synced_json_save("rules.json", &json);
         }
     }
 }

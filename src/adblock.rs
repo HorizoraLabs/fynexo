@@ -116,15 +116,15 @@ pub fn normalize_domain_entry(raw: &str) -> Option<String> {
 
 impl AdblockConfig {
     pub fn path() -> PathBuf {
-        synced_json_path("fynexo_adblock.json")
+        synced_json_path("adblock.json")
     }
 
     pub fn path_display() -> String {
-        display_path_preferring_local("fynexo_adblock.json")
+        display_path_preferring_local("adblock.json")
     }
 
     pub fn mtime() -> Option<SystemTime> {
-        synced_json_mtime("fynexo_adblock.json")
+        synced_json_mtime("adblock.json")
     }
 
     pub fn sanitize(&mut self) {
@@ -168,7 +168,7 @@ impl AdblockConfig {
         let mut normalized = self.clone();
         normalized.sanitize();
         if let Ok(json) = serde_json::to_string_pretty(&normalized) {
-            synced_json_save("fynexo_adblock.json", &json);
+            synced_json_save("adblock.json", &json);
         }
     }
 }

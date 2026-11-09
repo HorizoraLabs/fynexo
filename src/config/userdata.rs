@@ -118,15 +118,15 @@ pub fn parse_shortcuts_flexible(raw: &str) -> Result<Vec<BookmarkItem>, String> 
 
 impl UserData {
     pub fn shortcuts_path() -> PathBuf {
-        synced_json_path("fynexo_shortcuts.json")
+        synced_json_path("shortcuts.json")
     }
 
     pub fn shortcuts_path_display() -> String {
-        display_path_preferring_local("fynexo_shortcuts.json")
+        display_path_preferring_local("shortcuts.json")
     }
 
     pub fn shortcuts_mtime() -> Option<SystemTime> {
-        synced_json_mtime("fynexo_shortcuts.json")
+        synced_json_mtime("shortcuts.json")
     }
 
     pub fn history_path() -> PathBuf {
@@ -157,7 +157,7 @@ impl UserData {
         } else {
             let defs = default_shortcuts();
             if let Ok(json) = serde_json::to_string_pretty(&defs) {
-                synced_json_save("fynexo_shortcuts.json", &json);
+                synced_json_save("shortcuts.json", &json);
             }
             defs
         };
@@ -185,7 +185,7 @@ impl UserData {
 
     pub fn save_shortcuts(&self) {
         if let Ok(json) = serde_json::to_string_pretty(&self.bookmarks) {
-            synced_json_save("fynexo_shortcuts.json", &json);
+            synced_json_save("shortcuts.json", &json);
         }
     }
 

@@ -49,15 +49,15 @@ impl Default for KeybindsConfig {
 
 impl KeybindsConfig {
     pub fn path() -> PathBuf {
-        synced_json_path("fynexo_keybinds.json")
+        synced_json_path("keybinds.json")
     }
 
     pub fn path_display() -> String {
-        display_path_preferring_local("fynexo_keybinds.json")
+        display_path_preferring_local("keybinds.json")
     }
 
     pub fn mtime() -> Option<SystemTime> {
-        synced_json_mtime("fynexo_keybinds.json")
+        synced_json_mtime("keybinds.json")
     }
 
     pub fn load() -> Self {
@@ -76,7 +76,7 @@ impl KeybindsConfig {
 
     pub fn save(&self) {
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            synced_json_save("fynexo_keybinds.json", &json);
+            synced_json_save("keybinds.json", &json);
         }
     }
 }

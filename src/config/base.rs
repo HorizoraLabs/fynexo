@@ -51,18 +51,21 @@ pub fn data_dir() -> &'static Path {
             let dir = base.join("Fynexo");
             let _ = fs::create_dir_all(&dir);
 
-            for legacy_name in [
-                "fynexo_config.json",
-                "fynexo_styles.json",
-                "fynexo_shortcuts.json",
-                "fynexo_rules.json",
-                "fynexo_adblock.json",
-                "fynexo_keybinds.json",
+            for name in [
+                "config.json",
+                "styles.json",
+                "shortcuts.json",
+                "rules.json",
+                "adblock.json",
+                "keybinds.json",
             ] {
-                let target = dir.join(legacy_name);
-                let local = PathBuf::from(legacy_name);
-                if !target.exists() && local.exists() {
-                    let _ = fs::copy(&local, &target);
+                let (clean, legacy) = candidate_names(name);
+                let target_clean = dir.join(&clean);
+                let target_legacy = dir.join(&legacy);
+                if !target_clean.exists() && !target_legacy.exists() {
+                    if let Some(local) = resolve_local_config(name) {
+                        let _ = fs::copy(&local, &target_clean);
+                    }
                 }
             }
             dir
@@ -170,45 +173,90 @@ pub fn normalize_url_key(url: &str) -> &str {
     }
 }
 
+pub(crate) fn candidate_names(file_name: &str) -> (String, String) {
+    if let Some(stripped) = file_name.strip_prefix("fynexo_") {
+        (stripped.to_string(), file_name.to_string())
+    } else {
+        (file_name.to_string(), format!("fynexo_{}", file_name))
+    }
+}
+
+pub(crate) fn resolve_local_config(file_name: &str) -> Option<PathBuf> {
+    let (clean, legacy) = candidate_names(file_name);
+    let p_clean_cfg = Path::new("config").join(&clean);
+    if p_clean_cfg.exists() {
+        return Some(p_clean_cfg);
+    }
+    let p_legacy_cfg = Path::new("config").join(&legacy);
+    if p_legacy_cfg.exists() {
+        return Some(p_legacy_cfg);
+    }
+    let p_legacy_root = PathBuf::from(&legacy);
+    if p_legacy_root.exists() {
+        return Some(p_legacy_root);
+    }
+    let p_clean_root = PathBuf::from(&clean);
+    if p_clean_root.exists() {
+        return Some(p_clean_root);
+    }
+    None
+}
+
+pub(crate) fn resolve_formal_path(file_name: &str) -> PathBuf {
+    let (clean, legacy) = candidate_names(file_name);
+    let formal_clean = data_dir().join(&clean);
+    if formal_clean.exists() {
+        return formal_clean;
+    }
+    let formal_legacy = data_dir().join(&legacy);
+    if formal_legacy.exists() {
+        return formal_legacy;
+    }
+    data_dir().join(&clean)
+}
+
 pub(crate) fn synced_json_path(file_name: &str) -> PathBuf {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        let local = PathBuf::from(file_name);
-        let formal = data_dir().join(file_name);
-        if local.exists() {
-            let local_mt = fs::metadata(&local).and_then(|m| m.modified()).ok();
+        let local_opt = resolve_local_config(file_name);
+        let formal = resolve_formal_path(file_name);
+        if let Some(ref local) = local_opt {
+            let local_mt = fs::metadata(local).and_then(|m| m.modified()).ok();
             let formal_mt = fs::metadata(&formal).and_then(|m| m.modified()).ok();
             if formal_mt.is_none() || local_mt > formal_mt {
-                let _ = fs::copy(&local, &formal);
+                let _ = fs::copy(local, &formal);
             }
         }
         formal
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
-        data_dir().join(file_name)
+        resolve_formal_path(file_name)
     }
 }
 
 pub(crate) fn synced_json_save(file_name: &str, content: &str) {
-    let formal = data_dir().join(file_name);
+    let formal = resolve_formal_path(file_name);
     let _ = fs::write(&formal, content);
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        let local = PathBuf::from(file_name);
-        if local.exists() {
+        if let Some(local) = resolve_local_config(file_name) {
             let _ = fs::write(&local, content);
+        } else if Path::new("config").is_dir() {
+            let (clean, _) = candidate_names(file_name);
+            let _ = fs::write(Path::new("config").join(clean), content);
         }
     }
 }
 
 pub(crate) fn synced_json_mtime(file_name: &str) -> Option<SystemTime> {
-    let formal_mt = fs::metadata(data_dir().join(file_name))
+    let formal_mt = fs::metadata(resolve_formal_path(file_name))
         .and_then(|m| m.modified())
         .ok();
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        let local_mt = fs::metadata(file_name).and_then(|m| m.modified()).ok();
+        let local_mt = resolve_local_config(file_name)
+            .and_then(|p| fs::metadata(p).and_then(|m| m.modified()).ok());
         formal_mt.max(local_mt)
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -220,15 +268,14 @@ pub(crate) fn synced_json_mtime(file_name: &str) -> Option<SystemTime> {
 pub(crate) fn display_path_preferring_local(file_name: &str) -> String {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        let local = PathBuf::from(file_name);
-        if local.exists() {
+        if let Some(local) = resolve_local_config(file_name) {
             return fs::canonicalize(&local)
                 .unwrap_or(local)
                 .to_string_lossy()
                 .replace("\\\\?\\", "");
         }
     }
-    let p = data_dir().join(file_name);
+    let p = resolve_formal_path(file_name);
     fs::canonicalize(&p)
         .unwrap_or(p)
         .to_string_lossy()

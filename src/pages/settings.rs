@@ -1011,7 +1011,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
                         <div class="setting-card full-span">
                             <div class="toggle-row" style="flex-wrap: wrap;">
                                 <div>
-                                    <div class="card-label">Shortcut websites (<code style="font-family: monospace; font-size: 12px;">fynexo_shortcuts.json</code>)</div>
+                                    <div class="card-label">Shortcut websites (<code style="font-family: monospace; font-size: 12px;">config/shortcuts.json</code>)</div>
                                     <div class="card-hint" id="shortcutsHint">Manage start page &amp; omnibox shortcuts visually or share as JSON.</div>
                                 </div>
                                 <div class="storage-actions">
@@ -1107,7 +1107,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
                     <div class="sec-header">
                         <div>
                             <h2 class="sec-title">Adblock lists &amp; per-site CSS / JS rules</h2>
-                            <p class="sec-desc">Customize network domain blocking (<code style="font-family: monospace;">fynexo_adblock.json</code>) and lightweight Stylus/Userscript rules (<code style="font-family: monospace;">fynexo_rules.json</code>) with zero background memory.</p>
+                            <p class="sec-desc">Customize network domain blocking (<code style="font-family: monospace;">config/adblock.json</code>) and lightweight Stylus/Userscript rules (<code style="font-family: monospace;">config/rules.json</code>) with zero background memory.</p>
                         </div>
                     </div>
 
@@ -1116,7 +1116,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
                         <div class="setting-card full-span">
                             <div class="toggle-row" style="flex-wrap: wrap;">
                                 <div>
-                                    <div class="card-label">Network ad &amp; tracker shield (<code style="font-family: monospace; font-size: 12px;">fynexo_adblock.json</code>)</div>
+                                    <div class="card-label">Network ad &amp; tracker shield (<code style="font-family: monospace; font-size: 12px;">config/adblock.json</code>)</div>
                                     <div class="card-hint" id="adblockHint">Blocks 65+ built-in ad/telemetry networks plus your custom domains at native network layer.</div>
                                 </div>
                                 <div class="storage-actions">
@@ -1155,7 +1155,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
                         <div class="setting-card full-span">
                             <div class="toggle-row" style="flex-wrap: wrap;">
                                 <div>
-                                    <div class="card-label">Per-site CSS &amp; JS rules (<code style="font-family: monospace; font-size: 12px;">fynexo_rules.json</code>)</div>
+                                    <div class="card-label">Per-site CSS &amp; JS rules (<code style="font-family: monospace; font-size: 12px;">config/rules.json</code>)</div>
                                     <div class="card-hint">Inject custom CSS styles or lightweight JS snippets per domain (<code style="font-family: monospace;">*</code>, <code style="font-family: monospace;">github.com</code>, <code style="font-family: monospace;">*.zhihu.com</code>). Disabled rules use 0 memory.</div>
                                 </div>
                                 <div class="storage-actions">
@@ -1202,7 +1202,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
                     <div class="sec-header">
                         <div>
                             <h2 class="sec-title">Component &amp; start page studio</h2>
-                            <p class="sec-desc">Tune chrome geometry and start page layout visually on the left, or edit <code style="font-family: monospace;">fynexo_styles.json</code> directly on the right.</p>
+                            <p class="sec-desc">Tune chrome geometry and start page layout visually on the left, or edit <code style="font-family: monospace;">config/styles.json</code> directly on the right.</p>
                         </div>
                     </div>
 
@@ -1369,7 +1369,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
                             <div class="json-toolbar">
                                 <div class="json-file-meta">
                                     <span class="json-badge">JSON</span>
-                                    <span class="json-path" id="stylesPathLabel">fynexo_styles.json</span>
+                                    <span class="json-path" id="stylesPathLabel">config/styles.json</span>
                                 </div>
                                 <div class="json-actions">
                                     <button type="button" class="action-btn" id="btnReloadJson">Reload</button>
@@ -1390,7 +1390,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
                 <section class="sec-block desktop-only-sec" id="sec-shortcuts">
                     <div class="sec-header">
                         <div>
-                            <h2 class="sec-title">Custom keyboard shortcuts (<code style="font-family: monospace; font-size: 13px;">fynexo_keybinds.json</code>)</h2>
+                            <h2 class="sec-title">Custom keyboard shortcuts (<code style="font-family: monospace; font-size: 13px;">config/keybinds.json</code>)</h2>
                             <p class="sec-desc">Click any shortcut button below and press your desired key combination to rebind it instantly.</p>
                         </div>
                         <div class="theme-header-actions">
@@ -1498,7 +1498,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
         let keybinds = Object.assign({{}}, DEFAULT_KEYBINDS, boot.keybinds || {{}});
 
         let themesDir = boot.themes_dir || 'themes/';
-        let stylesPath = boot.styles_path || 'fynexo_styles.json';
+        let stylesPath = boot.styles_path || 'config/styles.json';
         let dataDir = boot.data_dir || '';
         let blockedAds = Number(boot.blocked_ads) || 0;
         let historyCount = Array.isArray(boot.history) ? boot.history.length : 0;
@@ -2183,7 +2183,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
             document.getElementById('stylesPathLabel').textContent = stylesPath;
             document.getElementById('dataDirLabel').textContent = dataDir || stylesPath;
             document.getElementById('shortcutsHint').textContent =
-                `${{bookmarks.length}} saved shortcut${{bookmarks.length === 1 ? '' : 's'}} — synced to fynexo_shortcuts.json.`;
+                `${{bookmarks.length}} saved shortcut${{bookmarks.length === 1 ? '' : 's'}} — synced to shortcuts.json.`;
 
             document.getElementById('inputHomepage').value = config.homepage || 'fynexo://newtab';
 
@@ -2314,7 +2314,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
             applySettingsSurface();
             syncFormControls();
             sendIpc({{ type: 'SAVE_STYLES', styles: styles }});
-            setJsonStatus(false, 'Applied live and persisted to fynexo_styles.json.');
+            setJsonStatus(false, 'Applied live and persisted to styles.json.');
             showToast(msg || 'Styles updated');
         }}
 
@@ -2721,7 +2721,7 @@ pub fn settings_html(payload: &RuntimePayload) -> String {
                 jsonEditorEl.value = JSON.stringify(styles, null, 2);
                 sendIpc({{ type: 'SAVE_STYLES', styles: styles }});
                 setJsonStatus(false, 'Valid JSON — applied live and saved to disk.');
-                showToast('Saved fynexo_styles.json');
+                showToast('Saved styles.json');
             }} catch (err) {{
                 setJsonStatus(true, 'Invalid JSON: ' + err.message);
             }}

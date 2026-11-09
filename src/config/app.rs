@@ -152,7 +152,7 @@ impl AppConfig {
     }
 
     pub fn config_path() -> PathBuf {
-        synced_json_path("fynexo_config.json")
+        synced_json_path("config.json")
     }
 
     pub fn load() -> Self {
@@ -179,11 +179,11 @@ impl AppConfig {
 
     pub fn save(&self) {
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            synced_json_save("fynexo_config.json", &json);
+            synced_json_save("config.json", &json);
         }
     }
 
     pub fn mtime() -> Option<SystemTime> {
-        synced_json_mtime("fynexo_config.json")
+        synced_json_mtime("config.json")
     }
 }
