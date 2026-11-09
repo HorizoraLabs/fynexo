@@ -1,0 +1,23 @@
+{
+  "id": "light",
+  "name": "Alabaster",
+  "author": "Fynexo",
+  "description": "Soft stone tray & warm daylight paper",
+  "builtin": true,
+  "colors": {
+    "bg": "#e6e7eb",
+    "panel": "#f7f7f9",
+    "surface": "#ededf1",
+    "elevated": "#ffffff",
+    "border": "#d5d6dc",
+    "border_hover": "#b8bac4",
+    "fg": "#18181b",
+    "secondary": "#4a4a54",
+    "muted": "#767682",
+    "accent": "#4f46e5",
+    "accent_bg": "#e5e7ff",
+    "hover": "#eaeaf0",
+    "tab_active": "#f7f7f9",
+    "tab_inactive": "transparent"
+  }
+}

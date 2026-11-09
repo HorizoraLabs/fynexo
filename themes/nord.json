@@ -1,0 +1,23 @@
+{
+  "id": "nord",
+  "name": "Fjord",
+  "author": "Fynexo",
+  "description": "Arctic slate tray & soft nordic deck",
+  "builtin": true,
+  "colors": {
+    "bg": "#1b1f27",
+    "panel": "#2b303c",
+    "surface": "#232832",
+    "elevated": "#373e4d",
+    "border": "#3b4252",
+    "border_hover": "#4c566a",
+    "fg": "#eceff4",
+    "secondary": "#c8d0e0",
+    "muted": "#8c96aa",
+    "accent": "#88c0d0",
+    "accent_bg": "#263642",
+    "hover": "#343b49",
+    "tab_active": "#2b303c",
+    "tab_inactive": "transparent"
+  }
+}

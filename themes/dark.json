@@ -1,0 +1,23 @@
+{
+  "id": "dark",
+  "name": "Obsidian",
+  "author": "Fynexo",
+  "description": "Layered warm-charcoal studio deck",
+  "builtin": true,
+  "colors": {
+    "bg": "#19191c",
+    "panel": "#29292e",
+    "surface": "#212126",
+    "elevated": "#35353c",
+    "border": "#37373f",
+    "border_hover": "#4b4b56",
+    "fg": "#f0f0f3",
+    "secondary": "#c2c2cb",
+    "muted": "#8a8a95",
+    "accent": "#7a88f7",
+    "accent_bg": "#262942",
+    "hover": "#33333a",
+    "tab_active": "#29292e",
+    "tab_inactive": "transparent"
+  }
+}

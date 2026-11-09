@@ -1,0 +1,23 @@
+{
+  "id": "matrix",
+  "name": "Veridian",
+  "author": "Fynexo",
+  "description": "Forest darkroom tray & pine studio deck",
+  "builtin": true,
+  "colors": {
+    "bg": "#111714",
+    "panel": "#1e2923",
+    "surface": "#17201b",
+    "elevated": "#28372f",
+    "border": "#2d3e35",
+    "border_hover": "#3f574b",
+    "fg": "#e6f5ec",
+    "secondary": "#b0cebd",
+    "muted": "#7a9c89",
+    "accent": "#34d399",
+    "accent_bg": "#18362a",
+    "hover": "#25332b",
+    "tab_active": "#1e2923",
+    "tab_inactive": "transparent"
+  }
+}

@@ -1,0 +1,5 @@
+[app]
+name = "fynexo"
+stylized-name = "Fynexo"
+identifier = "com.horizoralabs.fynexo"
+template-pack = "wry"

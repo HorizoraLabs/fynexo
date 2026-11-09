@@ -1,0 +1,23 @@
+{
+  "id": "oled",
+  "name": "Carbon",
+  "author": "Fynexo",
+  "description": "Deep pitch tray & matte carbon deck",
+  "builtin": true,
+  "colors": {
+    "bg": "#09090b",
+    "panel": "#1c1c20",
+    "surface": "#141417",
+    "elevated": "#28282e",
+    "border": "#2e2e36",
+    "border_hover": "#42424d",
+    "fg": "#ededf0",
+    "secondary": "#b8b8c2",
+    "muted": "#82828d",
+    "accent": "#38bdf8",
+    "accent_bg": "#142a38",
+    "hover": "#25252b",
+    "tab_active": "#1c1c20",
+    "tab_inactive": "transparent"
+  }
+}

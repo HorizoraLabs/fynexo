@@ -1,0 +1,16 @@
+{
+  "omnibox": "Ctrl+L",
+  "new_tab": "Ctrl+T",
+  "close_tab": "Ctrl+W",
+  "reopen_closed_tab": "Ctrl+Shift+T",
+  "next_tab": "Ctrl+Tab",
+  "bookmark_page": "Ctrl+D",
+  "find_in_page": "Ctrl+F",
+  "reader_mode": "Alt+R",
+  "force_dark": "Alt+Shift+D",
+  "fullscreen": "F11",
+  "preferences": "Ctrl+,",
+  "zoom_in": "Ctrl+=",
+  "zoom_out": "Ctrl+-",
+  "zoom_reset": "Ctrl+0"
+}

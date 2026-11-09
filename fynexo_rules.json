@@ -1,0 +1,18 @@
+[
+  {
+    "id": "clean-app-banners",
+    "name": "Hide Open-in-App floating banners",
+    "domain": "*",
+    "enabled": false,
+    "css": "[class*=\"open-in-app\"], [class*=\"download-app-banner\"], [id*=\"app-banner\"] { display: none !important; }",
+    "js": ""
+  },
+  {
+    "id": "crisp-code-fonts",
+    "name": "Crisp monospace code blocks",
+    "domain": "github.com",
+    "enabled": false,
+    "css": "pre, code, .blob-code-inner { font-family: \"JetBrains Mono\", Consolas, ui-monospace, monospace !important; }",
+    "js": ""
+  }
+]
