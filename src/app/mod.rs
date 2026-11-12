@@ -1,6 +1,7 @@
 pub mod events;
 pub mod ipc;
 pub mod memory;
+pub mod security;
 pub mod state;
 pub mod url;
 pub mod webview;
@@ -23,6 +24,7 @@ use wry::{MemoryUsageLevel, WebViewExtWindows};
 use crate::adblock;
 use crate::config::data_dir;
 use crate::tabs::TabManager;
+use crate::util::LockExt;
 
 use self::memory::{force_empty_working_set, get_current_process_memory_mb};
 use self::url::to_webview_url;
@@ -30,7 +32,7 @@ use self::webview::build_tab_webview;
 
 pub fn run() -> Result<(), Box<dyn Error>> {
     let app_state = Arc::new(Mutex::new(AppState::load()));
-    let initial_payload = app_state.lock().unwrap().payload();
+    let initial_payload = app_state.lock_safe().payload();
 
     let tab_manager = Arc::new(Mutex::new(TabManager::load_or_new(
         &initial_payload.config.homepage,
@@ -55,7 +57,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let window = win_builder.build(&event_loop)?;
 
     let mut web_context = WebContext::new(Some(data_dir().join("webview_profile")));
-    let active_logical = tab_manager.lock().unwrap().active_url();
+    let active_logical = tab_manager.lock_safe().active_url();
     adblock::set_active_page_url(&active_logical);
 
     let initial_webview = build_tab_webview(
@@ -72,7 +74,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let event_proxy_for_run = event_proxy.clone();
     let mut last_maximize_time = std::time::Instant::now();
 
-    let initial_active_id = tab_manager.lock().unwrap().active_id;
+    let initial_active_id = tab_manager.lock_safe().active_id;
     let mut active_tab_id = initial_active_id;
     let mut foreground_webview: Option<wry::WebView> = Some(initial_webview);
     let mut idle_normal_webview: Option<wry::WebView> = None;
@@ -104,7 +106,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 let target = to_webview_url(&url);
 
                 let old_has_bg = {
-                    let tm = tabs_for_event.lock().unwrap();
+                    let tm = tabs_for_event.lock_safe();
                     tm.tabs.iter().find(|t| t.id == active_tab_id).map(|t| t.background_play).unwrap_or(false)
                 };
 
@@ -177,7 +179,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 active_tab_id = id;
 
                 let (tab_state, is_tab_muted) = {
-                    let tm = tabs_for_event.lock().unwrap();
+                    let tm = tabs_for_event.lock_safe();
                     let muted = tm.tabs.iter().find(|t| t.id == id).map(|t| t.muted).unwrap_or(false);
                     (tm.get_state(), muted)
                 };
@@ -196,7 +198,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 }
 
                 background_webviews.retain(|&tab_id, _| {
-                    tabs_for_event.lock().unwrap().tabs.iter().any(|t| t.id == tab_id && t.background_play)
+                    tabs_for_event.lock_safe().tabs.iter().any(|t| t.id == tab_id && t.background_play)
                 });
             }
             Event::UserEvent(UserEvent::ToggleBackgroundPlay { id, active }) => {
@@ -223,9 +225,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             Event::UserEvent(UserEvent::BootSync) => {
-                let payload = state_for_event.lock().unwrap().payload();
+                let payload = state_for_event.lock_safe().payload();
                 let (tab_state, scroll_y) = {
-                    let tm = tabs_for_event.lock().unwrap();
+                    let tm = tabs_for_event.lock_safe();
                     (tm.get_state(), tm.active_scroll_y())
                 };
                 if let (Ok(rt_json), Ok(tabs_json)) = (
@@ -249,7 +251,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             Event::UserEvent(UserEvent::SyncConfig) => {
-                let payload = state_for_event.lock().unwrap().payload();
+                let payload = state_for_event.lock_safe().payload();
                 if let Ok(json) = serde_json::to_string(&payload) {
                     let script = format!(
                         "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({});",
@@ -261,7 +263,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             Event::UserEvent(UserEvent::SyncTabs) => {
-                let state = tabs_for_event.lock().unwrap().get_state();
+                let state = tabs_for_event.lock_safe().get_state();
                 if let Ok(json) = serde_json::to_string(&state) {
                     let script = format!(
                         "window.__fynexo_set_tabs__ && window.__fynexo_set_tabs__({});",
@@ -272,7 +274,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 background_webviews.retain(|&tab_id, wv| {
-                    let keep = tabs_for_event.lock().unwrap().tabs.iter().any(|t| t.id == tab_id && t.background_play);
+                    let keep = tabs_for_event.lock_safe().tabs.iter().any(|t| t.id == tab_id && t.background_play);
                     if !keep {
                         let _ = wv.evaluate_script(
                             "document.querySelectorAll('video, audio').forEach(el => { try { el.pause(); } catch(_) {} });"
@@ -332,7 +334,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             Event::UserEvent(UserEvent::SyncAdblockFilters) => {
                 #[cfg(target_os = "windows")]
                 {
-                    let adb = state_for_event.lock().unwrap().adblock.clone();
+                    let adb = state_for_event.lock_safe().adblock.clone();
                     if let Some(ref fg) = foreground_webview {
                         adblock::sync_windows_custom_filters(fg, &adb);
                     }
@@ -376,7 +378,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 background_webviews.clear();
                 idle_normal_webview = None;
                 foreground_webview = None;
-                tabs_for_event.lock().unwrap().save();
+                tabs_for_event.lock_safe().save();
                 *control_flow = ControlFlow::Exit;
             }
             Event::UserEvent(UserEvent::GoBack) => {
@@ -434,12 +436,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 // Zero-polling instant hot-reload when user edits any *.json file externally
-                let changed = state_for_event.lock().unwrap().reload_if_changed();
+                let changed = state_for_event.lock_safe().reload_if_changed();
                 if changed {
-                    let payload = state_for_event.lock().unwrap().payload();
+                    let payload = state_for_event.lock_safe().payload();
                     tabs_for_event
-                        .lock()
-                        .unwrap()
+                        .lock_safe()
                         .set_incognito(payload.config.incognito);
                     #[cfg(target_os = "windows")]
                     if let Some(ref fg) = foreground_webview {
@@ -463,7 +464,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 background_webviews.clear();
                 idle_normal_webview = None;
                 foreground_webview = None;
-                tabs_for_event.lock().unwrap().save();
+                tabs_for_event.lock_safe().save();
                 *control_flow = ControlFlow::Exit;
             }
             _ => (),

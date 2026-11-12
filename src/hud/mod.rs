@@ -19,5 +19,32 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
         tabs,
     };
     let initial_json = serde_json::to_string(&slim_boot).unwrap_or_else(|_| "{}".to_string());
-    runtime::assemble_hud_script(&initial_json)
+    // Embed the per-process IPC secret (placeholder appears once, before any user data).
+    build_script(&initial_json)
+}
+
+fn build_script(initial_json: &str) -> String {
+    runtime::assemble_hud_script(initial_json)
+        .replacen("__FNX_IPC_TOKEN__", crate::app::security::ipc_token(), 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hud_script_has_no_unresolved_placeholders_and_embeds_token() {
+        let script = build_script("{}");
+        for ph in ["__FNX_ICONS__", "__FNX_DEFAULTS__", "__FNX_BASE_CSS__", "__FNX_INITIAL_JSON__", "__FNX_IPC_TOKEN__"] {
+            assert!(!script.contains(ph), "unresolved placeholder {ph}");
+        }
+        assert!(script.contains(crate::app::security::ipc_token()));
+    }
+
+    #[test]
+    fn user_data_is_never_rescanned_for_placeholders() {
+        let evil = r#"{"x":"__FNX_ICONS__ __FNX_IPC_TOKEN__"}"#;
+        let out = runtime::assemble_hud_script(evil);
+        assert!(out.contains(evil));
+    }
 }

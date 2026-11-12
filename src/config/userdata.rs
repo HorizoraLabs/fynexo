@@ -191,7 +191,7 @@ impl UserData {
 
     pub fn save_history(&self) {
         if let Ok(json) = serde_json::to_string(&self.history) {
-            let _ = fs::write(Self::history_path(), json);
+            let _ = crate::util::atomic_write(Self::history_path(), json);
         }
     }
 

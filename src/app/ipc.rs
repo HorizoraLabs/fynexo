@@ -8,6 +8,7 @@ use crate::config::{
     KeybindsConfig, SetupBundle, SiteRule, SiteRulesStore, ThemePreset, UserData,
 };
 use crate::tabs::TabManager;
+use crate::util::LockExt;
 
 use super::events::UserEvent;
 use super::memory::get_current_process_memory_mb;
@@ -15,6 +16,7 @@ use super::state::AppState;
 use super::url::normalize_logical_url;
 
 pub fn handle_ipc_message(
+    origin: &str,
     body: &str,
     app_state: &Arc<Mutex<AppState>>,
     tab_manager: &Arc<Mutex<TabManager>>,
@@ -23,6 +25,12 @@ pub fn handle_ipc_message(
     let Ok(val) = serde_json::from_str::<serde_json::Value>(body) else {
         return;
     };
+
+    if !super::security::authorize_ipc(origin, &val) {
+        #[cfg(debug_assertions)]
+        eprintln!("[IPC] rejected untrusted message from {}", origin);
+        return;
+    }
 
     match val["type"].as_str() {
         Some("BOOT_SYNC") => {
@@ -51,19 +59,18 @@ pub fn handle_ipc_message(
                 };
                 adblock::set_active_page_url(&formatted_url);
                 tab_manager
-                    .lock()
-                    .unwrap()
+                    .lock_safe()
                     .update_active_info(None, Some(&formatted_url));
                 let _ = proxy.send_event(UserEvent::Navigate(formatted_url));
                 let _ = proxy.send_event(UserEvent::SyncTabs);
             }
         }
         Some("NEW_TAB") => {
-            let homepage = app_state.lock().unwrap().config.homepage.clone();
+            let homepage = app_state.lock_safe().config.homepage.clone();
             let raw_target = val["url"].as_str().unwrap_or(&homepage);
             let target = normalize_logical_url(raw_target);
             adblock::set_active_page_url(&target);
-            let (new_id, nav_url) = tab_manager.lock().unwrap().new_tab(&target);
+            let (new_id, nav_url) = tab_manager.lock_safe().new_tab(&target);
             let _ = proxy.send_event(UserEvent::SwitchTab {
                 id: new_id,
                 url: nav_url,
@@ -73,7 +80,7 @@ pub fn handle_ipc_message(
         Some("SWITCH_TAB") => {
             if let Some(id) = val["id"].as_u64() {
                 if let Some(target_url) =
-                    tab_manager.lock().unwrap().switch_tab(id as usize)
+                    tab_manager.lock_safe().switch_tab(id as usize)
                 {
                     adblock::set_active_page_url(&target_url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
@@ -87,7 +94,7 @@ pub fn handle_ipc_message(
         Some("TOGGLE_PIN_TAB") => {
             if let Some(id) = val["id"].as_u64() {
                 if let Some(pinned) =
-                    tab_manager.lock().unwrap().toggle_pin_tab(id as usize)
+                    tab_manager.lock_safe().toggle_pin_tab(id as usize)
                 {
                     let _ = proxy.send_event(UserEvent::SyncTabs);
                     let _ = proxy.send_event(UserEvent::Toast(
@@ -103,7 +110,7 @@ pub fn handle_ipc_message(
         Some("TOGGLE_BACKGROUND_PLAY") => {
             if let Some(id) = val["id"].as_u64() {
                 if let Some(active) =
-                    tab_manager.lock().unwrap().toggle_background_play(id as usize)
+                    tab_manager.lock_safe().toggle_background_play(id as usize)
                 {
                     let _ = proxy.send_event(UserEvent::SyncTabs);
                     let _ = proxy.send_event(UserEvent::Toast(
@@ -123,7 +130,7 @@ pub fn handle_ipc_message(
         Some("TOGGLE_MUTE_TAB") => {
             if let Some(id) = val["id"].as_u64() {
                 if let Some(muted) =
-                    tab_manager.lock().unwrap().toggle_mute_tab(id as usize)
+                    tab_manager.lock_safe().toggle_mute_tab(id as usize)
                 {
                     let _ = proxy.send_event(UserEvent::SyncTabs);
                     let _ = proxy.send_event(UserEvent::ToggleTabMute {
@@ -156,7 +163,7 @@ pub fn handle_ipc_message(
         }
         Some("SAVE_WORKSPACE") => {
             if let Some(name) = val["name"].as_str() {
-                tab_manager.lock().unwrap().save_workspace(name);
+                tab_manager.lock_safe().save_workspace(name);
                 let _ = proxy.send_event(UserEvent::Toast(format!("Workspace '{}' saved", name)));
                 let workspaces = TabManager::list_workspaces();
                 if let Ok(ws_json) = serde_json::to_string(&workspaces) {
@@ -170,8 +177,8 @@ pub fn handle_ipc_message(
         }
         Some("LOAD_WORKSPACE") => {
             if let Some(name) = val["name"].as_str() {
-                if let Some(target_url) = tab_manager.lock().unwrap().load_workspace(name) {
-                    let next_id = tab_manager.lock().unwrap().active_id;
+                if let Some(target_url) = tab_manager.lock_safe().load_workspace(name) {
+                    let next_id = tab_manager.lock_safe().active_id;
                     adblock::set_active_page_url(&target_url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
                         id: next_id,
@@ -211,15 +218,15 @@ pub fn handle_ipc_message(
         Some("CLOSE_TAB") => {
             if let Some(id) = val["id"].as_u64() {
                 let force = val["force"].as_bool().unwrap_or(false);
-                let default_url = app_state.lock().unwrap().config.homepage.clone();
-                let outcome = tab_manager.lock().unwrap().close_tab(
+                let default_url = app_state.lock_safe().config.homepage.clone();
+                let outcome = tab_manager.lock_safe().close_tab(
                     id as usize,
                     &default_url,
                     force,
                 );
                 match outcome {
                     Ok(Some(next_url)) => {
-                        let next_id = tab_manager.lock().unwrap().active_id;
+                        let next_id = tab_manager.lock_safe().active_id;
                         adblock::set_active_page_url(&next_url);
                         let _ = proxy.send_event(UserEvent::SwitchTab {
                             id: next_id,
@@ -239,7 +246,7 @@ pub fn handle_ipc_message(
         Some("DUPLICATE_TAB") => {
             if let Some(id) = val["id"].as_u64() {
                 if let Some((new_id, nav_url)) =
-                    tab_manager.lock().unwrap().duplicate_tab(id as usize)
+                    tab_manager.lock_safe().duplicate_tab(id as usize)
                 {
                     adblock::set_active_page_url(&nav_url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
@@ -252,13 +259,12 @@ pub fn handle_ipc_message(
         }
         Some("CLOSE_OTHER_TABS") => {
             if let Some(id) = val["id"].as_u64() {
-                let default_url = app_state.lock().unwrap().config.homepage.clone();
+                let default_url = app_state.lock_safe().config.homepage.clone();
                 let nav_opt = tab_manager
-                    .lock()
-                    .unwrap()
+                    .lock_safe()
                     .close_other_tabs(id as usize, &default_url);
                 if let Some(url) = nav_opt {
-                    let next_id = tab_manager.lock().unwrap().active_id;
+                    let next_id = tab_manager.lock_safe().active_id;
                     adblock::set_active_page_url(&url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
                         id: next_id,
@@ -270,13 +276,12 @@ pub fn handle_ipc_message(
         }
         Some("CLOSE_TABS_TO_RIGHT") => {
             if let Some(id) = val["id"].as_u64() {
-                let default_url = app_state.lock().unwrap().config.homepage.clone();
+                let default_url = app_state.lock_safe().config.homepage.clone();
                 let nav_opt = tab_manager
-                    .lock()
-                    .unwrap()
+                    .lock_safe()
                     .close_tabs_to_right(id as usize, &default_url);
                 if let Some(url) = nav_opt {
-                    let next_id = tab_manager.lock().unwrap().active_id;
+                    let next_id = tab_manager.lock_safe().active_id;
                     adblock::set_active_page_url(&url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
                         id: next_id,
@@ -287,9 +292,9 @@ pub fn handle_ipc_message(
             }
         }
         Some("CLOSE_ALL_TABS") => {
-            let default_url = app_state.lock().unwrap().config.homepage.clone();
-            let nav_url = tab_manager.lock().unwrap().close_all_tabs(&default_url);
-            let next_id = tab_manager.lock().unwrap().active_id;
+            let default_url = app_state.lock_safe().config.homepage.clone();
+            let nav_url = tab_manager.lock_safe().close_all_tabs(&default_url);
+            let next_id = tab_manager.lock_safe().active_id;
             adblock::set_active_page_url(&nav_url);
             let _ = proxy.send_event(UserEvent::SwitchTab {
                 id: next_id,
@@ -299,9 +304,9 @@ pub fn handle_ipc_message(
         }
         Some("REOPEN_CLOSED_TAB") => {
             if let Some((url, _scroll_y)) =
-                tab_manager.lock().unwrap().reopen_closed_tab()
+                tab_manager.lock_safe().reopen_closed_tab()
             {
-                let next_id = tab_manager.lock().unwrap().active_id;
+                let next_id = tab_manager.lock_safe().active_id;
                 adblock::set_active_page_url(&url);
                 let _ = proxy.send_event(UserEvent::SwitchTab {
                     id: next_id,
@@ -322,14 +327,13 @@ pub fn handle_ipc_message(
                 adblock::set_active_page_url(u);
             }
             if tab_manager
-                .lock()
-                .unwrap()
+                .lock_safe()
                 .update_active_info(title, norm_url.as_deref())
             {
                 let _ = proxy.send_event(UserEvent::SyncTabs);
             }
             if let (Some(t), Some(u)) = (title, norm_url.as_deref()) {
-                let mut st = app_state.lock().unwrap();
+                let mut st = app_state.lock_safe();
                 if !st.config.incognito {
                     st.userdata.record_visit(t, u);
                 }
@@ -337,7 +341,7 @@ pub fn handle_ipc_message(
         }
         Some("SAVE_SCROLL") => {
             if let Some(scroll_y) = val["scroll_y"].as_f64() {
-                let mut tm = tab_manager.lock().unwrap();
+                let mut tm = tab_manager.lock_safe();
                 if tm.update_active_scroll(scroll_y) {
                     tm.save();
                 }
@@ -349,7 +353,7 @@ pub fn handle_ipc_message(
         }
         Some("SET_ZOOM") => {
             let new_zoom = {
-                let mut locked = app_state.lock().unwrap();
+                let mut locked = app_state.lock_safe();
                 let target = if let Some(abs_z) = val["zoom"].as_f64() {
                     abs_z
                 } else if let Some(delta) = val["delta"].as_f64() {
@@ -380,7 +384,7 @@ pub fn handle_ipc_message(
             if let Some(raw_url) = val["url"].as_str() {
                 let norm_url = normalize_logical_url(raw_url);
                 let title = val["title"].as_str().unwrap_or(&norm_url);
-                let mut locked = app_state.lock().unwrap();
+                let mut locked = app_state.lock_safe();
                 let added = locked.userdata.toggle_bookmark(title, &norm_url);
                 locked.shortcuts_mtime = UserData::shortcuts_mtime();
                 drop(locked);
@@ -397,7 +401,7 @@ pub fn handle_ipc_message(
         Some("ADD_BOOKMARK") => {
             if let Some(raw_url) = val["url"].as_str() {
                 let title = val["title"].as_str().unwrap_or("");
-                let mut locked = app_state.lock().unwrap();
+                let mut locked = app_state.lock_safe();
                 if locked.userdata.add_bookmark(title, raw_url) {
                     locked.shortcuts_mtime = UserData::shortcuts_mtime();
                     drop(locked);
@@ -408,7 +412,7 @@ pub fn handle_ipc_message(
         }
         Some("REMOVE_BOOKMARK") => {
             if let Some(raw_url) = val["url"].as_str() {
-                let mut locked = app_state.lock().unwrap();
+                let mut locked = app_state.lock_safe();
                 if locked.userdata.remove_bookmark(raw_url) {
                     locked.shortcuts_mtime = UserData::shortcuts_mtime();
                     drop(locked);
@@ -420,7 +424,7 @@ pub fn handle_ipc_message(
         Some("IMPORT_SHORTCUTS_JSON") => {
             if let Some(raw_json) = val["json"].as_str() {
                 let merge = val["merge"].as_bool().unwrap_or(true);
-                let mut locked = app_state.lock().unwrap();
+                let mut locked = app_state.lock_safe();
                 match locked.userdata.import_shortcuts(raw_json, merge) {
                     Ok(count) => {
                         locked.shortcuts_mtime = UserData::shortcuts_mtime();
@@ -439,7 +443,7 @@ pub fn handle_ipc_message(
             }
         }
         Some("EXPORT_SHORTCUTS") => {
-            let json = app_state.lock().unwrap().userdata.shortcuts_json_pretty();
+            let json = app_state.lock_safe().userdata.shortcuts_json_pretty();
             match export_json_to_downloads("fynexo_shortcuts.json", &json) {
                 Ok(saved_path) => {
                     let name_only = saved_path
@@ -460,7 +464,7 @@ pub fn handle_ipc_message(
             }
         }
         Some("RESET_SHORTCUTS") => {
-            let mut locked = app_state.lock().unwrap();
+            let mut locked = app_state.lock_safe();
             locked.userdata.reset_shortcuts();
             locked.shortcuts_mtime = UserData::shortcuts_mtime();
             drop(locked);
@@ -481,7 +485,7 @@ pub fn handle_ipc_message(
                         match save_theme_preset(&preset) {
                             Ok(saved_id) => {
                                 let theme_name = preset.name.clone();
-                                let mut locked = app_state.lock().unwrap();
+                                let mut locked = app_state.lock_safe();
                                 locked.config.theme = saved_id;
                                 locked.config.save();
                                 locked.config_mtime = AppConfig::mtime();
@@ -514,7 +518,7 @@ pub fn handle_ipc_message(
         Some("DELETE_THEME") => {
             if let Some(id) = val["id"].as_str() {
                 if delete_theme_preset(id) {
-                    let mut locked = app_state.lock().unwrap();
+                    let mut locked = app_state.lock_safe();
                     if locked.config.theme.eq_ignore_ascii_case(id) {
                         locked.config.theme = "dark".to_string();
                         locked.config.save();
@@ -531,7 +535,7 @@ pub fn handle_ipc_message(
         Some("EXPORT_THEME") => {
             let req_id = val["id"].as_str().unwrap_or("");
             let preset = {
-                let locked = app_state.lock().unwrap();
+                let locked = app_state.lock_safe();
                 let target = if req_id.is_empty() {
                     locked.config.theme.as_str()
                 } else {
@@ -583,7 +587,7 @@ pub fn handle_ipc_message(
                     serde_json::from_value::<Vec<SiteRule>>(rules_val.clone())
                 {
                     SiteRulesStore::save(&new_rules);
-                    let mut locked = app_state.lock().unwrap();
+                    let mut locked = app_state.lock_safe();
                     locked.site_rules = new_rules;
                     locked.rules_mtime = SiteRulesStore::mtime();
                     drop(locked);
@@ -596,7 +600,7 @@ pub fn handle_ipc_message(
                 match SiteRulesStore::parse_flexible(raw_json) {
                     Ok(incoming) => {
                         let count = incoming.len();
-                        let mut locked = app_state.lock().unwrap();
+                        let mut locked = app_state.lock_safe();
                         for r in incoming {
                             if let Some(existing) = locked
                                 .site_rules
@@ -624,7 +628,7 @@ pub fn handle_ipc_message(
             }
         }
         Some("EXPORT_RULES") => {
-            let rules = app_state.lock().unwrap().site_rules.clone();
+            let rules = app_state.lock_safe().site_rules.clone();
             if let Ok(json) = serde_json::to_string_pretty(&rules) {
                 if let Ok(p) = export_json_to_downloads("fynexo_rules.json", &json) {
                     let name_only = p
@@ -641,7 +645,7 @@ pub fn handle_ipc_message(
         Some("RESET_RULES") => {
             let defs = default_site_rules();
             SiteRulesStore::save(&defs);
-            let mut locked = app_state.lock().unwrap();
+            let mut locked = app_state.lock_safe();
             locked.site_rules = defs;
             locked.rules_mtime = SiteRulesStore::mtime();
             drop(locked);
@@ -658,7 +662,7 @@ pub fn handle_ipc_message(
                     new_adb.sanitize();
                     new_adb.save();
                     adblock::sync_dynamic_lists(&new_adb);
-                    let mut locked = app_state.lock().unwrap();
+                    let mut locked = app_state.lock_safe();
                     locked.adblock = new_adb;
                     locked.adblock_mtime = AdblockConfig::mtime();
                     drop(locked);
@@ -672,7 +676,7 @@ pub fn handle_ipc_message(
                 match serde_json::from_str::<AdblockConfig>(raw_json) {
                     Ok(mut incoming) => {
                         incoming.sanitize();
-                        let mut locked = app_state.lock().unwrap();
+                        let mut locked = app_state.lock_safe();
                         for d in incoming.custom_blocked_domains {
                             if !locked.adblock.custom_blocked_domains.contains(&d) {
                                 locked.adblock.custom_blocked_domains.push(d);
@@ -703,7 +707,7 @@ pub fn handle_ipc_message(
             }
         }
         Some("EXPORT_ADBLOCK") => {
-            let adb = app_state.lock().unwrap().adblock.clone();
+            let adb = app_state.lock_safe().adblock.clone();
             if let Ok(json) = serde_json::to_string_pretty(&adb) {
                 if let Ok(p) = export_json_to_downloads("fynexo_adblock.json", &json) {
                     let name_only = p
@@ -723,7 +727,7 @@ pub fn handle_ipc_message(
                     serde_json::from_value::<KeybindsConfig>(kb_val.clone())
                 {
                     new_kb.save();
-                    let mut locked = app_state.lock().unwrap();
+                    let mut locked = app_state.lock_safe();
                     locked.keybinds = new_kb;
                     locked.keybinds_mtime = KeybindsConfig::mtime();
                     drop(locked);
@@ -736,7 +740,7 @@ pub fn handle_ipc_message(
                 match serde_json::from_str::<KeybindsConfig>(raw_json) {
                     Ok(new_kb) => {
                         new_kb.save();
-                        let mut locked = app_state.lock().unwrap();
+                        let mut locked = app_state.lock_safe();
                         locked.keybinds = new_kb;
                         locked.keybinds_mtime = KeybindsConfig::mtime();
                         drop(locked);
@@ -755,7 +759,7 @@ pub fn handle_ipc_message(
             }
         }
         Some("EXPORT_KEYBINDS") => {
-            let kb = app_state.lock().unwrap().keybinds.clone();
+            let kb = app_state.lock_safe().keybinds.clone();
             if let Ok(json) = serde_json::to_string_pretty(&kb) {
                 if let Ok(p) = export_json_to_downloads("fynexo_keybinds.json", &json) {
                     let name_only = p
@@ -772,7 +776,7 @@ pub fn handle_ipc_message(
         Some("RESET_KEYBINDS") => {
             let def = KeybindsConfig::default();
             def.save();
-            let mut locked = app_state.lock().unwrap();
+            let mut locked = app_state.lock_safe();
             locked.keybinds = def;
             locked.keybinds_mtime = KeybindsConfig::mtime();
             drop(locked);
@@ -783,7 +787,7 @@ pub fn handle_ipc_message(
         }
         Some("EXPORT_FULL_SETUP") => {
             let bundle = {
-                let locked = app_state.lock().unwrap();
+                let locked = app_state.lock_safe();
                 SetupBundle {
                     fynexo_bundle_version: 1,
                     config: locked.config.clone(),
@@ -843,12 +847,12 @@ pub fn handle_ipc_message(
                         let incog = bundle.config.incognito;
 
                         {
-                            let mut locked = app_state.lock().unwrap();
+                            let mut locked = app_state.lock_safe();
                             locked.userdata.bookmarks = bundle.shortcuts;
                             locked.userdata.save_shortcuts();
                             locked.force_reload();
                         }
-                        tab_manager.lock().unwrap().set_incognito(incog);
+                        tab_manager.lock_safe().set_incognito(incog);
 
                         let _ = proxy.send_event(UserEvent::SyncAdblockFilters);
                         let _ = proxy.send_event(UserEvent::ApplyZoom(zoom));
@@ -868,7 +872,7 @@ pub fn handle_ipc_message(
             }
         }
         Some("CLEAR_HISTORY") => {
-            let mut locked = app_state.lock().unwrap();
+            let mut locked = app_state.lock_safe();
             locked.userdata.clear_history();
             drop(locked);
             let _ = proxy.send_event(UserEvent::SyncConfig);
@@ -896,13 +900,13 @@ pub fn handle_ipc_message(
                     let ua = new_cfg.resolved_user_agent();
                     let incog = new_cfg.incognito;
 
-                    let mut locked = app_state.lock().unwrap();
+                    let mut locked = app_state.lock_safe();
                     locked.config = new_cfg;
                     locked.config.save();
                     locked.config_mtime = AppConfig::mtime();
                     drop(locked);
 
-                    tab_manager.lock().unwrap().set_incognito(incog);
+                    tab_manager.lock_safe().set_incognito(incog);
                     let _ = proxy.send_event(UserEvent::ApplyZoom(zoom));
                     let _ = proxy.send_event(UserEvent::UpdateUserAgent(ua));
                     let _ = proxy.send_event(UserEvent::SyncConfig);
@@ -914,7 +918,7 @@ pub fn handle_ipc_message(
                 if let Ok(new_styles) =
                     serde_json::from_value::<ComponentStyles>(sty_val.clone())
                 {
-                    let mut locked = app_state.lock().unwrap();
+                    let mut locked = app_state.lock_safe();
                     locked.styles = new_styles;
                     locked.styles.save();
                     locked.styles_mtime = ComponentStyles::mtime();
@@ -924,7 +928,7 @@ pub fn handle_ipc_message(
             }
         }
         Some("RESET_STYLES") => {
-            let mut locked = app_state.lock().unwrap();
+            let mut locked = app_state.lock_safe();
             locked.styles = ComponentStyles::default();
             locked.styles.save();
             locked.styles_mtime = ComponentStyles::mtime();
@@ -932,7 +936,7 @@ pub fn handle_ipc_message(
             let _ = proxy.send_event(UserEvent::SyncConfig);
         }
         Some("RELOAD_STYLES") => {
-            let mut locked = app_state.lock().unwrap();
+            let mut locked = app_state.lock_safe();
             locked.force_reload();
             drop(locked);
             let _ = proxy.send_event(UserEvent::SyncConfig);

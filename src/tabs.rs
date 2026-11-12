@@ -130,7 +130,7 @@ impl TabManager {
         }
         let state = self.get_state();
         if let Ok(json) = serde_json::to_string_pretty(&state) {
-            let _ = fs::write(Self::session_path(), json);
+            let _ = crate::util::atomic_write(Self::session_path(), json);
         }
     }
 
@@ -480,7 +480,7 @@ impl TabManager {
             },
         );
         if let Ok(json) = serde_json::to_string_pretty(&list) {
-            let _ = fs::write(Self::workspaces_path(), json);
+            let _ = crate::util::atomic_write(Self::workspaces_path(), json);
         }
     }
 
@@ -504,10 +504,119 @@ impl TabManager {
         list.retain(|w| w.name != name);
         if list.len() < before_len {
             if let Ok(json) = serde_json::to_string_pretty(&list) {
-                let _ = fs::write(Self::workspaces_path(), json);
+                let _ = crate::util::atomic_write(Self::workspaces_path(), json);
                 return true;
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HOME: &str = "fynexo://newtab";
+
+    /// Every test runs against an isolated temp data dir so the real session file is never touched.
+    fn mgr_with(urls: &[&str]) -> TabManager {
+        crate::util::isolate_data_dir();
+        let mut m = TabManager::new(HOME, false);
+        for u in urls {
+            m.new_tab(u);
+        }
+        m
+    }
+
+    #[test]
+    fn closing_active_tab_activates_right_neighbour() {
+        let mut m = mgr_with(&["https://a.com", "https://b.com"]); // ids 1,2,3
+        m.switch_tab(2);
+        let res = m.close_tab(2, HOME, false).unwrap();
+        assert_eq!(res.as_deref(), Some("https://b.com"));
+        assert_eq!(m.active_id, 3);
+        assert_eq!(m.tabs.iter().filter(|t| t.is_active).count(), 1);
+    }
+
+    #[test]
+    fn closing_last_active_tab_activates_left_neighbour() {
+        let mut m = mgr_with(&["https://a.com", "https://b.com"]);
+        assert_eq!(m.active_id, 3);
+        m.close_tab(3, HOME, false).unwrap();
+        assert_eq!(m.active_id, 2);
+    }
+
+    #[test]
+    fn closing_inactive_tab_keeps_active() {
+        let mut m = mgr_with(&["https://a.com", "https://b.com"]);
+        let res = m.close_tab(1, HOME, false).unwrap();
+        assert_eq!(res, None);
+        assert_eq!(m.active_id, 3);
+    }
+
+    #[test]
+    fn closing_only_tab_resets_to_default_url() {
+        crate::util::isolate_data_dir();
+        let mut m = TabManager::new("https://example.com", false);
+        let res = m.close_tab(1, HOME, false).unwrap();
+        assert_eq!(res.as_deref(), Some(HOME));
+        assert_eq!(m.tabs.len(), 1);
+        assert_eq!(m.tabs[0].url, HOME);
+    }
+
+    #[test]
+    fn pinned_tab_cannot_be_closed_without_force() {
+        let mut m = mgr_with(&["https://a.com"]);
+        assert_eq!(m.toggle_pin_tab(2), Some(true));
+        assert!(m.close_tab(2, HOME, false).is_err());
+        assert!(m.close_tab(2, HOME, true).is_ok());
+    }
+
+    #[test]
+    fn pinned_tabs_sort_to_front() {
+        let mut m = mgr_with(&["https://a.com", "https://b.com"]);
+        m.toggle_pin_tab(3);
+        assert_eq!(m.tabs[0].id, 3);
+    }
+
+    #[test]
+    fn incognito_does_not_record_closed_tabs() {
+        crate::util::isolate_data_dir();
+        let mut m = TabManager::new(HOME, true);
+        m.new_tab("https://a.com");
+        m.new_tab("https://b.com");
+        m.close_tab(3, HOME, false).unwrap();
+        assert!(m.reopen_closed_tab().is_none());
+    }
+
+    #[test]
+    fn reopen_restores_url_and_scroll() {
+        let mut m = mgr_with(&["https://a.com", "https://b.com"]);
+        m.update_active_scroll(480.0);
+        m.close_tab(3, HOME, false).unwrap();
+        let (url, scroll) = m.reopen_closed_tab().expect("closed tab entry");
+        assert_eq!(url, "https://b.com");
+        assert!((scroll - 480.0).abs() < f64::EPSILON);
+        assert_eq!(m.tabs.last().unwrap().url, "https://b.com");
+    }
+
+    #[test]
+    fn internal_pages_are_not_recorded_as_closed() {
+        let mut m = mgr_with(&["fynexo://settings", "https://a.com"]);
+        m.close_tab(2, HOME, false).unwrap();
+        assert!(m.reopen_closed_tab().is_none());
+    }
+
+    #[test]
+    fn closed_stack_is_capped_at_twelve() {
+        let mut m = mgr_with(&[]);
+        for i in 0..20 {
+            m.new_tab(&format!("https://site{}.com", i));
+        }
+        let ids: Vec<usize> = m.tabs.iter().map(|t| t.id).skip(1).collect();
+        for id in ids {
+            let _ = m.close_tab(id, HOME, false);
+        }
+        assert_eq!(m.get_state().closed_count, 12);
     }
 }

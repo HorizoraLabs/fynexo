@@ -4,6 +4,7 @@ pub mod config;
 pub mod hud;
 pub mod pages;
 pub mod tabs;
+pub mod util;
 
 #[cfg(target_os = "android")]
 fn stop_unwind<F: FnOnce() -> T, T>(f: F) -> T {

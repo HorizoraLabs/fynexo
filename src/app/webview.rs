@@ -11,6 +11,7 @@ use crate::config::unique_download_path;
 use crate::hud;
 use crate::pages;
 use crate::tabs::TabManager;
+use crate::util::LockExt;
 
 use super::events::UserEvent;
 use super::ipc::handle_ipc_message;
@@ -26,13 +27,14 @@ pub fn build_tab_webview(
     event_proxy: &EventLoopProxy<UserEvent>,
 ) -> Result<wry::WebView, Box<dyn Error>> {
     let initial_payload = {
-        let mut st = app_state.lock().unwrap();
+        let mut st = app_state.lock_safe();
         let _ = st.reload_if_changed();
         st.payload()
     };
 
     let mut builder = WebViewBuilder::new_with_web_context(web_context)
         .with_background_color((9, 9, 11, 255))
+        .with_incognito(initial_payload.config.incognito)
         .with_back_forward_navigation_gestures(true);
 
     if let Some(ua) = initial_payload.config.resolved_user_agent() {
@@ -82,7 +84,7 @@ pub fn build_tab_webview(
             return wry::NewWindowResponse::Deny;
         }
         let logical = normalize_logical_url(&url);
-        let (new_id, nav_url) = tabs_for_new_window.lock().unwrap().new_tab(&logical);
+        let (new_id, nav_url) = tabs_for_new_window.lock_safe().new_tab(&logical);
         let _ = proxy_for_new_window.send_event(UserEvent::SwitchTab { id: new_id, url: nav_url });
         let _ = proxy_for_new_window.send_event(UserEvent::SyncTabs);
         wry::NewWindowResponse::Deny
@@ -158,7 +160,7 @@ pub fn build_tab_webview(
     let proxy_for_load = event_proxy.clone();
     builder = builder.with_on_page_load_handler(move |event, _url| {
         if matches!(event, PageLoadEvent::Finished) {
-            let scroll_y = tabs_for_load.lock().unwrap().active_scroll_y();
+            let scroll_y = tabs_for_load.lock_safe().active_scroll_y();
             if scroll_y > 24.0 {
                 let _ = proxy_for_load.send_event(UserEvent::RestoreScroll(scroll_y));
             }
@@ -168,25 +170,15 @@ pub fn build_tab_webview(
     // Custom URI Scheme: fynexo://newtab & fynexo://settings
     let state_for_proto = Arc::clone(app_state);
     builder = builder.with_custom_protocol("fynexo".to_string(), move |_id, req| {
-        let uri = req.uri().to_string();
-        let path = req.uri().path();
-        let host = req.uri().host().unwrap_or("");
-
-        let is_settings = uri.contains("settings")
-            || host == "settings"
-            || path.starts_with("/settings")
-            || path == "settings";
-
-        let is_newtab = !is_settings
-            && (uri.contains("newtab")
-                || host == "newtab"
-                || path.starts_with("/newtab")
-                || path == "newtab"
-                || path == "/"
-                || path.is_empty());
+        let route = super::security::resolve_internal_route(
+            req.uri().host().unwrap_or(""),
+            req.uri().path(),
+        );
+        let is_settings = route == Some("settings");
+        let is_newtab = route == Some("newtab");
 
         if is_settings || is_newtab {
-            let mut st = state_for_proto.lock().unwrap();
+            let mut st = state_for_proto.lock_safe();
             let _ = st.reload_if_changed();
             let payload = st.payload();
             drop(st);
@@ -210,7 +202,7 @@ pub fn build_tab_webview(
         }
     });
 
-    let initial_tabs = tab_manager.lock().unwrap().get_state();
+    let initial_tabs = tab_manager.lock_safe().get_state();
     let initial_script = hud::generate_hud_script(&initial_payload, Some(&initial_tabs));
     let initial_url = to_webview_url(target_url);
 
@@ -222,7 +214,8 @@ pub fn build_tab_webview(
         .with_devtools(cfg!(debug_assertions))
         .with_initialization_script_for_main_only(&initial_script, true)
         .with_ipc_handler(move |req| {
-            handle_ipc_message(req.body(), &state_for_ipc, &tabs_for_ipc, &proxy_for_ipc);
+            let origin = req.uri().to_string();
+            handle_ipc_message(&origin, req.body(), &state_for_ipc, &tabs_for_ipc, &proxy_for_ipc);
         })
         .with_url(&initial_url)
         .build(window)?;

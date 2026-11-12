@@ -508,3 +508,35 @@ pub fn open_folder_in_explorer(path: &std::path::Path) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn domain_entries_are_normalised() {
+        assert_eq!(normalize_domain_entry("  HTTPS://WWW.Ads.Example.com/path?x=1 ").as_deref(), Some("ads.example.com"));
+        assert_eq!(normalize_domain_entry("*.tracker.net").as_deref(), Some("tracker.net"));
+        assert_eq!(normalize_domain_entry("host.io:8080/a").as_deref(), Some("host.io"));
+        assert_eq!(normalize_domain_entry("*://cdn.example.org#frag").as_deref(), Some("cdn.example.org"));
+    }
+
+    #[test]
+    fn invalid_domain_entries_are_rejected() {
+        assert_eq!(normalize_domain_entry(""), None);
+        assert_eq!(normalize_domain_entry("   "), None);
+        assert_eq!(normalize_domain_entry("localhost"), None);
+        assert_eq!(normalize_domain_entry("has space.com"), None);
+    }
+
+    #[test]
+    fn sanitize_dedups_and_cleans_lists() {
+        let mut cfg = AdblockConfig {
+            custom_blocked_domains: vec!["Ads.com".into(), "https://ads.com/x".into(), "bad".into()],
+            whitelisted_domains: vec!["*.ok.org".into(), "ok.org".into()],
+        };
+        cfg.sanitize();
+        assert_eq!(cfg.custom_blocked_domains, vec!["ads.com".to_string()]);
+        assert_eq!(cfg.whitelisted_domains, vec!["ok.org".to_string()]);
+    }
+}

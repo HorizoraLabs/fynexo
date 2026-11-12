@@ -147,11 +147,11 @@ pub fn unique_download_path(suggested_filename: &str) -> PathBuf {
 
 pub fn export_json_to_downloads(filename: &str, json_content: &str) -> Result<PathBuf, String> {
     let target = unique_download_path(filename);
-    if fs::write(&target, json_content).is_ok() {
+    if crate::util::atomic_write(&target, json_content).is_ok() {
         return Ok(target);
     }
     let fallback = data_dir().join(filename);
-    fs::write(&fallback, json_content).map_err(|e| e.to_string())?;
+    crate::util::atomic_write(&fallback, json_content).map_err(|e| e.to_string())?;
     Ok(fallback)
 }
 
@@ -181,25 +181,56 @@ pub(crate) fn candidate_names(file_name: &str) -> (String, String) {
     }
 }
 
+/// Directories that may hold project-local preset JSON files (desktop only):
+/// `<cwd>/config` (dev: `cargo run` from the repo) and `<exe dir>/config`
+/// (portable distribution). Resolved once so launching from another working
+/// directory still finds the presets next to the executable.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn local_config_dirs() -> &'static [PathBuf] {
+    static DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
+    DIRS.get_or_init(|| {
+        let mut dirs = vec![PathBuf::from("config")];
+        if let Some(exe_cfg) = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("config")))
+        {
+            let same_as_cwd = fs::canonicalize(&exe_cfg).ok() == fs::canonicalize("config").ok();
+            if !same_as_cwd {
+                dirs.push(exe_cfg);
+            }
+        }
+        dirs
+    })
+}
+
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
 pub(crate) fn resolve_local_config(file_name: &str) -> Option<PathBuf> {
-    let (clean, legacy) = candidate_names(file_name);
-    let p_clean_cfg = Path::new("config").join(&clean);
-    if p_clean_cfg.exists() {
-        return Some(p_clean_cfg);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let (clean, legacy) = candidate_names(file_name);
+        for dir in local_config_dirs() {
+            for name in [&clean, &legacy] {
+                let p = dir.join(name);
+                if p.is_file() {
+                    return Some(p);
+                }
+            }
+        }
+        // Legacy layout: `fynexo_*.json` directly in the working directory.
+        let legacy_root = PathBuf::from(&legacy);
+        if legacy_root.is_file() {
+            return Some(legacy_root);
+        }
     }
-    let p_legacy_cfg = Path::new("config").join(&legacy);
-    if p_legacy_cfg.exists() {
-        return Some(p_legacy_cfg);
-    }
-    let p_legacy_root = PathBuf::from(&legacy);
-    if p_legacy_root.exists() {
-        return Some(p_legacy_root);
-    }
-    let p_clean_root = PathBuf::from(&clean);
-    if p_clean_root.exists() {
-        return Some(p_clean_root);
-    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let _ = file_name;
     None
+}
+
+/// Existing local `config/` directory to write fresh files into (desktop only).
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn writable_local_config_dir() -> Option<&'static PathBuf> {
+    local_config_dirs().iter().find(|d| d.is_dir())
 }
 
 pub(crate) fn resolve_formal_path(file_name: &str) -> PathBuf {
@@ -237,14 +268,14 @@ pub(crate) fn synced_json_path(file_name: &str) -> PathBuf {
 
 pub(crate) fn synced_json_save(file_name: &str, content: &str) {
     let formal = resolve_formal_path(file_name);
-    let _ = fs::write(&formal, content);
+    let _ = crate::util::atomic_write(&formal, content);
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         if let Some(local) = resolve_local_config(file_name) {
-            let _ = fs::write(&local, content);
-        } else if Path::new("config").is_dir() {
+            let _ = crate::util::atomic_write(&local, content);
+        } else if let Some(dir) = writable_local_config_dir() {
             let (clean, _) = candidate_names(file_name);
-            let _ = fs::write(Path::new("config").join(clean), content);
+            let _ = crate::util::atomic_write(dir.join(clean), content);
         }
     }
 }
@@ -280,4 +311,30 @@ pub(crate) fn display_path_preferring_local(file_name: &str) -> String {
         .unwrap_or(p)
         .to_string_lossy()
         .replace("\\\\?\\", "")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn candidate_names_handle_both_naming_schemes() {
+        assert_eq!(candidate_names("styles.json"), ("styles.json".into(), "fynexo_styles.json".into()));
+        assert_eq!(candidate_names("fynexo_styles.json"), ("styles.json".into(), "fynexo_styles.json".into()));
+    }
+
+    #[test]
+    fn normalize_url_key_strips_only_bare_trailing_slash() {
+        assert_eq!(normalize_url_key("https://a.com/"), "https://a.com");
+        assert_eq!(normalize_url_key("https://a.com/path/"), "https://a.com/path/");
+        assert_eq!(normalize_url_key("  https://a.com  "), "https://a.com");
+    }
+
+    #[test]
+    fn unique_download_path_sanitises_and_avoids_collisions() {
+        let p = unique_download_path("..\\evil:<name>?.txt");
+        let name = p.file_name().unwrap().to_string_lossy().to_string();
+        assert!(!name.contains(['<', '>', ':', '?', '\\', '/']));
+        assert!(unique_download_path("").file_name().is_some());
+    }
 }

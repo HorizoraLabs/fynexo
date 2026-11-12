@@ -404,13 +404,13 @@ pub fn save_theme_preset(preset: &ThemePreset) -> Result<String, String> {
     let fname = format!("{}.json", clean_id);
 
     let formal_path = themes_dir().join(&fname);
-    fs::write(&formal_path, &json).map_err(|e| e.to_string())?;
+    crate::util::atomic_write(&formal_path, &json).map_err(|e| e.to_string())?;
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let local_dir = PathBuf::from("themes");
         if local_dir.is_dir() {
-            let _ = fs::write(local_dir.join(&fname), &json);
+            let _ = crate::util::atomic_write(local_dir.join(&fname), &json);
         }
     }
 
@@ -467,4 +467,19 @@ pub fn themes_stamp() -> (usize, Option<SystemTime>) {
         }
     }
     (count, latest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn theme_ids_are_safe_filenames() {
+        assert_eq!(sanitize_theme_id("Catppuccin Mocha"), "catppuccin-mocha");
+        assert_eq!(sanitize_theme_id("../../etc/passwd"), "etcpasswd");
+        assert_eq!(sanitize_theme_id("a__b  c"), "a-b-c");
+        assert_eq!(sanitize_theme_id("---"), "custom-theme");
+        assert_eq!(sanitize_theme_id(""), "custom-theme");
+        assert!(sanitize_theme_id("..\\..\\x").chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    }
 }
