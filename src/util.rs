@@ -38,6 +38,25 @@ pub fn atomic_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io:
     result
 }
 
+/// Serialize `value` as JSON safe to embed inline inside an HTML `<script>` element.
+/// Escapes `<`, `>`, `&`, U+2028, and U+2029 so untrusted strings (such as a visited
+/// page's `<title>`) cannot break out of `</script>` and cause stored XSS.
+pub fn json_for_html_script<T: serde::Serialize>(value: &T) -> String {
+    let raw = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string());
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        match ch {
+            '<' => out.push_str("\\u003c"),
+            '>' => out.push_str("\\u003e"),
+            '&' => out.push_str("\\u0026"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 pub fn isolate_data_dir() {
     use std::sync::Once;
@@ -78,5 +97,20 @@ mod tests {
         })
         .join();
         assert_eq!(*m.lock_safe(), 5);
+    }
+
+    #[test]
+    fn json_for_html_script_escapes_script_breakouts() {
+        let evil = serde_json::json!({
+            "title": "</script><img src=x onerror=alert(1)>&\u{2028}\u{2029}"
+        });
+        let safe = json_for_html_script(&evil);
+        assert!(!safe.contains('<'));
+        assert!(!safe.contains('>'));
+        assert!(!safe.contains('&'));
+        assert!(!safe.contains('\u{2028}'));
+        assert!(!safe.contains('\u{2029}'));
+        let decoded: serde_json::Value = serde_json::from_str(&safe).unwrap();
+        assert_eq!(decoded, evil);
     }
 }

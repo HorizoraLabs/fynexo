@@ -2,15 +2,18 @@ use std::sync::{Arc, Mutex};
 use tao::event_loop::EventLoopProxy;
 
 use crate::adblock::{self, AdblockConfig};
+#[cfg(target_os = "windows")]
+use crate::config::data_dir;
 use crate::config::{
-    data_dir, default_site_rules, delete_theme_preset, export_json_to_downloads,
-    load_all_themes, save_theme_preset, themes_stamp, AppConfig, ComponentStyles,
-    KeybindsConfig, SetupBundle, SiteRule, SiteRulesStore, ThemePreset, UserData,
+    default_site_rules, delete_theme_preset, export_json_to_downloads, load_all_themes,
+    save_theme_preset, themes_stamp, AppConfig, ComponentStyles, KeybindsConfig, SetupBundle,
+    SiteRule, SiteRulesStore, ThemePreset, UserData,
 };
 use crate::tabs::TabManager;
 use crate::util::LockExt;
 
 use super::events::UserEvent;
+#[cfg(target_os = "windows")]
 use super::memory::get_current_process_memory_mb;
 use super::state::AppState;
 use super::url::normalize_logical_url;
@@ -53,10 +56,21 @@ pub fn handle_ipc_message(
                 } else if !target_url.starts_with("http://")
                     && !target_url.starts_with("https://")
                 {
+                    let lower_raw = target_url.trim().to_ascii_lowercase();
+                    if lower_raw.starts_with("javascript:")
+                        || lower_raw.starts_with("data:")
+                        || lower_raw.starts_with("vbscript:")
+                        || lower_raw.starts_with("file:")
+                    {
+                        return;
+                    }
                     format!("https://{}", target_url)
                 } else {
                     normalize_logical_url(target_url)
                 };
+                if !super::security::is_safe_navigation_target(&formatted_url) {
+                    return;
+                }
                 adblock::set_active_page_url(&formatted_url);
                 tab_manager
                     .lock_safe()
@@ -69,6 +83,9 @@ pub fn handle_ipc_message(
             let homepage = app_state.lock_safe().config.homepage.clone();
             let raw_target = val["url"].as_str().unwrap_or(&homepage);
             let target = normalize_logical_url(raw_target);
+            if !super::security::is_safe_navigation_target(&target) {
+                return;
+            }
             adblock::set_active_page_url(&target);
             let (new_id, nav_url) = tab_manager.lock_safe().new_tab(&target);
             let _ = proxy.send_event(UserEvent::SwitchTab {
@@ -151,9 +168,11 @@ pub fn handle_ipc_message(
             #[cfg(target_os = "windows")]
             {
                 let (ws_mb, commit_mb) = get_current_process_memory_mb();
+                let btok = serde_json::to_string(super::security::bridge_token())
+                    .unwrap_or_else(|_| "\"\"".to_string());
                 let script = format!(
-                    "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({{ host_mb: {:.1}, commit_mb: {:.1} }});",
-                    ws_mb, commit_mb
+                    "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({{ host_mb: {:.1}, commit_mb: {:.1} }}, {});",
+                    ws_mb, commit_mb, btok
                 );
                 let _ = proxy.send_event(UserEvent::EvalScript(script));
             }
@@ -163,16 +182,12 @@ pub fn handle_ipc_message(
         }
         Some("SAVE_WORKSPACE") => {
             if let Some(name) = val["name"].as_str() {
-                tab_manager.lock_safe().save_workspace(name);
-                let _ = proxy.send_event(UserEvent::Toast(format!("Workspace '{}' saved", name)));
-                let workspaces = TabManager::list_workspaces();
-                if let Ok(ws_json) = serde_json::to_string(&workspaces) {
-                    let script = format!(
-                        "window.__fynexo_set_workspaces__ && window.__fynexo_set_workspaces__({});",
-                        ws_json
-                    );
-                    let _ = proxy.send_event(UserEvent::EvalScript(script));
+                let clean_name: String = name.trim().chars().take(64).collect();
+                if clean_name.is_empty() {
+                    return;
                 }
+                tab_manager.lock_safe().save_workspace(&clean_name);
+                let _ = proxy.send_event(UserEvent::Toast(format!("Workspace '{}' saved", clean_name)));
             }
         }
         Some("LOAD_WORKSPACE") => {
@@ -191,28 +206,9 @@ pub fn handle_ipc_message(
         }
         Some("DELETE_WORKSPACE") => {
             if let Some(name) = val["name"].as_str() {
-                let deleted = TabManager::delete_workspace(name);
-                if deleted {
+                if TabManager::delete_workspace(name) {
                     let _ = proxy.send_event(UserEvent::Toast(format!("Workspace '{}' deleted", name)));
-                    let workspaces = TabManager::list_workspaces();
-                    if let Ok(ws_json) = serde_json::to_string(&workspaces) {
-                        let script = format!(
-                            "window.__fynexo_set_workspaces__ && window.__fynexo_set_workspaces__({});",
-                            ws_json
-                        );
-                        let _ = proxy.send_event(UserEvent::EvalScript(script));
-                    }
                 }
-            }
-        }
-        Some("LIST_WORKSPACES") => {
-            let workspaces = TabManager::list_workspaces();
-            if let Ok(ws_json) = serde_json::to_string(&workspaces) {
-                let script = format!(
-                    "window.__fynexo_set_workspaces__ && window.__fynexo_set_workspaces__({});",
-                    ws_json
-                );
-                let _ = proxy.send_event(UserEvent::EvalScript(script));
             }
         }
         Some("CLOSE_TAB") => {
@@ -383,6 +379,9 @@ pub fn handle_ipc_message(
         Some("TOGGLE_BOOKMARK") => {
             if let Some(raw_url) = val["url"].as_str() {
                 let norm_url = normalize_logical_url(raw_url);
+                if !super::security::is_safe_bookmark_url(&norm_url) {
+                    return;
+                }
                 let title = val["title"].as_str().unwrap_or(&norm_url);
                 let mut locked = app_state.lock_safe();
                 let added = locked.userdata.toggle_bookmark(title, &norm_url);
@@ -400,9 +399,13 @@ pub fn handle_ipc_message(
         }
         Some("ADD_BOOKMARK") => {
             if let Some(raw_url) = val["url"].as_str() {
+                let norm_url = normalize_logical_url(raw_url);
+                if !super::security::is_safe_bookmark_url(&norm_url) {
+                    return;
+                }
                 let title = val["title"].as_str().unwrap_or("");
                 let mut locked = app_state.lock_safe();
-                if locked.userdata.add_bookmark(title, raw_url) {
+                if locked.userdata.add_bookmark(title, &norm_url) {
                     locked.shortcuts_mtime = UserData::shortcuts_mtime();
                     drop(locked);
                     let _ = proxy.send_event(UserEvent::SyncConfig);
@@ -444,24 +447,7 @@ pub fn handle_ipc_message(
         }
         Some("EXPORT_SHORTCUTS") => {
             let json = app_state.lock_safe().userdata.shortcuts_json_pretty();
-            match export_json_to_downloads("fynexo_shortcuts.json", &json) {
-                Ok(saved_path) => {
-                    let name_only = saved_path
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("fynexo_shortcuts.json");
-                    let _ = proxy.send_event(UserEvent::Toast(format!(
-                        "Exported {} to Downloads",
-                        name_only
-                    )));
-                }
-                Err(err) => {
-                    let _ = proxy.send_event(UserEvent::Toast(format!(
-                        "Export failed: {}",
-                        err
-                    )));
-                }
-            }
+            export_json_with_toast(proxy, "fynexo_shortcuts.json", &json, "Exported");
         }
         Some("RESET_SHORTCUTS") => {
             let mut locked = app_state.lock_safe();
@@ -550,24 +536,7 @@ pub fn handle_ipc_message(
             };
             if let Ok(json) = serde_json::to_string_pretty(&preset) {
                 let fname = format!("{}.json", preset.id);
-                match export_json_to_downloads(&fname, &json) {
-                    Ok(saved_path) => {
-                        let name_only = saved_path
-                            .file_name()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or(&fname);
-                        let _ = proxy.send_event(UserEvent::Toast(format!(
-                            "Exported {} to Downloads",
-                            name_only
-                        )));
-                    }
-                    Err(err) => {
-                        let _ = proxy.send_event(UserEvent::Toast(format!(
-                            "Export failed: {}",
-                            err
-                        )));
-                    }
-                }
+                export_json_with_toast(proxy, &fname, &json, "Exported");
             }
         }
         Some("OPEN_THEMES_DIR") => {
@@ -630,16 +599,7 @@ pub fn handle_ipc_message(
         Some("EXPORT_RULES") => {
             let rules = app_state.lock_safe().site_rules.clone();
             if let Ok(json) = serde_json::to_string_pretty(&rules) {
-                if let Ok(p) = export_json_to_downloads("fynexo_rules.json", &json) {
-                    let name_only = p
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("fynexo_rules.json");
-                    let _ = proxy.send_event(UserEvent::Toast(format!(
-                        "Exported {} to Downloads",
-                        name_only
-                    )));
-                }
+                export_json_with_toast(proxy, "fynexo_rules.json", &json, "Exported");
             }
         }
         Some("RESET_RULES") => {
@@ -709,16 +669,7 @@ pub fn handle_ipc_message(
         Some("EXPORT_ADBLOCK") => {
             let adb = app_state.lock_safe().adblock.clone();
             if let Ok(json) = serde_json::to_string_pretty(&adb) {
-                if let Ok(p) = export_json_to_downloads("fynexo_adblock.json", &json) {
-                    let name_only = p
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("fynexo_adblock.json");
-                    let _ = proxy.send_event(UserEvent::Toast(format!(
-                        "Exported {} to Downloads",
-                        name_only
-                    )));
-                }
+                export_json_with_toast(proxy, "fynexo_adblock.json", &json, "Exported");
             }
         }
         Some("SAVE_KEYBINDS") => {
@@ -761,16 +712,7 @@ pub fn handle_ipc_message(
         Some("EXPORT_KEYBINDS") => {
             let kb = app_state.lock_safe().keybinds.clone();
             if let Ok(json) = serde_json::to_string_pretty(&kb) {
-                if let Ok(p) = export_json_to_downloads("fynexo_keybinds.json", &json) {
-                    let name_only = p
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("fynexo_keybinds.json");
-                    let _ = proxy.send_event(UserEvent::Toast(format!(
-                        "Exported {} to Downloads",
-                        name_only
-                    )));
-                }
+                export_json_with_toast(proxy, "fynexo_keybinds.json", &json, "Exported");
             }
         }
         Some("RESET_KEYBINDS") => {
@@ -805,24 +747,7 @@ pub fn handle_ipc_message(
                 }
             };
             if let Ok(json) = serde_json::to_string_pretty(&bundle) {
-                match export_json_to_downloads("fynexo-setup-bundle.json", &json) {
-                    Ok(p) => {
-                        let name_only = p
-                            .file_name()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("fynexo-setup-bundle.json");
-                        let _ = proxy.send_event(UserEvent::Toast(format!(
-                            "Exported full setup ({}) to Downloads",
-                            name_only
-                        )));
-                    }
-                    Err(err) => {
-                        let _ = proxy.send_event(UserEvent::Toast(format!(
-                            "Export failed: {}",
-                            err
-                        )));
-                    }
-                }
+                export_json_with_toast(proxy, "fynexo-setup-bundle.json", &json, "Exported full setup");
             }
         }
         Some("IMPORT_FULL_SETUP_JSON") => {
@@ -966,5 +891,28 @@ pub fn handle_ipc_message(
             let _ = proxy.send_event(UserEvent::Reload);
         }
         _ => {}
+    }
+}
+
+fn export_json_with_toast(
+    proxy: &EventLoopProxy<UserEvent>,
+    filename: &str,
+    json: &str,
+    action_label: &str,
+) {
+    match export_json_to_downloads(filename, json) {
+        Ok(saved_path) => {
+            let name_only = saved_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(filename);
+            let _ = proxy.send_event(UserEvent::Toast(format!(
+                "{} {} to Downloads",
+                action_label, name_only
+            )));
+        }
+        Err(err) => {
+            let _ = proxy.send_event(UserEvent::Toast(format!("Export failed: {}", err)));
+        }
     }
 }

@@ -3,11 +3,40 @@
     // 1. Iframe Isolation: Only the top-level browsing context hosts Fynexo Chrome
     if (window.top !== window.self) return;
 
-    // Per-process IPC secret + pristine postMessage reference captured before any page script runs.
+    // Capture pristine built-ins & IPC reference at document_start before any page script runs.
     const __FNX_IPC_TOKEN = '__FNX_IPC_TOKEN__';
+    const __FNX_BRIDGE_TOKEN = '__FNX_BRIDGE_TOKEN__';
+    const __fnxJsonStringify = JSON.stringify;
+    const __fnxJsonParse = JSON.parse;
+    const __fnxDefineProperty = Object.defineProperty;
+    const __fnxStringSlice = String.prototype.slice;
+    const __fnxArraySlice = Array.prototype.slice;
     let __fnxIpcPost = (window.ipc && typeof window.ipc.postMessage === 'function')
         ? window.ipc.postMessage.bind(window.ipc)
         : null;
+
+    function exposeReadOnly(name, fn) {
+        try {
+            __fnxDefineProperty(window, name, {
+                value: fn,
+                writable: false,
+                configurable: false,
+                enumerable: false
+            });
+        } catch (_) {
+            window[name] = fn;
+        }
+    }
+
+    function exposeBridge(name, fn) {
+        function guarded() {
+            'use strict';
+            const len = arguments.length;
+            if (len < 1 || arguments[len - 1] !== __FNX_BRIDGE_TOKEN) return;
+            return fn.apply(null, __fnxArraySlice.call(arguments, 0, len - 1));
+        }
+        exposeReadOnly(name, guarded);
+    }
 
 
 __FNX_ICONS__
@@ -29,19 +58,21 @@ __FNX_DEFAULTS__
         };
     }
 
-    // Frame-0 Instant Cache Hydration
+    // Frame-0 Cache Hydration (internal pages only; never expose/read sessionStorage on external sites)
     function readSessionCache(key) {
+        if (!isInternalAny()) return null;
         try {
             const v = window.sessionStorage && window.sessionStorage.getItem(key);
-            return v ? JSON.parse(v) : null;
+            return v ? __fnxJsonParse(v) : null;
         } catch (_) {
             return null;
         }
     }
 
     function writeSessionCache(key, obj) {
+        if (!isInternalAny()) return;
         try {
-            if (window.sessionStorage) window.sessionStorage.setItem(key, JSON.stringify(obj));
+            if (window.sessionStorage) window.sessionStorage.setItem(key, __fnxJsonStringify(obj));
         } catch (_) {}
     }
 
@@ -133,9 +164,19 @@ __FNX_DEFAULTS__
     let suggestItems = [];
     let suggestIndex = -1;
     let hudToastTimer = null;
+    let onResourceStatsCb = null;
+    let isTabMutedState = false;
 
     function sendIpc(data) {
-        const payload = JSON.stringify(Object.assign({}, data, { __t: __FNX_IPC_TOKEN }));
+        'use strict';
+        let raw;
+        try {
+            raw = __fnxJsonStringify(data);
+        } catch (_) {
+            return;
+        }
+        if (!raw || raw[0] !== '{') return;
+        const payload = '{"__t":"' + __FNX_IPC_TOKEN + '"' + (raw.length > 2 ? ',' + __fnxStringSlice.call(raw, 1) : '}');
         if (!__fnxIpcPost && window.ipc && typeof window.ipc.postMessage === 'function') {
             __fnxIpcPost = window.ipc.postMessage.bind(window.ipc);
         }
@@ -161,18 +202,34 @@ __FNX_DEFAULTS__
         return false;
     }
 
+    function parseInternalRoute(rawUrl) {
+        const u = rawUrl || (window.location && window.location.href) || '';
+        if (!u) return '';
+        try {
+            const base = (window.location && window.location.href) || 'about:blank';
+            const parsed = new URL(u, base);
+            const proto = parsed.protocol.toLowerCase();
+            const host = parsed.hostname.toLowerCase();
+            const path = parsed.pathname.toLowerCase().replace(/^\/+/, '').split('/')[0] || '';
+            if (proto === 'fynexo:') {
+                if (host === 'settings' || (host === 'localhost' && path === 'settings')) return 'settings';
+                if (host === 'newtab' || (host === 'localhost' && (path === '' || path === 'newtab'))) return 'newtab';
+                return '';
+            }
+            if ((proto === 'http:' || proto === 'https:') && host === 'fynexo.localhost') {
+                if (path === 'settings') return 'settings';
+                if (path === '' || path === 'newtab') return 'newtab';
+            }
+        } catch (_) {}
+        return '';
+    }
+
     function isInternalSettings(rawUrl) {
-        const u = rawUrl || window.location.href || '';
-        const attr = document.documentElement && document.documentElement.getAttribute('data-fynexo-internal');
-        if (!rawUrl && (attr === 'settings' || attr === 'true' || !!document.getElementById('__fynexo_settings_app__'))) return true;
-        return u.startsWith('fynexo://settings') || u.includes('fynexo.localhost/settings') || u.includes('fynexo.settings');
+        return parseInternalRoute(rawUrl) === 'settings';
     }
 
     function isInternalNewtab(rawUrl) {
-        const u = rawUrl || window.location.href || '';
-        const attr = document.documentElement && document.documentElement.getAttribute('data-fynexo-internal');
-        if (!rawUrl && (attr === 'newtab' || !!document.getElementById('__fynexo_newtab_app__'))) return true;
-        return u.startsWith('fynexo://newtab') || u.includes('fynexo.localhost/newtab') || u.includes('fynexo.newtab');
+        return parseInternalRoute(rawUrl) === 'newtab';
     }
 
     function isInternalAny(rawUrl) {
@@ -200,14 +257,14 @@ __FNX_DEFAULTS__
     }
 
     function extractMonogram(rawUrl, title) {
-        if (isInternalNewtab(rawUrl)) return 'âœ¦';
-        if (!rawUrl || isInternalSettings(rawUrl)) return 'âš™';
+        if (isInternalNewtab(rawUrl)) return '✦';
+        if (!rawUrl || isInternalSettings(rawUrl)) return '⚙';
         try {
             const host = new URL(rawUrl).hostname.replace(/^(www|m)\./, '');
             if (host) return host.charAt(0).toUpperCase();
         } catch (_) {}
         const clean = (title || '').trim();
-        return clean ? clean.charAt(0).toUpperCase() : 'â€¢';
+        return clean ? clean.charAt(0).toUpperCase() : '•';
     }
 
     function monogramAccentColor(rawUrl) {
@@ -920,7 +977,7 @@ __FNX_DEFAULTS__
         if (items.length === 0) {
             const emptyHint = document.createElement('span');
             emptyHint.style.cssText = 'font-size: 11.5px; color: var(--fnx-muted); padding: 0 6px;';
-            emptyHint.textContent = 'No shortcuts saved â€” click â˜… in the address bar to pin sites here';
+            emptyHint.textContent = 'No shortcuts saved — click ★ in the address bar to pin sites here';
             frag.appendChild(emptyHint);
         } else {
             items.forEach((b) => {
@@ -929,7 +986,7 @@ __FNX_DEFAULTS__
                 pill.type = 'button';
                 pill.className = 'fnx-bm-pill';
                 const label = b.title || formatHostLabel(b.url);
-                pill.title = `${label}\n${b.url} (Middle-click for new tab Â· Right-click to remove)`;
+                pill.title = `${label}\n${b.url} (Middle-click for new tab · Right-click to remove)`;
 
                 const iconBadge = document.createElement('span');
                 iconBadge.className = 'fnx-bm-icon';
@@ -1057,7 +1114,7 @@ __FNX_DEFAULTS__
                 bmAddBtn.textContent = 'Manage';
                 bmAddBtn.title = 'Manage shortcuts in Studio Preferences';
             } else {
-                bmAddBtn.textContent = starred ? 'â˜… Saved' : '+ Save page';
+                bmAddBtn.textContent = starred ? '★ Saved' : '+ Save page';
                 bmAddBtn.title = starred ? 'Remove current page from shortcuts' : 'Pin current page to shortcuts bar';
             }
         }
@@ -1109,7 +1166,7 @@ __FNX_DEFAULTS__
                 if (schemeEl) schemeEl.textContent = 'fynexo://';
                 domEl.textContent = 'settings';
                 domEl.style.color = 'var(--fnx-fg)';
-                pathEl.textContent = ' Â· Studio Preferences';
+                pathEl.textContent = ' · Studio Preferences';
                 pathEl.style.color = 'var(--fnx-muted)';
             } else {
                 try {
@@ -1439,7 +1496,7 @@ __FNX_DEFAULTS__
 
         const mins = Math.max(1, Math.round(charCount / 900));
         if (metaSpan) {
-            metaSpan.textContent = `${formatHostLabel(window.location.href)} Â· ~${mins} min read`;
+            metaSpan.textContent = `${formatHostLabel(window.location.href)} · ~${mins} min read`;
         }
 
         readerSavedScroll = window.scrollY || window.pageYOffset || 0;
@@ -1466,7 +1523,7 @@ __FNX_DEFAULTS__
         if (reopenBtn) {
             const cc = Number(tabState.closed_count) || 0;
             reopenBtn.style.display = cc > 0 ? 'inline-flex' : 'none';
-            reopenBtn.textContent = cc > 1 ? `â†º Reopen (${cc})` : 'â†º Reopen';
+            reopenBtn.textContent = cc > 1 ? `↺ Reopen (${cc})` : '↺ Reopen';
         }
 
         const sig = computeTabsSig();
@@ -1495,7 +1552,7 @@ __FNX_DEFAULTS__
             const t = document.createElement('div');
             t.className = 'fnx-drawer-title';
             const cleanTitle = isSet ? 'Preferences' : (isNt ? 'Start page' : (tab.title || 'New tab'));
-            t.textContent = tab.pinned ? `ðŸ“Œ ${cleanTitle}` : cleanTitle;
+            t.textContent = tab.pinned ? `📌 ${cleanTitle}` : cleanTitle;
 
             const u = document.createElement('div');
             u.className = 'fnx-drawer-url';
@@ -1904,7 +1961,7 @@ __FNX_DEFAULTS__
                     pushCandidate({
                         kind: 'bang',
                         trigger: trig,
-                        title: `${trig} â€” Search ${b.name || trig}`,
+                        title: `${trig} — Search ${b.name || trig}`,
                         url: b.url || '',
                         badge: '!Bang'
                     });
@@ -2052,7 +2109,7 @@ __FNX_DEFAULTS__
         }));
 
         if ((Number(tabState.closed_count) || 0) > 0) {
-            leftGroup.appendChild(makeChip('â†º Reopen', false, () => {
+            leftGroup.appendChild(makeChip('↺ Reopen', false, () => {
                 if (closeFn) closeFn();
                 triggerProgress();
                 sendIpc({ type: 'REOPEN_CLOSED_TAB' });
@@ -2094,7 +2151,7 @@ __FNX_DEFAULTS__
         rightGroup.className = 'fnx-quick-actions';
 
         const zoomPct = Math.round((Number(config.default_zoom) || 1) * 100);
-        rightGroup.appendChild(makeChip('âˆ’', false, () => {
+        rightGroup.appendChild(makeChip('−', false, () => {
             sendIpc({ type: 'SET_ZOOM', delta: -0.1 });
         }));
         rightGroup.appendChild(makeChip(`${zoomPct}%`, zoomPct !== 100, () => {
@@ -2307,20 +2364,22 @@ __FNX_DEFAULTS__
         return evKey === wantKey;
     }
 
-    // Combined Single-Eval Boot Sync
-    window.__fynexo_boot_sync__ = function(rtPayload, tabsPayload) {
+    // Combined Single-Eval Boot Sync (token-authenticated & locked against page tampering)
+    exposeBridge('__fynexo_boot_sync__', function(rtPayload, tabsPayload) {
         if (rtPayload) {
             if (rtPayload.config) config = Object.assign(config, rtPayload.config);
             if (rtPayload.styles) styles = mergeStyles(rtPayload.styles);
             if (rtPayload.active_theme) activeTheme = Object.assign(activeTheme, rtPayload.active_theme);
             if (rtPayload.keybinds) keybinds = Object.assign({}, DEFAULT_KEYBINDS, rtPayload.keybinds);
-            if (Array.isArray(rtPayload.site_rules)) {
+            if (Array.isArray(rtPayload.enabled_rules)) {
+                enabledRules = rtPayload.enabled_rules;
+            } else if (Array.isArray(rtPayload.site_rules)) {
                 enabledRules = rtPayload.site_rules.filter(r => r && r.enabled);
             }
             if (Array.isArray(rtPayload.bookmarks)) bookmarks = rtPayload.bookmarks;
             if (Array.isArray(rtPayload.history)) historyItems = rtPayload.history;
             cacheSlimRuntime();
-            if (typeof window.__fynexo_on_settings_runtime__ === 'function') {
+            if (isInternalAny() && typeof window.__fynexo_on_settings_runtime__ === 'function') {
                 window.__fynexo_on_settings_runtime__(rtPayload);
             }
         }
@@ -2329,15 +2388,17 @@ __FNX_DEFAULTS__
             writeSessionCache('__fnx_tabs__', tabsPayload);
         }
         syncAllStyles();
-    };
+    });
 
-    window.__fynexo_set_runtime__ = function(payload) {
+    exposeBridge('__fynexo_set_runtime__', function(payload) {
         if (!payload) return;
         if (payload.config) config = Object.assign(config, payload.config);
         if (payload.styles) styles = mergeStyles(payload.styles);
         if (payload.active_theme) activeTheme = Object.assign(activeTheme, payload.active_theme);
         if (payload.keybinds) keybinds = Object.assign({}, DEFAULT_KEYBINDS, payload.keybinds);
-        if (Array.isArray(payload.site_rules)) {
+        if (Array.isArray(payload.enabled_rules)) {
+            enabledRules = payload.enabled_rules;
+        } else if (Array.isArray(payload.site_rules)) {
             enabledRules = payload.site_rules.filter(r => r && r.enabled);
         }
         if (Array.isArray(payload.bookmarks)) bookmarks = payload.bookmarks;
@@ -2354,25 +2415,25 @@ __FNX_DEFAULTS__
             const modalQuick = shadowRoot.getElementById('__fynexo_hud_quick__');
             if (isModalActive && modalQuick) renderHudQuickBar(modalQuick, closeOmniboxRef);
         }
-        if (typeof window.__fynexo_on_settings_runtime__ === 'function') {
+        if (isInternalAny() && typeof window.__fynexo_on_settings_runtime__ === 'function') {
             window.__fynexo_on_settings_runtime__(payload);
         }
-    };
+    });
 
-    window.__fynexo_set_fullscreen__ = function(full) {
+    exposeBridge('__fynexo_set_fullscreen__', function(full) {
         isFullscreen = !!full;
         if (!isFullscreen) isTopbarPeek = false;
         syncAllStyles();
-    };
+    });
 
-    window.__fynexo_toast__ = function(msg) {
+    exposeBridge('__fynexo_toast__', function(msg) {
         showHudToast(msg);
         if (typeof handleDownloadToast === 'function') {
             handleDownloadToast(msg);
         }
-    };
+    });
 
-    window.__fynexo_restore_scroll__ = function(targetY) {
+    exposeBridge('__fynexo_restore_scroll__', function(targetY) {
         const y = Number(targetY) || 0;
         if (y <= 24 || isInternalAny()) return;
         const attemptScroll = () => {
@@ -2388,10 +2449,10 @@ __FNX_DEFAULTS__
         } else {
             setTimeout(attemptScroll, 80);
         }
-    };
+    });
 
-    // Android Hardware / Gesture Back Hook: returns true if Fynexo consumed the back action
-    window.__fynexo_handle_back__ = function() {
+    // Android Hardware / Gesture Back Hook (called from Kotlin MainActivity with 0 args)
+    exposeReadOnly('__fynexo_handle_back__', function() {
         if (isReaderOpen) {
             closeReaderMode();
             return true;
@@ -2413,34 +2474,36 @@ __FNX_DEFAULTS__
             return true;
         }
         return false;
-    };
+    });
 
-    window.__fynexo_set_config__ = function(newCfg) {
+    exposeBridge('__fynexo_set_config__', function(newCfg) {
         if (!newCfg) return;
         config = Object.assign(config, newCfg);
         syncAllStyles();
-    };
+    });
 
-    window.__fnx_set_tab_muted__ = function(isMuted) {
-        window.__fnx_muted = !!isMuted;
+    function applyTabMuted(isMuted) {
+        isTabMutedState = !!isMuted;
         try {
             document.querySelectorAll('video, audio').forEach(el => {
-                try { el.muted = !!isMuted; } catch(_) {}
+                try { el.muted = isTabMutedState; } catch(_) {}
             });
         } catch(_) {}
-    };
+    }
+
+    exposeBridge('__fnx_set_tab_muted__', applyTabMuted);
 
     try {
         const origMediaPlay = HTMLMediaElement.prototype.play;
         HTMLMediaElement.prototype.play = function() {
-            if (window.__fnx_muted) {
+            if (isTabMutedState) {
                 try { this.muted = true; } catch(_) {}
             }
             return origMediaPlay.apply(this, arguments);
         };
     } catch(_) {}
 
-    window.__fynexo_set_tabs__ = function(state) {
+    exposeBridge('__fynexo_set_tabs__', function(state) {
         if (!state) return;
         tabState = state;
         writeSessionCache('__fnx_tabs__', state);
@@ -2449,10 +2512,16 @@ __FNX_DEFAULTS__
         try {
             const currentTab = state.tabs && state.tabs.find(t => t.id === state.active_id);
             if (currentTab && typeof currentTab.muted === 'boolean') {
-                window.__fnx_set_tab_muted__(currentTab.muted);
+                applyTabMuted(currentTab.muted);
             }
         } catch(_) {}
-    };
+    });
+
+    exposeBridge('__fynexo_on_resource_stats__', function(stats) {
+        if (typeof onResourceStatsCb === 'function') {
+            onResourceStatsCb(stats);
+        }
+    });
 
     function setKeyboardHiddenState(hidden) {
         if (styles.mobile_bar.auto_hide_on_keyboard === false) hidden = false;
@@ -2580,7 +2649,7 @@ __FNX_DEFAULTS__
             `;
             rootContainer.appendChild(host);
 
-            shadowRoot = host.attachShadow({ mode: 'open' });
+            shadowRoot = host.attachShadow({ mode: 'closed' });
 
             const baseStyle = document.createElement('style');
 
@@ -2836,7 +2905,7 @@ __FNX_DEFAULTS__
             incogBadge.type = 'button';
             incogBadge.id = '__fynexo_incog_badge__';
             incogBadge.className = 'fnx-incog-pill';
-            incogBadge.title = 'Private mode active â€” click to exit Private mode';
+            incogBadge.title = 'Private mode active — click to exit Private mode';
             incogBadge.textContent = 'Private';
             incogBadge.style.display = config.incognito ? 'inline-flex' : 'none';
             incogBadge.onclick = () => {
@@ -3195,7 +3264,7 @@ __FNX_DEFAULTS__
             const mediaHeaderLeft = document.createElement('div');
             mediaHeaderLeft.style.cssText = 'display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px;';
             const mediaIconSpan = document.createElement('span');
-            mediaIconSpan.textContent = 'ðŸŽµ';
+            mediaIconSpan.textContent = '🎵';
             const mediaHeaderTxt = document.createElement('span');
             mediaHeaderTxt.textContent = 'Media Control';
             mediaHeaderLeft.appendChild(mediaIconSpan);
@@ -3286,9 +3355,9 @@ __FNX_DEFAULTS__
             const volPresets = [
                 { val: 50, label: '50%' },
                 { val: 100, label: '100%' },
-                { val: 150, label: '150% ðŸ”¥' },
-                { val: 200, label: '200% ðŸ”¥' },
-                { val: 300, label: '300% âš¡' }
+                { val: 150, label: '150% 🔥' },
+                { val: 200, label: '200% 🔥' },
+                { val: 300, label: '300% ⚡' }
             ];
             volPresets.forEach(p => {
                 const chip = document.createElement('button');
@@ -3324,7 +3393,7 @@ __FNX_DEFAULTS__
                     volPercentLabel.textContent = 'Muted';
                     volPercentLabel.style.color = 'var(--fnx-muted)';
                 } else if (mediaGainValue > 100) {
-                    volPercentLabel.textContent = mediaGainValue + '% ðŸ”¥';
+                    volPercentLabel.textContent = mediaGainValue + '% 🔥';
                     volPercentLabel.style.color = '#fb923c';
                 } else {
                     volPercentLabel.textContent = mediaGainValue + '%';
@@ -3385,7 +3454,7 @@ __FNX_DEFAULTS__
             const shieldHeaderLeft = document.createElement('div');
             shieldHeaderLeft.style.cssText = 'display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px;';
             const shieldHIcon = document.createElement('span');
-            shieldHIcon.textContent = 'ðŸ›¡ï¸';
+            shieldHIcon.textContent = '🛡️';
             const shieldHTxt = document.createElement('span');
             shieldHTxt.textContent = 'Adblock Shield';
             shieldHeaderLeft.appendChild(shieldHIcon);
@@ -3470,7 +3539,7 @@ __FNX_DEFAULTS__
             const dlHeaderLeft = document.createElement('div');
             dlHeaderLeft.style.cssText = 'display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px;';
             const dlHIcon = document.createElement('span');
-            dlHIcon.textContent = 'ðŸ“¥';
+            dlHIcon.textContent = '📥';
             const dlHTxt = document.createElement('span');
             dlHTxt.textContent = 'Downloads';
             dlHeaderLeft.appendChild(dlHIcon);
@@ -3517,7 +3586,7 @@ __FNX_DEFAULTS__
                     nameSpan.textContent = dl.name;
                     const timeSpan = document.createElement('span');
                     timeSpan.style.cssText = 'font-size: 10px; color: var(--fnx-muted);';
-                    timeSpan.textContent = dl.time + ' Â· ' + dl.status;
+                    timeSpan.textContent = dl.time + ' · ' + dl.status;
                     nameWrap.appendChild(nameSpan);
                     nameWrap.appendChild(timeSpan);
                     rowLeft.appendChild(nameWrap);
@@ -3653,7 +3722,7 @@ __FNX_DEFAULTS__
             btnTrimMem.type = 'button';
             btnTrimMem.className = 'fnx-chip';
             btnTrimMem.style.cssText = 'width: 100%; justify-content: center; padding: 7px 0; font-size: 11.5px; font-weight: 500; background: var(--fnx-accent); color: #000; cursor: pointer; border-radius: 6px; margin-top: 4px;';
-            btnTrimMem.textContent = 'âš¡ Flush Working Set / Trim';
+            btnTrimMem.textContent = '⚡ Flush Working Set / Trim';
             btnTrimMem.onclick = () => {
                 sendIpc({ type: 'FORCE_TRIM_MEMORY' });
             };
@@ -3667,7 +3736,7 @@ __FNX_DEFAULTS__
                 sendIpc({ type: 'GET_RESOURCE_USAGE' });
             }
 
-            window.__fynexo_on_resource_stats__ = function(stats) {
+            onResourceStatsCb = function(stats) {
                 if (!stats) return;
                 const h = taskMgrPopoverEl.querySelector('#__fynexo_tm_host__');
                 const c = taskMgrPopoverEl.querySelector('#__fynexo_tm_commit__');
@@ -3802,7 +3871,7 @@ __FNX_DEFAULTS__
             const btnRdSmaller = document.createElement('button');
             btnRdSmaller.type = 'button';
             btnRdSmaller.className = 'fnx-rd-btn';
-            btnRdSmaller.textContent = 'Aâˆ’';
+            btnRdSmaller.textContent = 'A−';
             btnRdSmaller.onclick = () => {
                 readerFontPx = Math.max(14, readerFontPx - 2);
                 syncReaderTypography();
@@ -3935,7 +4004,7 @@ __FNX_DEFAULTS__
             btnDrawerReopen.type = 'button';
             btnDrawerReopen.id = '__fynexo_drawer_reopen__';
             btnDrawerReopen.style.cssText = 'display: none; padding: 3px 9px; font-size: 11.5px; font-weight: 500; border-radius: 6px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); cursor: pointer;';
-            btnDrawerReopen.textContent = 'â†º Reopen';
+            btnDrawerReopen.textContent = '↺ Reopen';
             btnDrawerReopen.onclick = () => {
                 closeMobileDrawer();
                 triggerProgress();
@@ -4036,11 +4105,11 @@ __FNX_DEFAULTS__
             spTabsWrap.style.cssText = 'display: flex; align-items: center; gap: 4px;';
             const btnSpWeb = document.createElement('button');
             btnSpWeb.className = 'fnx-chip active';
-            btnSpWeb.textContent = 'ðŸŒ Web Panel';
+            btnSpWeb.textContent = '🌐 Web Panel';
             btnSpWeb.style.cssText = 'font-size: 11px; padding: 3px 8px; cursor: pointer;';
             const btnSpNotes = document.createElement('button');
             btnSpNotes.className = 'fnx-chip';
-            btnSpNotes.textContent = 'ðŸ“ Quick Notes';
+            btnSpNotes.textContent = '📝 Quick Notes';
             btnSpNotes.style.cssText = 'font-size: 11px; padding: 3px 8px; cursor: pointer;';
             spTabsWrap.appendChild(btnSpWeb);
             spTabsWrap.appendChild(btnSpNotes);
@@ -4754,6 +4823,18 @@ __FNX_DEFAULTS__
                 });
             }
 
+            function isAllowedPopupUrl(rawUrl) {
+                if (!rawUrl) return false;
+                try {
+                    const parsed = new URL(String(rawUrl), window.location.href);
+                    if (isInternalAny()) return true;
+                    const p = parsed.protocol.toLowerCase();
+                    return (p === 'http:' || p === 'https:') && parsed.hostname.toLowerCase() !== 'fynexo.localhost';
+                } catch (_) {
+                    return false;
+                }
+            }
+
             document.addEventListener('click', (e) => {
                 const a = e.target.closest ? e.target.closest('a') : null;
                 if (a && a.href) {
@@ -4764,8 +4845,10 @@ __FNX_DEFAULTS__
                         if (isBlank || isCtrlOrMiddle) {
                             e.preventDefault();
                             e.stopPropagation();
-                            triggerProgress();
-                            sendIpc({ type: 'NEW_TAB', url: a.href });
+                            if (isAllowedPopupUrl(a.href)) {
+                                triggerProgress();
+                                sendIpc({ type: 'NEW_TAB', url: a.href });
+                            }
                         }
                     }
                 }
@@ -4773,9 +4856,9 @@ __FNX_DEFAULTS__
 
             try {
                 window.open = function(url) {
-                    if (url) {
+                    if (url && isAllowedPopupUrl(url)) {
                         triggerProgress();
-                        sendIpc({ type: 'NEW_TAB', url: url });
+                        sendIpc({ type: 'NEW_TAB', url: new URL(String(url), window.location.href).href });
                     }
                     return null;
                 };

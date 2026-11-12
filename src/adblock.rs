@@ -190,6 +190,7 @@ static AD_DOMAIN_SET: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 
 static DYNAMIC_ADBLOCK: LazyLock<RwLock<DynamicAdblockState>> =
     LazyLock::new(|| RwLock::new(DynamicAdblockState::default()));
+static HAS_DYNAMIC_RULES: AtomicBool = AtomicBool::new(false);
 
 #[inline]
 pub fn set_enabled(enabled: bool) {
@@ -223,6 +224,10 @@ pub fn sync_dynamic_lists(cfg: &AdblockConfig) {
             .iter()
             .filter_map(|d| normalize_domain_entry(d))
             .collect();
+        HAS_DYNAMIC_RULES.store(
+            !guard.custom_blocked.is_empty() || !guard.whitelisted.is_empty(),
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -290,14 +295,18 @@ pub fn is_blocked_host(host: &str) -> bool {
     };
     let lower = lower_cow.as_ref();
 
-    let custom_matched = if let Ok(guard) = DYNAMIC_ADBLOCK.read() {
-        if !guard.whitelisted.is_empty()
-            && (matches_domain_set(&guard.active_page_host, &guard.whitelisted)
-                || matches_domain_set(lower, &guard.whitelisted))
-        {
-            return false;
+    let custom_matched = if HAS_DYNAMIC_RULES.load(Ordering::Relaxed) {
+        if let Ok(guard) = DYNAMIC_ADBLOCK.read() {
+            if !guard.whitelisted.is_empty()
+                && (matches_domain_set(&guard.active_page_host, &guard.whitelisted)
+                    || matches_domain_set(lower, &guard.whitelisted))
+            {
+                return false;
+            }
+            matches_domain_set(lower, &guard.custom_blocked)
+        } else {
+            false
         }
-        matches_domain_set(lower, &guard.custom_blocked)
     } else {
         false
     };
@@ -465,6 +474,10 @@ pub fn launch_external_scheme_windows(url: &str) -> bool {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    if url.len() > 2048 || url.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return false;
+    }
 
     let lower = url.to_ascii_lowercase();
     let is_safe_external =

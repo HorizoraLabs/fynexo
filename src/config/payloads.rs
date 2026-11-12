@@ -59,7 +59,7 @@ pub struct RuntimePayload {
 }
 
 /// Slim boot payload injected into external webpages (`hud.rs`) so disabled rules, inactive `.json`
-/// themes, and adblock lists consume 0 bytes of per-webpage DOM/JS memory.
+/// themes, filesystem paths, and adblock lists consume 0 bytes and are never exposed to external pages.
 #[derive(Serialize, Clone, Debug)]
 pub struct HudBootPayload<'a> {
     pub config: &'a AppConfig,
@@ -71,4 +71,22 @@ pub struct HudBootPayload<'a> {
     pub history: &'a [HistoryItem],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tabs: Option<&'a crate::tabs::TabState>,
+}
+
+impl<'a> HudBootPayload<'a> {
+    /// Build a minimal, external-safe HUD payload from a full `RuntimePayload`.
+    pub fn from_runtime(payload: &'a RuntimePayload, tabs: Option<&'a crate::tabs::TabState>) -> Self {
+        let history_slice = &payload.history[..payload.history.len().min(25)];
+        let enabled_rules: Vec<&SiteRule> = payload.site_rules.iter().filter(|r| r.enabled).collect();
+        Self {
+            config: &payload.config,
+            styles: &payload.styles,
+            active_theme: &payload.active_theme,
+            keybinds: &payload.keybinds,
+            enabled_rules,
+            bookmarks: &payload.bookmarks,
+            history: history_slice,
+            tabs,
+        }
+    }
 }

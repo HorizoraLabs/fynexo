@@ -26,6 +26,7 @@ use crate::config::data_dir;
 use crate::tabs::TabManager;
 use crate::util::LockExt;
 
+#[cfg(target_os = "windows")]
 use self::memory::{force_empty_working_set, get_current_process_memory_mb};
 use self::url::to_webview_url;
 use self::webview::build_tab_webview;
@@ -79,6 +80,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let mut foreground_webview: Option<wry::WebView> = Some(initial_webview);
     let mut idle_normal_webview: Option<wry::WebView> = None;
     let mut background_webviews: std::collections::HashMap<usize, wry::WebView> = std::collections::HashMap::new();
+    let bridge_tok_js =
+        serde_json::to_string(security::bridge_token()).unwrap_or_else(|_| "\"\"".to_string());
 
     // Run the Window Event Lifecycle
     event_loop.run(move |event, _, control_flow| {
@@ -134,6 +137,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                             let _ = norm_wv.set_memory_usage_level(MemoryUsageLevel::Low);
                         }
                         let _ = norm_wv.set_visible(false);
+                        // Unload the departing webpage so idle_normal_webview keeps 0 page DOM/JS RAM.
+                        let _ = norm_wv.load_url("about:blank");
                         idle_normal_webview = Some(norm_wv);
                     }
                     #[cfg(target_os = "windows")]
@@ -184,14 +189,18 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     (tm.get_state(), muted)
                 };
                 if let Ok(tabs_json) = serde_json::to_string(&tab_state) {
-                    let script = format!("window.__fynexo_set_tabs__ && window.__fynexo_set_tabs__({});", tabs_json);
+                    let script = format!(
+                        "window.__fynexo_set_tabs__ && window.__fynexo_set_tabs__({}, {});",
+                        tabs_json, bridge_tok_js
+                    );
                     if let Some(ref fg) = foreground_webview {
                         let _ = fg.evaluate_script(&script);
                     }
                 }
                 let mute_script = format!(
-                    "window.__fnx_set_tab_muted__ && window.__fnx_set_tab_muted__({});",
-                    if is_tab_muted { "true" } else { "false" }
+                    "window.__fnx_set_tab_muted__ && window.__fnx_set_tab_muted__({}, {});",
+                    if is_tab_muted { "true" } else { "false" },
+                    bridge_tok_js
                 );
                 if let Some(ref fg) = foreground_webview {
                     let _ = fg.evaluate_script(&mute_script);
@@ -213,8 +222,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             }
             Event::UserEvent(UserEvent::ToggleTabMute { id, muted }) => {
                 let mute_script = format!(
-                    "window.__fnx_set_tab_muted__ && window.__fnx_set_tab_muted__({});",
-                    if muted { "true" } else { "false" }
+                    "window.__fnx_set_tab_muted__ && window.__fnx_set_tab_muted__({}, {});",
+                    if muted { "true" } else { "false" },
+                    bridge_tok_js
                 );
                 if id == active_tab_id {
                     if let Some(ref fg) = foreground_webview {
@@ -226,23 +236,23 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             }
             Event::UserEvent(UserEvent::BootSync) => {
                 let payload = state_for_event.lock_safe().payload();
-                let (tab_state, scroll_y) = {
+                let (tab_state, scroll_y, active_url) = {
                     let tm = tabs_for_event.lock_safe();
-                    (tm.get_state(), tm.active_scroll_y())
+                    (tm.get_state(), tm.active_scroll_y(), tm.active_url())
                 };
                 if let (Ok(rt_json), Ok(tabs_json)) = (
-                    serde_json::to_string(&payload),
+                    serialize_runtime_for_url(&payload, &active_url),
                     serde_json::to_string(&tab_state),
                 ) {
                     let script = if scroll_y > 24.0 {
                         format!(
-                            "window.__fynexo_boot_sync__ && window.__fynexo_boot_sync__({}, {}); window.__fynexo_restore_scroll__ && window.__fynexo_restore_scroll__({});",
-                            rt_json, tabs_json, scroll_y
+                            "window.__fynexo_boot_sync__ && window.__fynexo_boot_sync__({}, {}, {}); window.__fynexo_restore_scroll__ && window.__fynexo_restore_scroll__({}, {});",
+                            rt_json, tabs_json, bridge_tok_js, scroll_y, bridge_tok_js
                         )
                     } else {
                         format!(
-                            "window.__fynexo_boot_sync__ && window.__fynexo_boot_sync__({}, {});",
-                            rt_json, tabs_json
+                            "window.__fynexo_boot_sync__ && window.__fynexo_boot_sync__({}, {}, {});",
+                            rt_json, tabs_json, bridge_tok_js
                         )
                     };
                     if let Some(ref fg) = foreground_webview {
@@ -252,10 +262,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             }
             Event::UserEvent(UserEvent::SyncConfig) => {
                 let payload = state_for_event.lock_safe().payload();
-                if let Ok(json) = serde_json::to_string(&payload) {
+                let active_url = tabs_for_event.lock_safe().active_url();
+                if let Ok(json) = serialize_runtime_for_url(&payload, &active_url) {
                     let script = format!(
-                        "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({});",
-                        json
+                        "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
+                        json, bridge_tok_js
                     );
                     if let Some(ref fg) = foreground_webview {
                         let _ = fg.evaluate_script(&script);
@@ -266,8 +277,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 let state = tabs_for_event.lock_safe().get_state();
                 if let Ok(json) = serde_json::to_string(&state) {
                     let script = format!(
-                        "window.__fynexo_set_tabs__ && window.__fynexo_set_tabs__({});",
-                        json
+                        "window.__fynexo_set_tabs__ && window.__fynexo_set_tabs__({}, {});",
+                        json, bridge_tok_js
                     );
                     if let Some(ref fg) = foreground_webview {
                         let _ = fg.evaluate_script(&script);
@@ -286,8 +297,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             Event::UserEvent(UserEvent::RestoreScroll(scroll_y)) => {
                 if scroll_y > 24.0 {
                     let script = format!(
-                        "window.__fynexo_restore_scroll__ && window.__fynexo_restore_scroll__({});",
-                        scroll_y
+                        "window.__fynexo_restore_scroll__ && window.__fynexo_restore_scroll__({}, {});",
+                        scroll_y, bridge_tok_js
                     );
                     if let Some(ref fg) = foreground_webview {
                         let _ = fg.evaluate_script(&script);
@@ -297,8 +308,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             Event::UserEvent(UserEvent::Toast(msg)) => {
                 if let Ok(json_msg) = serde_json::to_string(&msg) {
                     let script = format!(
-                        "window.__fynexo_toast__ && window.__fynexo_toast__({});",
-                        json_msg
+                        "window.__fynexo_toast__ && window.__fynexo_toast__({}, {});",
+                        json_msg, bridge_tok_js
                     );
                     if let Some(ref fg) = foreground_webview {
                         let _ = fg.evaluate_script(&script);
@@ -314,8 +325,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     window.set_fullscreen(None);
                 }
                 let script = format!(
-                    "window.__fynexo_set_fullscreen__ && window.__fynexo_set_fullscreen__({});",
-                    if next_full { "true" } else { "false" }
+                    "window.__fynexo_set_fullscreen__ && window.__fynexo_set_fullscreen__({}, {});",
+                    if next_full { "true" } else { "false" },
+                    bridge_tok_js
                 );
                 if let Some(ref fg) = foreground_webview {
                     let _ = fg.evaluate_script(&script);
@@ -418,8 +430,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         let _ = fg.set_memory_usage_level(MemoryUsageLevel::Normal);
                         let (ws, commit) = get_current_process_memory_mb();
                         let script = format!(
-                            "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({{ host_mb: {:.1}, commit_mb: {:.1} }}); window.__fynexo_toast__ && window.__fynexo_toast__('Working set trimmed ({:.1} MB)');",
-                            ws, commit, ws
+                            "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({{ host_mb: {:.1}, commit_mb: {:.1} }}, {}); window.__fynexo_toast__ && window.__fynexo_toast__('Working set trimmed ({:.1} MB)', {});",
+                            ws, commit, bridge_tok_js, ws, bridge_tok_js
                         );
                         let _ = fg.evaluate_script(&script);
                     }
@@ -446,10 +458,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     if let Some(ref fg) = foreground_webview {
                         adblock::sync_windows_custom_filters(fg, &payload.adblock);
                     }
-                    if let Ok(json) = serde_json::to_string(&payload) {
+                    let active_url = tabs_for_event.lock_safe().active_url();
+                    if let Ok(json) = serialize_runtime_for_url(&payload, &active_url) {
                         let script = format!(
-                            "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({});",
-                            json
+                            "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
+                            json, bridge_tok_js
                         );
                         if let Some(ref fg) = foreground_webview {
                             let _ = fg.evaluate_script(&script);
@@ -473,4 +486,18 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
     #[allow(unreachable_code)]
     Ok(())
+}
+
+/// Only send full `RuntimePayload` (local paths, full history, disabled rules, adblock lists)
+/// to internal Fynexo pages; external websites receive the stripped `HudBootPayload`.
+fn serialize_runtime_for_url(
+    payload: &crate::config::RuntimePayload,
+    active_url: &str,
+) -> Result<String, serde_json::Error> {
+    if security::is_internal_origin(active_url) {
+        serde_json::to_string(payload)
+    } else {
+        let slim = crate::config::HudBootPayload::from_runtime(payload, None);
+        serde_json::to_string(&slim)
+    }
 }

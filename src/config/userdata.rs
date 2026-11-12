@@ -335,6 +335,23 @@ impl UserData {
         let key = normalize_url_key(trimmed_url);
         let now = now_unix_secs();
 
+        // Deduplicate noisy SPA title mutations on the active page:
+        //  - Exact same URL & title within 30s -> skip disk write and visit inflation.
+        //  - Same URL within 30s with a new title -> refresh title without incrementing visits.
+        if let Some(head) = self.history.first_mut() {
+            if normalize_url_key(&head.url).eq_ignore_ascii_case(key)
+                && now.saturating_sub(head.visited_at) < 30
+            {
+                if head.title == clean_title {
+                    return false;
+                }
+                head.title = clean_title.to_string();
+                head.url = trimmed_url.to_string();
+                self.save_history();
+                return true;
+            }
+        }
+
         if let Some(pos) = self
             .history
             .iter()
@@ -367,5 +384,35 @@ impl UserData {
     pub fn clear_history(&mut self) {
         self.history.clear();
         self.save_history();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_visit_deduplicates_rapid_spa_title_updates() {
+        crate::util::isolate_data_dir();
+        let mut ud = UserData {
+            bookmarks: Vec::new(),
+            history: Vec::new(),
+        };
+        assert!(ud.record_visit("Video A", "https://example.com/watch?v=1"));
+        assert_eq!(ud.history.len(), 1);
+        assert_eq!(ud.history[0].visits, 1);
+
+        // Identical rapid callback: skipped without disk write or visit inflation.
+        assert!(!ud.record_visit("Video A", "https://example.com/watch?v=1"));
+        assert_eq!(ud.history[0].visits, 1);
+
+        // Dynamic title update on the same URL within 30s: updates title, keeps visits = 1.
+        assert!(ud.record_visit("(1) Video A", "https://example.com/watch?v=1"));
+        assert_eq!(ud.history[0].title, "(1) Video A");
+        assert_eq!(ud.history[0].visits, 1);
+
+        // Internal pages are never recorded.
+        assert!(!ud.record_visit("Settings", "fynexo://settings"));
+        assert_eq!(ud.history.len(), 1);
     }
 }

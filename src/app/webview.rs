@@ -83,6 +83,10 @@ pub fn build_tab_webview(
         if adblock::launch_external_scheme_windows(&url) {
             return wry::NewWindowResponse::Deny;
         }
+        // Only external http(s) URLs may spawn popup tabs; deny fynexo://, file://, javascript:, data:, etc.
+        if !super::security::is_safe_external_http_url(&url) {
+            return wry::NewWindowResponse::Deny;
+        }
         let logical = normalize_logical_url(&url);
         let (new_id, nav_url) = tabs_for_new_window.lock_safe().new_tab(&logical);
         let _ = proxy_for_new_window.send_event(UserEvent::SwitchTab { id: new_id, url: nav_url });
@@ -90,7 +94,7 @@ pub fn build_tab_webview(
         wry::NewWindowResponse::Deny
     });
 
-    // Main-Frame Navigation Guard: Block Ad Redirects & Route External Schemes Safely
+    // Main-Frame Navigation Guard: Block Ad Redirects, Data-URI Phishing & Route External Schemes Safely
     #[allow(unused_variables)]
     let proxy_for_nav = event_proxy.clone();
     builder = builder.with_navigation_handler(move |url| {
@@ -99,7 +103,6 @@ pub fn build_tab_webview(
             || lower.starts_with("https://")
             || lower.starts_with("fynexo://")
             || lower.starts_with("about:")
-            || lower.starts_with("data:")
             || lower.starts_with("blob:")
             || lower.starts_with("javascript:");
 
