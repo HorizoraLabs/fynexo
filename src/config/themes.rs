@@ -348,7 +348,10 @@ pub fn load_all_themes() -> Vec<ThemePreset> {
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             for preset in builtin_theme_presets() {
-                let _ = save_theme_preset(&preset);
+                let dest = dir.join(format!("{}.json", preset.id));
+                if !dest.exists() {
+                    let _ = save_theme_preset(&preset);
+                }
             }
         }
     }
@@ -481,5 +484,14 @@ mod tests {
         assert_eq!(sanitize_theme_id("---"), "custom-theme");
         assert_eq!(sanitize_theme_id(""), "custom-theme");
         assert!(sanitize_theme_id("..\\..\\x").chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    }
+
+    #[test]
+    fn builtin_themes_are_protected_from_deletion() {
+        crate::util::isolate_data_dir();
+        assert!(!delete_theme_preset("dark"));
+        assert!(!delete_theme_preset("oled"));
+        let presets = load_all_themes();
+        assert!(presets.iter().any(|t| t.id == "dark"));
     }
 }

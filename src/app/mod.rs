@@ -235,13 +235,12 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             Event::UserEvent(UserEvent::BootSync) => {
-                let payload = state_for_event.lock_safe().payload();
                 let (tab_state, scroll_y, active_url) = {
                     let tm = tabs_for_event.lock_safe();
                     (tm.get_state(), tm.active_scroll_y(), tm.active_url())
                 };
                 if let (Ok(rt_json), Ok(tabs_json)) = (
-                    serialize_runtime_for_url(&payload, &active_url),
+                    serialize_runtime_for_url(&state_for_event.lock_safe(), &active_url),
                     serde_json::to_string(&tab_state),
                 ) {
                     let script = if scroll_y > 24.0 {
@@ -261,9 +260,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             Event::UserEvent(UserEvent::SyncConfig) => {
-                let payload = state_for_event.lock_safe().payload();
                 let active_url = tabs_for_event.lock_safe().active_url();
-                if let Ok(json) = serialize_runtime_for_url(&payload, &active_url) {
+                if let Ok(json) = serialize_runtime_for_url(&state_for_event.lock_safe(), &active_url) {
                     let script = format!(
                         "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
                         json, bridge_tok_js
@@ -450,16 +448,17 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 // Zero-polling instant hot-reload when user edits any *.json file externally
                 let changed = state_for_event.lock_safe().reload_if_changed();
                 if changed {
-                    let payload = state_for_event.lock_safe().payload();
-                    tabs_for_event
-                        .lock_safe()
-                        .set_incognito(payload.config.incognito);
-                    #[cfg(target_os = "windows")]
-                    if let Some(ref fg) = foreground_webview {
-                        adblock::sync_windows_custom_filters(fg, &payload.adblock);
-                    }
                     let active_url = tabs_for_event.lock_safe().active_url();
-                    if let Ok(json) = serialize_runtime_for_url(&payload, &active_url) {
+                    let (incognito, json_res) = {
+                        let st = state_for_event.lock_safe();
+                        #[cfg(target_os = "windows")]
+                        if let Some(ref fg) = foreground_webview {
+                            adblock::sync_windows_custom_filters(fg, &st.adblock);
+                        }
+                        (st.config.incognito, serialize_runtime_for_url(&st, &active_url))
+                    };
+                    tabs_for_event.lock_safe().set_incognito(incognito);
+                    if let Ok(json) = json_res {
                         let script = format!(
                             "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
                             json, bridge_tok_js
@@ -491,13 +490,12 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 /// Only send full `RuntimePayload` (local paths, full history, disabled rules, adblock lists)
 /// to internal Fynexo pages; external websites receive the stripped `HudBootPayload`.
 fn serialize_runtime_for_url(
-    payload: &crate::config::RuntimePayload,
+    state: &AppState,
     active_url: &str,
 ) -> Result<String, serde_json::Error> {
     if security::is_internal_origin(active_url) {
-        serde_json::to_string(payload)
+        serde_json::to_string(&state.payload())
     } else {
-        let slim = crate::config::HudBootPayload::from_runtime(payload, None);
-        serde_json::to_string(&slim)
+        state.hud_json()
     }
 }

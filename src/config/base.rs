@@ -74,11 +74,16 @@ pub fn data_dir() -> &'static Path {
 }
 
 pub fn data_dir_display() -> String {
-    let p = data_dir().to_path_buf();
-    fs::canonicalize(&p)
-        .unwrap_or(p)
-        .to_string_lossy()
-        .replace("\\\\?\\", "")
+    static DISPLAY_CACHE: OnceLock<String> = OnceLock::new();
+    DISPLAY_CACHE
+        .get_or_init(|| {
+            let p = data_dir().to_path_buf();
+            fs::canonicalize(&p)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace("\\\\?\\", "")
+        })
+        .clone()
 }
 
 pub fn downloads_dir() -> PathBuf {

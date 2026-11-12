@@ -155,4 +155,23 @@ impl AppState {
             blocked_ads: adblock::blocked_count(),
         }
     }
+
+    /// Serialize the lightweight external-safe HUD payload directly from `&self`
+    /// without cloning `themes`, `adblock`, or calling filesystem `canonicalize` paths.
+    pub fn hud_json(&self) -> Result<String, serde_json::Error> {
+        let active_theme = self.resolve_active_theme();
+        let enabled_rules: Vec<&SiteRule> = self.site_rules.iter().filter(|r| r.enabled).collect();
+        let history_slice = &self.userdata.history[..self.userdata.history.len().min(25)];
+        let slim = crate::config::HudBootPayload {
+            config: &self.config,
+            styles: &self.styles,
+            active_theme: &active_theme,
+            keybinds: &self.keybinds,
+            enabled_rules,
+            bookmarks: &self.userdata.bookmarks,
+            history: history_slice,
+            tabs: None,
+        };
+        serde_json::to_string(&slim)
+    }
 }

@@ -4995,14 +4995,21 @@ __FNX_DEFAULTS__
                     if (!host.includes('youtube.com')) return;
 
                     let savedRate = 1.0;
+                    let playerEl = null;
+                    let adPollTimer = null;
 
                     const skipAds = () => {
-                        if (config.adblock === false || document.hidden) return;
-                        const player = document.querySelector('.html5-video-player');
-                        if (!player) return;
+                        if (config.adblock === false) {
+                            if (adPollTimer) { clearInterval(adPollTimer); adPollTimer = null; }
+                            return;
+                        }
+                        if (!playerEl || !playerEl.isConnected) {
+                            playerEl = document.querySelector('.html5-video-player');
+                        }
+                        if (!playerEl) return;
 
-                        const isAd = player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting');
-                        const v = player.querySelector('video');
+                        const isAd = playerEl.classList.contains('ad-showing') || playerEl.classList.contains('ad-interrupting');
+                        const v = playerEl.querySelector('video');
 
                         if (v) {
                             if (isAd) {
@@ -5010,10 +5017,10 @@ __FNX_DEFAULTS__
                                 v.muted = true;
                                 v.playbackRate = 16.0;
                             } else {
-                                // Restore original playback speed and unmute as soon as ad finishes
+                                // Restore playback speed and respect the tab's mute state as soon as ad finishes
                                 if (v.playbackRate > 2.0) {
                                     v.playbackRate = savedRate || 1.0;
-                                    v.muted = false;
+                                    v.muted = isTabMutedState;
                                 } else {
                                     savedRate = v.playbackRate;
                                 }
@@ -5021,21 +5028,44 @@ __FNX_DEFAULTS__
                         }
 
                         if (isAd) {
-                            // Only target clickable button elements to prevent container click delegation issues
-                            const skipBtn = document.querySelector(
+                            if (!adPollTimer) {
+                                adPollTimer = setInterval(skipAds, 250);
+                            }
+                            const skipBtn = playerEl.querySelector(
                                 'button.ytp-ad-skip-button-modern, button.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-container button'
                             );
                             if (skipBtn && typeof skipBtn.click === 'function') {
                                 try { skipBtn.click(); } catch (_) {}
                             }
-                            const overlayBtn = document.querySelector('.ytp-ad-overlay-close-button');
+                            const overlayBtn = playerEl.querySelector('.ytp-ad-overlay-close-button');
                             if (overlayBtn && typeof overlayBtn.click === 'function') {
                                 try { overlayBtn.click(); } catch (_) {}
                             }
+                        } else if (adPollTimer) {
+                            clearInterval(adPollTimer);
+                            adPollTimer = null;
                         }
                     };
 
-                    setInterval(skipAds, 250);
+                    // Observe player class changes so idle playback incurs zero 250ms DOM polling.
+                    let observedPlayer = null;
+                    const attachPlayerObserver = () => {
+                        const p = document.querySelector('.html5-video-player');
+                        if (!p || p === observedPlayer) return false;
+                        observedPlayer = p;
+                        playerEl = p;
+                        new MutationObserver(skipAds).observe(p, { attributes: true, attributeFilter: ['class'] });
+                        skipAds();
+                        return true;
+                    };
+                    if (!attachPlayerObserver()) {
+                        let tries = 0;
+                        const bootTimer = setInterval(() => {
+                            if (attachPlayerObserver() || ++tries > 40) clearInterval(bootTimer);
+                        }, 500);
+                    }
+                    window.addEventListener('yt-navigate-finish', () => setTimeout(attachPlayerObserver, 200), { passive: true });
+                    window.addEventListener('popstate', () => setTimeout(attachPlayerObserver, 200), { passive: true });
                 } catch (_) {}
             }
             initYouTubeAdSkipper();
