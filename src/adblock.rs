@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{LazyLock, RwLock};
+use std::sync::{Arc, LazyLock, RwLock};
 use std::time::SystemTime;
 
 use crate::config::{
@@ -107,7 +107,17 @@ pub fn normalize_domain_entry(raw: &str) -> Option<String> {
         .trim_start_matches("www.")
         .trim_matches('.');
     let host = host_part.split(':').next().unwrap_or("").trim();
-    if host.is_empty() || !host.contains('.') || host.contains(char::is_whitespace) {
+    if host.is_empty()
+        || host.len() > 253
+        || !host.contains('.')
+        || host.contains("..")
+        || !host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+        || host
+            .split('.')
+            .any(|lbl| lbl.is_empty() || lbl.starts_with('-') || lbl.ends_with('-'))
+    {
         None
     } else {
         Some(host.to_string())
@@ -173,7 +183,7 @@ impl AdblockConfig {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct DynamicAdblockState {
     custom_blocked: HashSet<String>,
     whitelisted: HashSet<String>,
@@ -188,8 +198,8 @@ static AD_DOMAIN_SET: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     set
 });
 
-static DYNAMIC_ADBLOCK: LazyLock<RwLock<DynamicAdblockState>> =
-    LazyLock::new(|| RwLock::new(DynamicAdblockState::default()));
+static DYNAMIC_ADBLOCK: LazyLock<RwLock<Arc<DynamicAdblockState>>> =
+    LazyLock::new(|| RwLock::new(Arc::new(DynamicAdblockState::default())));
 static HAS_DYNAMIC_RULES: AtomicBool = AtomicBool::new(false);
 
 #[inline]
@@ -214,20 +224,22 @@ pub fn record_block() {
 
 pub fn sync_dynamic_lists(cfg: &AdblockConfig) {
     if let Ok(mut guard) = DYNAMIC_ADBLOCK.write() {
-        guard.custom_blocked = cfg
+        let mut next = (**guard).clone();
+        next.custom_blocked = cfg
             .custom_blocked_domains
             .iter()
             .filter_map(|d| normalize_domain_entry(d))
             .collect();
-        guard.whitelisted = cfg
+        next.whitelisted = cfg
             .whitelisted_domains
             .iter()
             .filter_map(|d| normalize_domain_entry(d))
             .collect();
         HAS_DYNAMIC_RULES.store(
-            !guard.custom_blocked.is_empty() || !guard.whitelisted.is_empty(),
+            !next.custom_blocked.is_empty() || !next.whitelisted.is_empty(),
             Ordering::Relaxed,
         );
+        *guard = Arc::new(next);
     }
 }
 
@@ -236,7 +248,11 @@ pub fn set_active_page_url(url: &str) {
         .map(|h| h.to_ascii_lowercase())
         .unwrap_or_default();
     if let Ok(mut guard) = DYNAMIC_ADBLOCK.write() {
-        guard.active_page_host = host;
+        if guard.active_page_host != host {
+            let mut next = (**guard).clone();
+            next.active_page_host = host;
+            *guard = Arc::new(next);
+        }
     }
 }
 
@@ -296,14 +312,15 @@ pub fn is_blocked_host(host: &str) -> bool {
     let lower = lower_cow.as_ref();
 
     let custom_matched = if HAS_DYNAMIC_RULES.load(Ordering::Relaxed) {
-        if let Ok(guard) = DYNAMIC_ADBLOCK.read() {
-            if !guard.whitelisted.is_empty()
-                && (matches_domain_set(&guard.active_page_host, &guard.whitelisted)
-                    || matches_domain_set(lower, &guard.whitelisted))
+        let snapshot = DYNAMIC_ADBLOCK.read().ok().map(|guard| Arc::clone(&*guard));
+        if let Some(snap) = snapshot {
+            if !snap.whitelisted.is_empty()
+                && (matches_domain_set(&snap.active_page_host, &snap.whitelisted)
+                    || matches_domain_set(lower, &snap.whitelisted))
             {
                 return false;
             }
-            matches_domain_set(lower, &guard.custom_blocked)
+            matches_domain_set(lower, &snap.custom_blocked)
         } else {
             false
         }
@@ -522,6 +539,42 @@ pub fn open_folder_in_explorer(path: &std::path::Path) {
     }
 }
 
+#[cfg(target_os = "windows")]
+pub fn open_download_file(downloads_root: &std::path::Path, raw_name: &str) -> bool {
+    use windows::core::{w, HSTRING};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let clean = raw_name.trim();
+    if clean.is_empty()
+        || clean.contains('/')
+        || clean.contains('\\')
+        || clean.contains("..")
+    {
+        return false;
+    }
+    let Some(file_only) = std::path::Path::new(clean).file_name() else {
+        return false;
+    };
+    let full = downloads_root.join(file_only);
+    if !full.is_file() {
+        return false;
+    }
+    let target = HSTRING::from(full.as_os_str());
+    unsafe {
+        let res = ShellExecuteW(
+            Some(HWND::default()),
+            w!("open"),
+            &target,
+            None,
+            None,
+            SW_SHOWNORMAL,
+        );
+        (res.0 as isize) > 32
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,6 +593,10 @@ mod tests {
         assert_eq!(normalize_domain_entry("   "), None);
         assert_eq!(normalize_domain_entry("localhost"), None);
         assert_eq!(normalize_domain_entry("has space.com"), None);
+        assert_eq!(normalize_domain_entry("bad..domain.com"), None);
+        assert_eq!(normalize_domain_entry("-bad.example.com"), None);
+        assert_eq!(normalize_domain_entry("bad\"quote.com"), None);
+        assert_eq!(normalize_domain_entry("bad*wild.com"), None);
     }
 
     #[test]

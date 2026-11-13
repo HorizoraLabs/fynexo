@@ -191,7 +191,22 @@ impl UserData {
 
     pub fn save_history(&self) {
         if let Ok(json) = serde_json::to_string(&self.history) {
-            let _ = crate::util::atomic_write(Self::history_path(), json);
+            crate::util::schedule_atomic_write(
+                Self::history_path(),
+                json.into_bytes(),
+                std::time::Duration::ZERO,
+            );
+            crate::util::flush_pending_writes();
+        }
+    }
+
+    pub fn save_history_debounced(&self) {
+        if let Ok(json) = serde_json::to_string(&self.history) {
+            crate::util::schedule_atomic_write(
+                Self::history_path(),
+                json.into_bytes(),
+                std::time::Duration::from_millis(350),
+            );
         }
     }
 
@@ -347,7 +362,7 @@ impl UserData {
                 }
                 head.title = clean_title.to_string();
                 head.url = trimmed_url.to_string();
-                self.save_history();
+                self.save_history_debounced();
                 return true;
             }
         }
@@ -377,7 +392,7 @@ impl UserData {
                 self.history.truncate(200);
             }
         }
-        self.save_history();
+        self.save_history_debounced();
         true
     }
 

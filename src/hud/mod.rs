@@ -13,9 +13,18 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
 }
 
 fn build_script(initial_json: &str) -> String {
-    runtime::assemble_hud_script(initial_json)
-        .replacen("__FNX_IPC_TOKEN__", crate::app::security::ipc_token(), 1)
-        .replacen("__FNX_BRIDGE_TOKEN__", crate::app::security::bridge_token(), 1)
+    static BAKED_WITH_TOKENS: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+    let parts = BAKED_WITH_TOKENS.get_or_init(|| {
+        let (raw_prefix, raw_suffix) = runtime::baked_template_parts();
+        let ipc = crate::app::security::ipc_token();
+        let bridge = crate::app::security::bridge_token();
+        let inject = |part: &str| {
+            part.replacen("__FNX_IPC_TOKEN__", ipc, 1)
+                .replacen("__FNX_BRIDGE_TOKEN__", bridge, 1)
+        };
+        (inject(raw_prefix), inject(raw_suffix))
+    });
+    runtime::join_baked_parts(parts, initial_json)
 }
 
 #[cfg(test)]

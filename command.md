@@ -10,3 +10,4 @@
 - Build APK (Debug): `cargo android apk build aarch64`
 - Run on Connected Phone / Emulator: `cargo android run`
 - Open in Android Studio: `cargo android open`
+

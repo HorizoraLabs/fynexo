@@ -18,6 +18,10 @@ pub struct TabItem {
     pub background_play: bool,
     #[serde(default)]
     pub muted: bool,
+    #[serde(default)]
+    pub playing_audio: bool,
+    #[serde(default)]
+    pub suspended: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -57,6 +61,23 @@ fn initial_title_for(url: &str) -> String {
         "Start page".to_string()
     } else if url.starts_with("fynexo://settings") {
         "Preferences".to_string()
+    } else if let Some(rest) = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+    {
+        let raw_host = rest
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or("")
+            .split(':')
+            .next()
+            .unwrap_or("");
+        let host = raw_host.strip_prefix("www.").unwrap_or(raw_host);
+        if !host.is_empty() {
+            host.to_string()
+        } else {
+            "New tab".to_string()
+        }
     } else {
         "New tab".to_string()
     }
@@ -77,6 +98,8 @@ impl TabManager {
             pinned: false,
             background_play: false,
             muted: false,
+            playing_audio: false,
+            suspended: false,
         };
         Self {
             tabs: vec![first_tab],
@@ -101,6 +124,8 @@ impl TabManager {
                             }
                             for t in &mut state.tabs {
                                 t.is_active = t.id == state.active_id;
+                                t.playing_audio = false;
+                                t.suspended = t.id != state.active_id;
                             }
                             state.tabs.sort_by_key(|t| !t.pinned);
                             return Self {
@@ -130,7 +155,11 @@ impl TabManager {
         }
         let state = self.get_state();
         if let Ok(json) = serde_json::to_string_pretty(&state) {
-            let _ = crate::util::atomic_write(Self::session_path(), json);
+            crate::util::schedule_atomic_write(
+                Self::session_path(),
+                json.into_bytes(),
+                std::time::Duration::from_millis(350),
+            );
         }
     }
 
@@ -158,25 +187,87 @@ impl TabManager {
             .unwrap_or(0.0)
     }
 
+    pub fn url_and_scroll_for(&self, id: usize) -> (String, f64) {
+        self.tabs
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| (t.url.clone(), t.scroll_y))
+            .unwrap_or_else(|| ("fynexo://newtab".to_string(), 0.0))
+    }
+
+    pub fn tab_meta(&self, id: usize) -> Option<(bool, bool)> {
+        self.tabs
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| (t.background_play, t.muted))
+    }
+
     pub fn new_tab(&mut self, url: &str) -> (usize, String) {
+        self.new_tab_with_focus(url, true)
+    }
+
+    pub fn new_tab_with_focus(&mut self, url: &str, activate: bool) -> (usize, String) {
         self.counter += 1;
         let id = self.counter;
-        for t in &mut self.tabs {
-            t.is_active = false;
+        if activate {
+            for t in &mut self.tabs {
+                t.is_active = false;
+            }
         }
-        self.tabs.push(TabItem {
+        let item = TabItem {
             id,
             title: initial_title_for(url),
             url: url.to_string(),
-            is_active: true,
+            is_active: activate,
             scroll_y: 0.0,
             pinned: false,
             background_play: false,
             muted: false,
-        });
-        self.active_id = id;
+            playing_audio: false,
+            suspended: !activate,
+        };
+        if activate {
+            self.tabs.push(item);
+            self.active_id = id;
+        } else {
+            let insert_pos = self
+                .tabs
+                .iter()
+                .position(|t| t.id == self.active_id)
+                .map(|idx| idx + 1)
+                .unwrap_or(self.tabs.len());
+            self.tabs.insert(insert_pos, item);
+        }
         self.save();
         (id, url.to_string())
+    }
+
+    pub fn reorder_tab(&mut self, from_id: usize, to_id: usize) -> bool {
+        if from_id == to_id {
+            return false;
+        }
+        let Some(from_idx) = self.tabs.iter().position(|t| t.id == from_id) else {
+            return false;
+        };
+        let Some(to_idx) = self.tabs.iter().position(|t| t.id == to_id) else {
+            return false;
+        };
+        if self.tabs[from_idx].pinned != self.tabs[to_idx].pinned {
+            return false;
+        }
+        let item = self.tabs.remove(from_idx);
+        self.tabs.insert(to_idx, item);
+        self.save();
+        true
+    }
+
+    pub fn sync_suspended_flags(&mut self, live_ids: &[usize]) {
+        for t in &mut self.tabs {
+            t.suspended = !live_ids.contains(&t.id);
+            if t.suspended {
+                t.playing_audio = false;
+            }
+        }
     }
 
     pub fn toggle_pin_tab(&mut self, id: usize) -> Option<bool> {
@@ -241,6 +332,8 @@ impl TabManager {
             pinned: false,
             background_play: false,
             muted: false,
+            playing_audio: false,
+            suspended: false,
         });
         self.active_id = id;
         self.save();
@@ -264,6 +357,8 @@ impl TabManager {
             pinned: false,
             background_play: clone_item.background_play,
             muted: clone_item.muted,
+            playing_audio: false,
+            suspended: false,
         };
         self.tabs.insert(pos + 1, new_tab);
         self.active_id = new_id;
@@ -272,6 +367,10 @@ impl TabManager {
     }
 
     pub fn close_other_tabs(&mut self, keep_id: usize, default_url: &str) -> Option<String> {
+        if !self.tabs.iter().any(|t| t.id == keep_id) {
+            return None;
+        }
+        let prev_active_id = self.active_id;
         let to_close: Vec<usize> = self.tabs.iter()
             .filter(|t| t.id != keep_id && !t.pinned)
             .map(|t| t.id)
@@ -281,6 +380,8 @@ impl TabManager {
         }
         if self.active_id != keep_id {
             self.switch_tab(keep_id)
+        } else if self.active_id != prev_active_id {
+            Some(self.active_url())
         } else {
             None
         }
@@ -288,6 +389,7 @@ impl TabManager {
 
     pub fn close_tabs_to_right(&mut self, from_id: usize, default_url: &str) -> Option<String> {
         let pos = self.tabs.iter().position(|t| t.id == from_id)?;
+        let prev_active_id = self.active_id;
         let to_close: Vec<usize> = self.tabs.iter()
             .skip(pos + 1)
             .filter(|t| !t.pinned)
@@ -298,6 +400,8 @@ impl TabManager {
         }
         if !self.tabs.iter().any(|t| t.id == self.active_id) {
             self.switch_tab(from_id)
+        } else if self.active_id != prev_active_id {
+            Some(self.active_url())
         } else {
             None
         }
@@ -320,6 +424,8 @@ impl TabManager {
             pinned: false,
             background_play: false,
             muted: false,
+            playing_audio: false,
+            suspended: false,
         });
         self.active_id = id;
         self.save();
@@ -378,15 +484,16 @@ impl TabManager {
         Ok(res)
     }
 
-    pub fn update_active_info(&mut self, title: Option<&str>, url: Option<&str>) -> bool {
+    pub fn update_tab_info(&mut self, id: usize, title: Option<&str>, url: Option<&str>) -> bool {
         let mut changed = false;
-        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == self.active_id) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
             if let Some(url) = url {
                 let trimmed = url.trim();
                 if !trimmed.is_empty() && t.url != trimmed {
                     t.url.clear();
                     t.url.push_str(trimmed);
                     t.scroll_y = 0.0;
+                    t.playing_audio = false;
                     changed = true;
                 }
             }
@@ -405,19 +512,27 @@ impl TabManager {
         changed
     }
 
-    pub fn update_active_scroll(&mut self, scroll_y: f64) -> bool {
+    pub fn update_active_info(&mut self, title: Option<&str>, url: Option<&str>) -> bool {
+        self.update_tab_info(self.active_id, title, url)
+    }
+
+    pub fn update_tab_scroll(&mut self, id: usize, scroll_y: f64) -> bool {
         let clamped = if scroll_y.is_finite() && scroll_y >= 0.0 {
             scroll_y
         } else {
             0.0
         };
-        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == self.active_id) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
             if (t.scroll_y - clamped).abs() > 24.0 {
                 t.scroll_y = clamped;
                 return true;
             }
         }
         false
+    }
+
+    pub fn update_active_scroll(&mut self, scroll_y: f64) -> bool {
+        self.update_tab_scroll(self.active_id, scroll_y)
     }
 
     pub fn toggle_background_play(&mut self, id: usize) -> Option<bool> {
@@ -441,6 +556,16 @@ impl TabManager {
         t.muted = muted;
         self.save();
         Some(muted)
+    }
+
+    pub fn set_tab_playing_audio(&mut self, id: usize, playing: bool) -> bool {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            if t.playing_audio != playing {
+                t.playing_audio = playing;
+                return true;
+            }
+        }
+        false
     }
 
     pub fn workspaces_path() -> PathBuf {
@@ -491,6 +616,9 @@ impl TabManager {
             return None;
         }
         self.tabs = target.tabs;
+        for t in &mut self.tabs {
+            t.playing_audio = false;
+        }
         self.active_id = target.active_id;
         let max_id = self.tabs.iter().map(|t| t.id).max().unwrap_or(1);
         self.counter = max_id.max(self.counter);
@@ -618,5 +746,56 @@ mod tests {
             let _ = m.close_tab(id, HOME, false);
         }
         assert_eq!(m.get_state().closed_count, 12);
+    }
+
+    #[test]
+    fn targeted_tab_updates_do_not_clobber_active_tab() {
+        let mut m = mgr_with(&["https://a.com", "https://b.com"]);
+        assert_eq!(m.active_id, 3);
+        assert!(m.update_tab_info(2, Some("Site A"), Some("https://a.com/v2")));
+        assert!(m.update_tab_scroll(2, 320.0));
+        assert_eq!(m.active_url(), "https://b.com");
+        assert_eq!(m.url_and_scroll_for(2), ("https://a.com/v2".to_string(), 320.0));
+    }
+
+    #[test]
+    fn background_new_tab_keeps_active_focus_and_reorders_within_group() {
+        let mut m = mgr_with(&["https://a.com", "https://b.com"]);
+        let cur = m.active_id;
+        let (bg_id, _) = m.new_tab_with_focus("https://bg.com", false);
+        assert_eq!(m.active_id, cur);
+        assert!(m.tabs.iter().find(|t| t.id == bg_id).unwrap().suspended);
+        assert!(m.reorder_tab(bg_id, 1));
+        assert_eq!(m.tabs[0].id, bg_id);
+        m.toggle_pin_tab(1);
+        assert!(!m.reorder_tab(bg_id, 1));
+    }
+
+    #[test]
+    fn close_other_tabs_on_inactive_tab_returns_switch_url() {
+        let mut m = mgr_with(&["https://a.com", "https://b.com"]);
+        assert_eq!(m.active_id, 3);
+        let nav = m.close_other_tabs(2, HOME);
+        assert_eq!(nav.as_deref(), Some("https://a.com"));
+        assert_eq!(m.active_id, 2);
+        assert_eq!(m.tabs.len(), 1);
+    }
+
+    #[test]
+    fn close_tabs_to_right_when_active_closed_returns_switch_url() {
+        let mut m = mgr_with(&["https://a.com", "https://b.com"]);
+        assert_eq!(m.active_id, 3);
+        let nav = m.close_tabs_to_right(1, HOME);
+        assert_eq!(nav.as_deref(), Some(HOME));
+        assert_eq!(m.active_id, 1);
+        assert_eq!(m.tabs.len(), 1);
+    }
+
+    #[test]
+    fn external_urls_default_to_domain_instead_of_new_tab() {
+        let mut m = mgr_with(&[]);
+        let (bg_id, _) = m.new_tab_with_focus("https://www.youtube.com/watch?v=abc", false);
+        let tab = m.tabs.iter().find(|t| t.id == bg_id).unwrap();
+        assert_eq!(tab.title, "youtube.com");
     }
 }

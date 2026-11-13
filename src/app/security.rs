@@ -18,7 +18,53 @@ use std::sync::OnceLock;
 static IPC_TOKEN: OnceLock<String> = OnceLock::new();
 static BRIDGE_TOKEN: OnceLock<String> = OnceLock::new();
 
+#[cfg(target_os = "windows")]
+fn fill_os_random(buf: &mut [u8]) -> bool {
+    const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x0000_0002;
+    #[link(name = "bcrypt")]
+    extern "system" {
+        fn BCryptGenRandom(
+            hAlgorithm: *mut core::ffi::c_void,
+            pbBuffer: *mut u8,
+            cbBuffer: u32,
+            dwFlags: u32,
+        ) -> i32;
+    }
+    let status = unsafe {
+        BCryptGenRandom(
+            core::ptr::null_mut(),
+            buf.as_mut_ptr(),
+            buf.len() as u32,
+            BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+        )
+    };
+    status >= 0
+}
+
+#[cfg(unix)]
+fn fill_os_random(buf: &mut [u8]) -> bool {
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open("/dev/urandom") else {
+        return false;
+    };
+    f.read_exact(buf).is_ok()
+}
+
+#[cfg(not(any(target_os = "windows", unix)))]
+fn fill_os_random(_buf: &mut [u8]) -> bool {
+    false
+}
+
 fn generate_process_secret() -> String {
+    let mut bytes = [0u8; 16];
+    if fill_os_random(&mut bytes) {
+        let mut out = String::with_capacity(32);
+        for b in bytes {
+            out.push_str(&format!("{:02x}", b));
+        }
+        return out;
+    }
+
     let mut out = String::with_capacity(32);
     for salt in 0u64..2 {
         let mut h = RandomState::new().build_hasher();
@@ -97,14 +143,14 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
             | "CLOSE_ALL_TABS"
             | "REOPEN_CLOSED_TAB"
             | "UPDATE_TAB_TITLE"
+            | "UPDATE_TAB_MEDIA_STATE"
             | "SAVE_SCROLL"
             | "TOGGLE_FULLSCREEN"
             | "SET_ZOOM"
             | "TOGGLE_BOOKMARK"
             | "OPEN_DOWNLOADS_DIR"
             | "GET_TABS"
-            | "SAVE_CONFIG"
-            | "SAVE_STYLES"
+            | "PATCH_HUD_PREFS"
             | "GET_CONFIG"
             | "WINDOW_DRAG"
             | "WINDOW_MINIMIZE"
@@ -112,7 +158,9 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
             | "WINDOW_CLOSE"
             | "GO_BACK"
             | "GO_FORWARD"
+            | "SYNC_NAV_STATE"
             | "RELOAD"
+            | "OPEN_DEVTOOLS"
     )
 }
 
@@ -260,11 +308,14 @@ mod tests {
             "OPEN_THEMES_DIR",
             "EXPORT_SHORTCUTS",
             "RESET_STYLES",
+            "SAVE_CONFIG",
+            "SAVE_STYLES",
             "LOAD_WORKSPACE",
         ] {
             assert!(!authorize_ipc(evil, &json!({"type": cmd, "__t": tok})), "{cmd} leaked");
         }
         assert!(authorize_ipc("fynexo://settings", &json!({"type": "SAVE_RULES"})));
+        assert!(authorize_ipc("fynexo://settings", &json!({"type": "SAVE_CONFIG"})));
     }
 
     #[test]
@@ -273,6 +324,7 @@ mod tests {
         assert!(!authorize_ipc(evil, &json!({"type": "NEW_TAB"})));
         assert!(!authorize_ipc(evil, &json!({"type": "NEW_TAB", "__t": "guess"})));
         assert!(authorize_ipc(evil, &json!({"type": "NEW_TAB", "__t": ipc_token()})));
+        assert!(authorize_ipc(evil, &json!({"type": "PATCH_HUD_PREFS", "__t": ipc_token()})));
         assert!(!authorize_ipc(evil, &json!({"type": "UNKNOWN_CMD", "__t": ipc_token()})));
     }
 

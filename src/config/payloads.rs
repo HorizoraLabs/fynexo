@@ -90,3 +90,29 @@ impl<'a> HudBootPayload<'a> {
         }
     }
 }
+
+/// Slim boot payload for `fynexo://newtab` so opening a new tab avoids cloning or
+/// serializing themes, site rules, keybinds, adblock domain lists, or filesystem paths.
+#[derive(Serialize, Clone, Debug)]
+pub struct NewTabBootPayload<'a> {
+    pub config: &'a AppConfig,
+    pub styles: &'a ComponentStyles,
+    pub active_theme: &'a ThemeColors,
+    pub bookmarks: &'a [BookmarkItem],
+    pub history: &'a [HistoryItem],
+    pub blocked_ads: usize,
+}
+
+impl<'a> NewTabBootPayload<'a> {
+    pub fn from_runtime(payload: &'a RuntimePayload) -> Self {
+        let history_slice = &payload.history[..payload.history.len().min(40)];
+        Self {
+            config: &payload.config,
+            styles: &payload.styles,
+            active_theme: &payload.active_theme,
+            bookmarks: &payload.bookmarks,
+            history: history_slice,
+            blocked_ads: payload.blocked_ads,
+        }
+    }
+}

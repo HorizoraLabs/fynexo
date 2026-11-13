@@ -3,21 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-    <title>Start page — Fynexo</title>
+    <title>New Tab</title>
     <style>
         :root {
-            --fnx-bg: #19191c;
-            --fnx-panel: #29292e;
-            --fnx-surface: #212126;
-            --fnx-elevated: #35353c;
-            --fnx-border: #37373f;
-            --fnx-border-hover: #4b4b56;
-            --fnx-fg: #f0f0f3;
-            --fnx-secondary: #c2c2cb;
-            --fnx-muted: #8a8a95;
-            --fnx-accent: #7a88f7;
-            --fnx-accent-bg: #262942;
-            --fnx-hover: #33333a;
+            --nt-bg: #0B0B0E;
+            --nt-surface: #141418;
+            --nt-elevated: #1B1B21;
+            --nt-hover: #18181D;
+            --nt-hairline: rgba(255, 255, 255, 0.06);
+            --nt-hairline-hover: rgba(255, 255, 255, 0.12);
+            --nt-top-highlight: rgba(255, 255, 255, 0.15);
+            --nt-fg: #F4F4F5;
+            --nt-dim: #71717A;
+            --nt-faint: #52525B;
+            --nt-accent: #7A88F7;
+            --nt-accent-soft: rgba(122, 136, 247, 0.14);
+        }
+
+        html[data-theme-kind="light"] {
+            --nt-top-highlight: rgba(255, 255, 255, 0.9);
         }
 
         *, *::before, *::after {
@@ -34,10 +38,10 @@
         html, body {
             width: 100%;
             min-height: 100vh;
-            background: var(--fnx-bg);
-            color: var(--fnx-fg);
+            background: var(--nt-bg);
+            color: var(--nt-fg);
             font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            line-height: 1.5;
+            line-height: 1.45;
             overflow-x: hidden;
         }
 
@@ -49,8 +53,8 @@
         #__fynexo_newtab_app__ {
             width: 100%;
             min-height: 100vh;
-            padding-top: calc(var(--fnx-host-top-offset, 38px) + 18px);
-            padding-bottom: 48px;
+            padding-top: calc(var(--fnx-host-top-offset, 0px) + 18px);
+            padding-bottom: 56px;
             padding-left: 24px;
             padding-right: 24px;
             display: flex;
@@ -60,52 +64,37 @@
 
         .nt-shell {
             width: 100%;
-            max-width: 820px;
+            max-width: 760px;
             display: flex;
             flex-direction: column;
-            gap: 34px;
+            gap: 28px;
         }
 
+        /* Whisper-quiet top status strip (borderless at rest) */
         .nt-topbar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
+            gap: 10px;
             flex-wrap: wrap;
+            min-height: 26px;
         }
 
-        .nt-brand {
+        .nt-brand-quiet {
             display: inline-flex;
             align-items: center;
-            gap: 10px;
-            user-select: none;
-        }
-
-        .nt-mark {
-            width: 26px;
-            height: 26px;
-            border-radius: 7px;
-            background: var(--fnx-accent-bg);
-            border: 1px solid var(--fnx-accent);
-            color: var(--fnx-accent);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .nt-clock {
-            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-            font-size: 12.5px;
+            gap: 6px;
+            font-size: 11.5px;
             font-weight: 500;
-            color: var(--fnx-secondary);
-            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.01em;
+            color: var(--nt-faint);
+            user-select: none;
         }
 
         .nt-status-group {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 4px;
             flex-wrap: wrap;
         }
 
@@ -113,110 +102,227 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            height: 28px;
-            padding: 0 10px;
+            height: 25px;
+            padding: 0 9px;
             border-radius: 7px;
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
-            color: var(--fnx-secondary);
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--nt-dim);
             font-size: 11.5px;
             font-weight: 500;
+            letter-spacing: -0.005em;
             cursor: pointer;
-            text-decoration: none;
-            transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+            transition: background 0.14s ease, color 0.14s ease;
         }
         .nt-pill:hover {
-            border-color: var(--fnx-border-hover);
-            background: var(--fnx-surface);
-            color: var(--fnx-fg);
+            background: var(--nt-surface);
+            color: var(--nt-fg);
         }
         .nt-pill.active {
-            border-color: var(--fnx-accent);
-            background: var(--fnx-accent-bg);
-            color: var(--fnx-fg);
+            background: var(--nt-accent-soft);
+            color: var(--nt-fg);
         }
 
         .nt-dot {
-            width: 6px;
-            height: 6px;
+            width: 5px;
+            height: 5px;
             border-radius: 50%;
-            background: #10b981;
+            background: #10B981;
             flex-shrink: 0;
         }
         .nt-dot.off {
-            background: var(--fnx-muted);
+            background: var(--nt-faint);
         }
 
+        /* Bonjourr / Tabliss calm clock & breathing space */
         .nt-hero {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 18px;
-            margin-top: 22px;
+            gap: 28px;
+            margin-top: clamp(20px, 5.5vh, 56px);
         }
 
-        .nt-wordmark {
+        .nt-clock-wrap {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 4px;
+            gap: 6px;
             text-align: center;
             user-select: none;
         }
 
-        .nt-title {
-            font-size: 28px;
-            font-weight: 650;
-            letter-spacing: -0.035em;
-            color: var(--fnx-fg);
-            line-height: 1.15;
+        .nt-clock {
+            font-size: clamp(46px, 6.2vw, 62px);
+            font-weight: 700;
+            letter-spacing: -0.045em;
+            line-height: 1;
+            color: var(--nt-fg);
+            font-variant-numeric: tabular-nums;
         }
 
-        .nt-subtitle {
+        .nt-date-sub {
             font-size: 12.5px;
-            color: var(--fnx-muted);
-            letter-spacing: -0.005em;
+            font-weight: 500;
+            color: var(--nt-dim);
+            letter-spacing: -0.01em;
         }
 
+        .nt-custom-banner {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            text-align: center;
+            user-select: none;
+        }
+        .nt-title {
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            color: var(--nt-fg);
+        }
+        .nt-subtitle {
+            font-size: 12px;
+            color: var(--nt-dim);
+        }
+
+        /* Raycast launcher search input with 1px top highlight reflection */
         .nt-search-wrap {
             width: 100%;
-            max-width: 640px;
             position: relative;
         }
 
         .nt-search-box {
             width: 100%;
+            min-height: 48px;
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 8px 9px;
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border-hover);
+            gap: 10px;
+            padding: 7px 9px 7px 11px;
+            background: var(--nt-surface);
+            border: 1px solid var(--nt-hairline);
+            border-top-color: var(--nt-top-highlight);
             border-radius: 12px;
-            transition: border-color 0.12s ease, background 0.12s ease;
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .nt-search-box:hover {
+            border-color: var(--nt-hairline-hover);
+            border-top-color: var(--nt-top-highlight);
         }
         .nt-search-box:focus-within {
-            border-color: var(--fnx-accent);
-            background: var(--fnx-surface);
+            background: var(--nt-elevated);
+            border-color: color-mix(in srgb, var(--nt-accent) 55%, var(--nt-hairline));
+            border-top-color: color-mix(in srgb, var(--nt-accent) 72%, var(--nt-top-highlight));
         }
 
         .nt-engine-btn {
-            height: 32px;
-            padding: 0 10px;
-            border-radius: 8px;
-            border: 1px solid var(--fnx-border);
-            background: var(--fnx-surface);
-            color: var(--fnx-fg);
-            font-size: 12px;
+            height: 30px;
+            padding: 0 7px;
+            border-radius: 7px;
+            border: 1px solid var(--nt-hairline);
+            background: color-mix(in srgb, var(--nt-fg) 4%, transparent);
+            color: var(--nt-dim);
+            font-size: 11.5px;
             font-weight: 500;
             cursor: pointer;
             white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
             flex-shrink: 0;
-            transition: border-color 0.12s ease, background 0.12s ease;
+            transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
         }
         .nt-engine-btn:hover {
-            border-color: var(--fnx-border-hover);
-            background: var(--fnx-elevated);
+            border-color: var(--nt-hairline-hover);
+            background: color-mix(in srgb, var(--nt-fg) 8%, transparent);
+            color: var(--nt-fg);
+        }
+        .nt-engine-btn .nt-emblem {
+            width: 14px;
+            height: 14px;
+        }
+        .nt-engine-btn .nt-emblem-fallback,
+        .nt-engine-btn .nt-emblem-img {
+            width: 14px;
+            height: 14px;
+        }
+        .nt-engine-chevron {
+            opacity: 0.7;
+            flex-shrink: 0;
+            transition: transform 0.12s ease;
+        }
+        .nt-engine-btn[aria-expanded="true"] {
+            border-color: var(--nt-hairline-hover);
+            background: color-mix(in srgb, var(--nt-fg) 8%, transparent);
+            color: var(--nt-fg);
+        }
+        .nt-engine-btn[aria-expanded="true"] .nt-engine-chevron {
+            transform: rotate(180deg);
+        }
+
+        .nt-engine-menu {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            min-width: 196px;
+            background: var(--nt-surface);
+            border: 1px solid var(--nt-hairline-hover);
+            border-top-color: var(--nt-top-highlight);
+            border-radius: 10px;
+            padding: 4px;
+            display: none;
+            flex-direction: column;
+            gap: 2px;
+            z-index: 65;
+        }
+        .nt-engine-menu.open {
+            display: flex;
+        }
+        .nt-engine-opt {
+            width: 100%;
+            border: none;
+            border-radius: 7px;
+            background: transparent;
+            color: var(--nt-fg);
+            padding: 6px 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12.5px;
+            font-weight: 500;
+            text-align: left;
+            cursor: pointer;
+            outline: none;
+            transition: background 0.1s ease;
+        }
+        .nt-engine-opt:hover {
+            background: var(--nt-elevated);
+        }
+        .nt-engine-opt.active {
+            background: color-mix(in srgb, var(--nt-fg) 6%, transparent);
+        }
+        .nt-engine-opt .nt-emblem,
+        .nt-engine-opt .nt-emblem-fallback,
+        .nt-engine-opt .nt-emblem-img {
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+        }
+        .nt-engine-opt-name {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .nt-engine-check {
+            opacity: 0;
+            color: var(--nt-fg);
+            flex-shrink: 0;
+        }
+        .nt-engine-opt.active .nt-engine-check {
+            opacity: 0.9;
         }
 
         .nt-search-input {
@@ -226,20 +332,21 @@
             border: none;
             outline: none;
             background: transparent;
-            color: var(--fnx-fg);
+            color: var(--nt-fg);
             font-size: 14.5px;
-            letter-spacing: -0.01em;
+            font-weight: 400;
+            letter-spacing: -0.012em;
         }
         .nt-search-input::placeholder {
-            color: var(--fnx-muted);
+            color: var(--nt-faint);
         }
 
         .nt-clear-btn {
-            width: 26px;
-            height: 26px;
+            width: 24px;
+            height: 24px;
             border: none;
             background: transparent;
-            color: var(--fnx-muted);
+            color: var(--nt-dim);
             border-radius: 6px;
             display: none;
             align-items: center;
@@ -248,118 +355,138 @@
             flex-shrink: 0;
         }
         .nt-clear-btn:hover {
-            color: var(--fnx-fg);
-            background: var(--fnx-hover);
+            color: var(--nt-fg);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .nt-kbd-hint {
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--nt-faint);
+            width: 28px;
+            height: 28px;
+            border-radius: 7px;
+            border: 1px solid var(--nt-hairline);
+            background: transparent;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            flex-shrink: 0;
         }
 
         .nt-go-btn {
-            width: 34px;
-            height: 32px;
-            border: none;
-            border-radius: 8px;
-            background: var(--fnx-accent);
-            color: #ffffff;
-            display: flex;
+            width: 28px;
+            height: 28px;
+            border: 1px solid var(--nt-hairline);
+            border-radius: 7px;
+            background: color-mix(in srgb, var(--nt-fg) 6%, transparent);
+            color: var(--nt-dim);
+            display: none;
             align-items: center;
             justify-content: center;
             cursor: pointer;
             flex-shrink: 0;
-            transition: opacity 0.12s ease;
+            transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
         }
         .nt-go-btn:hover {
-            opacity: 0.92;
+            background: var(--nt-accent);
+            border-color: var(--nt-accent);
+            color: #ffffff;
         }
 
+        .nt-search-box:focus-within .nt-kbd-hint,
+        .nt-search-box.has-value .nt-kbd-hint {
+            display: none;
+        }
+        .nt-search-box:focus-within .nt-go-btn,
+        .nt-search-box.has-value .nt-go-btn {
+            display: flex;
+        }
+
+        /* Command palette dropdown */
         .nt-suggest {
             position: absolute;
             top: calc(100% + 6px);
             left: 0;
             right: 0;
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border-hover);
+            background: var(--nt-surface);
+            border: 1px solid var(--nt-hairline-hover);
+            border-top-color: var(--nt-top-highlight);
             border-radius: 11px;
-            overflow: hidden;
+            padding: 5px;
             display: none;
             flex-direction: column;
+            gap: 2px;
             z-index: 60;
         }
 
         .nt-suggest-item {
             width: 100%;
             border: none;
-            border-bottom: 1px solid var(--fnx-border);
+            border-radius: 7px;
             background: transparent;
-            color: var(--fnx-fg);
-            padding: 9px 12px;
+            color: var(--nt-fg);
+            padding: 7px 9px;
             display: flex;
             align-items: center;
             gap: 10px;
             text-align: left;
             cursor: pointer;
             outline: none;
-        }
-        .nt-suggest-item:last-child {
-            border-bottom: none;
+            transition: background 0.1s ease;
         }
         .nt-suggest-item:hover,
         .nt-suggest-item.selected {
-            background: var(--fnx-hover);
-        }
-
-        .nt-suggest-mono {
-            width: 24px;
-            height: 24px;
-            border-radius: 6px;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
-            color: var(--fnx-secondary);
-            font-size: 11px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
+            background: var(--nt-elevated);
         }
 
         .nt-suggest-meta {
             flex: 1;
             min-width: 0;
             display: flex;
-            flex-direction: column;
+            align-items: baseline;
+            gap: 8px;
         }
 
         .nt-suggest-title {
-            font-size: 12.5px;
+            font-size: 13px;
             font-weight: 500;
-            color: var(--fnx-fg);
+            color: var(--nt-fg);
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            min-width: 0;
         }
 
         .nt-suggest-url {
-            font-size: 11px;
-            color: var(--fnx-muted);
+            font-size: 11.5px;
+            color: var(--nt-dim);
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            flex-shrink: 0;
+            max-width: 180px;
         }
 
         .nt-suggest-tag {
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
             font-size: 10px;
-            font-weight: 600;
+            font-weight: 500;
             padding: 2px 6px;
             border-radius: 5px;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
-            color: var(--fnx-muted);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--nt-hairline);
+            color: var(--nt-dim);
             flex-shrink: 0;
         }
 
+        /* Section headers */
         .nt-section {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 10px;
             width: 100%;
         }
 
@@ -368,40 +495,42 @@
             align-items: center;
             justify-content: space-between;
             gap: 10px;
+            padding: 0;
         }
 
         .nt-sec-label {
-            font-size: 12px;
-            font-weight: 600;
-            letter-spacing: 0.02em;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
-            color: var(--fnx-muted);
+            color: var(--nt-faint);
         }
 
         .nt-mini-btn {
-            padding: 4px 9px;
-            font-size: 11.5px;
+            padding: 3px 8px;
+            font-size: 11px;
             font-weight: 500;
-            color: var(--fnx-secondary);
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
+            color: var(--nt-faint);
+            background: transparent;
+            border: 1px solid transparent;
             border-radius: 6px;
             cursor: pointer;
             transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
         }
         .nt-mini-btn:hover {
-            border-color: var(--fnx-border-hover);
-            background: var(--fnx-surface);
-            color: var(--fnx-fg);
+            border-color: var(--nt-hairline);
+            background: var(--nt-surface);
+            color: var(--nt-fg);
         }
 
         .nt-add-bar {
             display: none;
             align-items: center;
             gap: 8px;
-            padding: 10px;
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
+            padding: 8px;
+            background: var(--nt-surface);
+            border: 1px solid var(--nt-hairline);
+            border-top-color: var(--nt-top-highlight);
             border-radius: 10px;
             flex-wrap: wrap;
         }
@@ -412,36 +541,36 @@
         .nt-field {
             flex: 1;
             min-width: 150px;
-            height: 32px;
+            height: 30px;
             padding: 0 10px;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
+            background: var(--nt-bg);
+            border: 1px solid var(--nt-hairline);
             border-radius: 7px;
-            color: var(--fnx-fg);
-            font-size: 12.5px;
+            color: var(--nt-fg);
+            font-size: 12px;
             outline: none;
         }
         .nt-field:focus {
-            border-color: var(--fnx-accent);
-            background: var(--fnx-bg);
+            border-color: color-mix(in srgb, var(--nt-accent) 55%, transparent);
         }
 
         .nt-save-btn {
-            height: 32px;
+            height: 30px;
             padding: 0 12px;
             border-radius: 7px;
-            border: 1px solid var(--fnx-accent);
-            background: var(--fnx-accent);
+            border: 1px solid var(--nt-accent);
+            background: var(--nt-accent);
             color: #ffffff;
-            font-size: 12px;
+            font-size: 11.5px;
             font-weight: 500;
             cursor: pointer;
         }
 
+        /* Vercel Dashboard single-row 6-column compact shortcut capsules */
         .bm-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
-            gap: 10px;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 8px;
             width: 100%;
         }
 
@@ -449,171 +578,265 @@
             position: relative;
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 11px 12px;
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
-            border-radius: 10px;
+            gap: 8px;
+            height: 36px;
+            padding: 0 10px;
+            background: var(--nt-surface);
+            border: 1px solid var(--nt-hairline);
+            border-radius: 8px;
             cursor: pointer;
             text-align: left;
             min-width: 0;
             transition: border-color 0.12s ease, background 0.12s ease;
         }
         .bm-card:hover {
-            border-color: var(--fnx-border-hover);
-            background: var(--fnx-hover);
+            border-color: var(--nt-hairline-hover);
+            background: var(--nt-elevated);
         }
 
-        .bm-mono {
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
-            color: var(--fnx-accent);
-            font-size: 13px;
-            font-weight: 600;
-            display: flex;
+        .bm-card--empty {
+            grid-column: span 2;
+            border-style: dashed;
+            background: transparent;
+            color: var(--nt-dim);
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .bm-card--empty:hover {
+            color: var(--nt-fg);
+            background: var(--nt-surface);
+        }
+
+        /* Shared site emblem (real favicon + SVG/monogram fallback) */
+        .nt-emblem {
+            position: relative;
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
+            overflow: hidden;
         }
 
-        .bm-meta {
-            flex: 1;
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
+        .nt-emblem-fallback {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 600;
+            line-height: 1;
+            transition: opacity 0.12s ease;
+        }
+        .nt-emblem-fallback--mono {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--nt-hairline);
+        }
+
+        .nt-emblem-img {
+            position: absolute;
+            inset: 0;
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            object-fit: contain;
+            opacity: 0;
+            transition: opacity 0.14s ease;
+        }
+        .nt-emblem.has-img .nt-emblem-img {
+            opacity: 1;
+        }
+        .nt-emblem.has-img .nt-emblem-fallback {
+            opacity: 0;
         }
 
         .bm-title {
-            font-size: 13px;
+            flex: 1;
+            min-width: 0;
+            font-size: 12.5px;
             font-weight: 500;
-            color: var(--fnx-fg);
+            color: var(--nt-fg);
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            letter-spacing: -0.008em;
         }
-
-        .bm-host {
-            font-size: 11px;
-            color: var(--fnx-muted);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        .bm-card:hover .bm-title {
+            padding-right: 18px;
         }
 
         .bm-del {
-            width: 22px;
-            height: 22px;
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 20px;
+            height: 20px;
             border: none;
             border-radius: 5px;
-            background: transparent;
-            color: var(--fnx-muted);
+            background: var(--nt-elevated);
+            color: var(--nt-dim);
             display: flex;
             align-items: center;
             justify-content: center;
+            font-size: 13px;
+            line-height: 1;
             cursor: pointer;
             opacity: 0;
-            flex-shrink: 0;
+            pointer-events: none;
             transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
         }
         .bm-card:hover .bm-del {
-            opacity: 0.85;
+            opacity: 0.92;
+            pointer-events: auto;
         }
         .bm-del:hover {
             opacity: 1 !important;
-            background: var(--fnx-elevated);
-            color: var(--fnx-fg);
+            background: rgba(255, 255, 255, 0.10);
+            color: var(--nt-fg);
         }
 
+        /* Raycast Ghost List for Recent History: borderless, dividerless, hover reveal */
         .hist-list {
             display: flex;
             flex-direction: column;
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
-            border-radius: 10px;
-            overflow: hidden;
+            gap: 2px;
+            background: transparent;
+            border: none;
         }
 
         .hist-row {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 9px 13px;
+            justify-content: space-between;
+            gap: 12px;
+            height: 36px;
+            margin: 0 -10px;
+            padding: 0 10px;
             border: none;
-            border-bottom: 1px solid var(--fnx-border);
+            border-radius: 8px;
             background: transparent;
-            color: var(--fnx-fg);
+            color: var(--nt-fg);
             text-align: left;
             cursor: pointer;
-            width: 100%;
-            transition: background 0.1s ease;
+            width: calc(100% + 20px);
+            transition: background 0.12s ease;
         }
-        .hist-row:last-child {
-            border-bottom: none;
-        }
-        .hist-row:hover {
-            background: var(--fnx-hover);
+        .hist-row:hover,
+        .hist-row:focus-visible {
+            outline: none;
+            background: var(--nt-surface);
         }
 
-        .hist-mono {
-            width: 24px;
-            height: 24px;
-            border-radius: 6px;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
-            color: var(--fnx-secondary);
-            font-size: 11px;
-            font-weight: 600;
+        .hist-left {
             display: flex;
             align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .hist-title {
-            font-size: 12.5px;
-            font-weight: 500;
-            color: var(--fnx-fg);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            gap: 10px;
             flex: 1;
             min-width: 0;
         }
 
-        .hist-host {
-            font-size: 11.5px;
-            color: var(--fnx-muted);
+        .hist-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--nt-fg);
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            max-width: 180px;
+            min-width: 0;
+            letter-spacing: -0.008em;
+        }
+
+        .hist-host {
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--nt-dim);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex-shrink: 0;
+            max-width: 190px;
+        }
+
+        .hist-right {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
             flex-shrink: 0;
         }
 
         .hist-time {
             font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-            font-size: 10.5px;
-            color: var(--fnx-muted);
+            font-size: 11px;
+            color: var(--nt-faint);
             font-variant-numeric: tabular-nums;
-            flex-shrink: 0;
+        }
+
+        .hist-kbd {
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-size: 10.5px;
+            font-weight: 500;
+            color: var(--nt-dim);
+            min-width: 36px;
+            height: 20px;
+            padding: 0 6px;
+            border-radius: 5px;
+            border: 1px solid var(--nt-hairline);
+            background: color-mix(in srgb, var(--nt-fg) 4%, transparent);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-variant-numeric: tabular-nums;
+            opacity: 0;
+            transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+        }
+        .hist-row:hover .hist-kbd,
+        .hist-row:focus-visible .hist-kbd,
+        html.nt-alt-held .hist-kbd {
+            opacity: 1;
+            border-color: var(--nt-hairline-hover);
         }
 
         @media (max-width: 768px) {
             #__fynexo_newtab_app__ {
-                padding-top: calc(var(--fnx-host-top-offset, 0px) + 16px);
+                padding-top: calc(var(--fnx-host-top-offset, 0px) + 14px);
                 padding-bottom: calc(var(--fnx-host-bottom-offset, 54px) + max(env(safe-area-inset-bottom, 0px), 12px) + 24px);
                 padding-left: 14px;
                 padding-right: 14px;
             }
-            .nt-shell { gap: 26px; }
-            .nt-hero { margin-top: 8px; gap: 14px; }
-            .nt-title { font-size: 23px; }
-            .bm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px; }
-            .bm-del { opacity: 0.75; }
+            .nt-shell { gap: 22px; }
+            .nt-hero { margin-top: 12px; gap: 20px; }
+            .nt-clock { font-size: 42px; }
+            .nt-pill { padding: 5px 10px; }
+            .nt-engine-btn { height: 34px; padding: 0 9px; }
+            .nt-engine-opt { min-height: 38px; padding: 8px 10px; }
+            .nt-mini-btn { padding: 6px 10px; font-size: 12px; }
+            #addBmTitle { max-width: none !important; flex: 1 1 100%; }
+            .nt-field, .nt-save-btn { height: 36px; }
+            .bm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+            .bm-card { height: 42px; padding: 0 11px; }
+            .bm-del { opacity: 0.72; pointer-events: auto; }
+            .hist-row { min-height: 40px; padding: 8px 10px; }
+            .nt-kbd-hint, .hist-kbd { display: none; }
+            .hist-host { max-width: 110px; }
+        }
+
+        @media (max-width: 480px) {
+            .nt-topbar { flex-wrap: wrap; gap: 8px; }
+            #addBmBar .nt-save-btn { width: 100%; justify-content: center; }
+            .bm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .hist-host { display: none; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                transition: none !important;
+            }
         }
     </style>
     <style id="__fynexo_newtab_custom_css__"></style>
@@ -622,58 +845,56 @@
     <div id="__fynexo_newtab_app__">
         <div class="nt-shell">
             <header class="nt-topbar">
-                <div class="nt-brand">
-                    <div class="nt-mark" aria-hidden="true">
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                            <path d="M3.5 3.5H12.5M3.5 8H10M3.5 3.5V12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                            <circle cx="12" cy="11.5" r="1.6" fill="currentColor"/>
-                        </svg>
-                    </div>
-                    <span class="nt-clock" id="ntClock">--:--</span>
-                </div>
+                <span class="nt-brand-quiet">✦ Fynexo</span>
 
                 <div class="nt-status-group">
                     <button type="button" class="nt-pill" id="btnIncogPill" title="Toggle Private mode (pauses history & session writes)">
                         <span id="ntIncogText">Private: Off</span>
                     </button>
-                    <button type="button" class="nt-pill" id="btnShieldPill" title="Configure network ad & tracker blocker">
+                    <button type="button" class="nt-pill" id="btnShieldPill" title="Toggle Adblock">
                         <span class="nt-dot" id="ntShieldDot"></span>
                         <span id="ntShieldText">Adblock active</span>
                     </button>
-                    <button type="button" class="nt-pill" id="btnOpenPrefs">Preferences</button>
                 </div>
             </header>
 
             <section class="nt-hero">
-                <div class="nt-wordmark">
-                    <h1 class="nt-title" id="ntTitle">Fynexo</h1>
-                    <p class="nt-subtitle" id="ntSubtitle">Single-WebView studio browser · Zero-FX compositing</p>
+                <div class="nt-clock-wrap" id="ntClockWrap">
+                    <div class="nt-clock" id="ntClock">--:--</div>
+                    <div class="nt-date-sub" id="ntDateSub"></div>
+                </div>
+
+                <div class="nt-custom-banner" id="ntCustomBanner">
+                    <h1 class="nt-title" id="ntTitle"></h1>
+                    <p class="nt-subtitle" id="ntSubtitle"></p>
                 </div>
 
                 <div class="nt-search-wrap">
-                    <div class="nt-search-box">
-                        <button type="button" class="nt-engine-btn" id="ntEngineBtn" title="Switch search engine">Google</button>
+                    <div class="nt-search-box" id="ntSearchBox">
+                        <button type="button" class="nt-engine-btn" id="ntEngineBtn" aria-haspopup="listbox" aria-expanded="false" title="Choose search engine">Google</button>
                         <input type="text" id="ntSearchInput" class="nt-search-input" autocomplete="off" spellcheck="false" autocapitalize="off" enterkeyhint="go" placeholder="Search Google, type !gh / !yt, or enter URL...">
                         <button type="button" class="nt-clear-btn" id="ntClearBtn" title="Clear">
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" fill="currentColor" fill-opacity="0.22"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" fill="currentColor" fill-opacity="0.18"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
                         </button>
-                        <button type="button" class="nt-go-btn" id="ntGoBtn" title="Navigate">
-                            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3.5 8h9M8.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <span class="nt-kbd-hint" id="ntSearchHint" title="Press / to focus">/</span>
+                        <button type="button" class="nt-go-btn" id="ntGoBtn" title="Go (Enter)">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M12.5 4.2v3.6a1.5 1.5 0 0 1-1.5 1.5H4.2M6.8 6.7L4.2 9.3l2.6 2.6" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
                     </div>
+                    <div class="nt-engine-menu" id="ntEngineMenu" role="listbox" aria-label="Search engines"></div>
                     <div class="nt-suggest" id="ntSuggestList"></div>
                 </div>
             </section>
 
             <section class="nt-section" id="shortcutsSection">
                 <div class="nt-sec-head">
-                    <span class="nt-sec-label">Saved shortcuts</span>
-                    <button type="button" class="nt-mini-btn" id="btnToggleAddBm">+ Add shortcut</button>
+                    <span class="nt-sec-label">Shortcuts</span>
+                    <button type="button" class="nt-mini-btn" id="btnToggleAddBm">+ Add</button>
                 </div>
 
                 <div class="nt-add-bar" id="addBmBar">
-                    <input type="text" id="addBmTitle" class="nt-field" placeholder="Title (optional)" style="max-width: 200px;">
-                    <input type="text" id="addBmUrl" class="nt-field" placeholder="URL (e.g. news.ycombinator.com)">
+                    <input type="text" id="addBmTitle" class="nt-field" placeholder="Name (optional)" style="max-width: 190px;">
+                    <input type="text" id="addBmUrl" class="nt-field" placeholder="URL (e.g. github.com)">
                     <button type="button" class="nt-save-btn" id="btnSaveBm">Save</button>
                 </div>
 
@@ -682,8 +903,8 @@
 
             <section class="nt-section" id="histSection" style="display: none;">
                 <div class="nt-sec-head">
-                    <span class="nt-sec-label">Continue browsing</span>
-                    <button type="button" class="nt-mini-btn" id="btnClearHist">Clear history</button>
+                    <span class="nt-sec-label">Recent</span>
+                    <button type="button" class="nt-mini-btn" id="btnClearHist">Clear</button>
                 </div>
                 <div class="hist-list" id="histList"></div>
             </section>
@@ -705,6 +926,9 @@
             { trigger: '!rd', name: 'Reddit', url: 'https://www.reddit.com/search/?q={query}' },
             { trigger: '!tr', name: 'Translate', url: 'https://translate.google.com/?sl=auto&tl=zh-CN&text={query}' }
         ];
+
+        const DEFAULT_NEWTAB_TITLE = 'Fynexo';
+        const DEFAULT_NEWTAB_SUBTITLE = 'Single-WebView studio browser · Zero-FX compositing';
 
         const boot = __FNX_BOOT_JSON__ || {};
         let config = Object.assign({
@@ -753,6 +977,17 @@
             }
         }
 
+        function safeParsedUrl(rawUrl) {
+            if (!rawUrl || typeof rawUrl !== 'string') return null;
+            try {
+                const u = new URL(rawUrl);
+                if (u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'fynexo:') {
+                    return u;
+                }
+            } catch (_) {}
+            return null;
+        }
+
         function formatHost(u) {
             try {
                 return new URL(u).hostname.replace(/^www\./, '') || u;
@@ -768,6 +1003,120 @@
             } catch (_) {}
             const t = (title || '').trim();
             return t ? t.charAt(0).toUpperCase() : '•';
+        }
+
+        function monogramColor(url) {
+            const palette = ['#7A88F7', '#38BDF8', '#34D399', '#F472B6', '#FB923C', '#A78BFA'];
+            const s = String(url || '');
+            let h = 0;
+            for (let i = 0; i < s.length; i++) {
+                h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+            }
+            return palette[Math.abs(h) % palette.length];
+        }
+
+        function createSvgEl(tag, attrs) {
+            const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+            if (attrs) {
+                Object.keys(attrs).forEach(k => el.setAttribute(k, String(attrs[k])));
+            }
+            return el;
+        }
+
+        function createBrandSvg(host, urlStr) {
+            if (String(urlStr || '').startsWith('fynexo://')) {
+                const svg = createSvgEl('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none' });
+                svg.appendChild(createSvgEl('path', {
+                    d: 'M8 2.2l1.35 4.45L13.8 8l-4.45 1.35L8 13.8l-1.35-4.45L2.2 8l4.45-1.35z',
+                    fill: 'var(--nt-accent)'
+                }));
+                return svg;
+            }
+            const h = (host || '').toLowerCase();
+            if (h.includes('youtube.com') || h === 'youtu.be') {
+                const svg = createSvgEl('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none' });
+                svg.appendChild(createSvgEl('rect', { x: 1.5, y: 3.2, width: 13, height: 9.6, rx: 2.8, fill: '#FF0033' }));
+                svg.appendChild(createSvgEl('path', { d: 'M6.6 5.9v4.2L10.3 8z', fill: '#FFFFFF' }));
+                return svg;
+            }
+            if (h.includes('github.com')) {
+                const svg = createSvgEl('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'currentColor' });
+                svg.style.color = 'var(--nt-fg)';
+                svg.appendChild(createSvgEl('path', {
+                    d: 'M8 1.6a6.4 6.4 0 0 0-2.02 12.47c.32.06.44-.14.44-.31v-1.1c-1.78.39-2.16-.86-2.16-.86-.29-.74-.71-.94-.71-.94-.58-.4.04-.39.04-.39.64.05.98.66.98.66.57.98 1.5.7 1.87.53.06-.41.22-.7.4-.86-1.42-.16-2.92-.71-2.92-3.16 0-.7.25-1.27.66-1.72-.07-.16-.29-.81.06-1.69 0 0 .54-.17 1.76.66a6.1 6.1 0 0 1 3.2 0c1.22-.83 1.76-.66 1.76-.66.35.88.13 1.53.06 1.69.41.45.66 1.02.66 1.72 0 2.46-1.5 3-2.93 3.15.23.2.43.59.43 1.19v1.77c0 .17.11.37.44.31A6.4 6.4 0 0 0 8 1.6Z'
+                }));
+                return svg;
+            }
+            if (h === 'x.com' || h.endsWith('.x.com') || h.includes('twitter.com')) {
+                const svg = createSvgEl('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'currentColor' });
+                svg.style.color = 'var(--nt-fg)';
+                svg.appendChild(createSvgEl('path', {
+                    d: 'M9.5 6.9 14 1.8h-1.1L9 6.2 5.9 1.8H2.2l4.7 6.8L2.2 14h1.1l4.1-4.7 3.3 4.7h3.7L9.5 6.9Zm-1.5 1.7-.5-.7L3.7 2.6h1.6l3.1 4.4.5.7 4 5.6h-1.6L8 8.6Z'
+                }));
+                return svg;
+            }
+            if (h === 'google.com' || h.startsWith('google.') || h.includes('.google.')) {
+                const svg = createSvgEl('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none' });
+                svg.appendChild(createSvgEl('path', { d: 'M14.2 8.15c0-.46-.04-.9-.12-1.32H8v2.5h3.48a2.98 2.98 0 0 1-1.29 1.95v1.62h2.08c1.22-1.12 1.93-2.77 1.93-4.75Z', fill: '#4285F4' }));
+                svg.appendChild(createSvgEl('path', { d: 'M8 14.5c1.74 0 3.2-.58 4.27-1.56l-2.08-1.62c-.58.39-1.32.62-2.19.62-1.68 0-3.11-1.14-3.62-2.67H2.23v1.67A6.49 6.49 0 0 0 8 14.5Z', fill: '#34A853' }));
+                svg.appendChild(createSvgEl('path', { d: 'M4.38 9.27A3.9 3.9 0 0 1 4.18 8c0-.44.08-.87.2-1.27V5.06H2.23A6.49 6.49 0 0 0 1.5 8c0 1.05.25 2.04.73 2.94l2.15-1.67Z', fill: '#FBBC05' }));
+                svg.appendChild(createSvgEl('path', { d: 'M8 4.06c.95 0 1.8.33 2.47.97l1.85-1.85C11.19 2.13 9.74 1.5 8 1.5a6.49 6.49 0 0 0-5.77 3.56l2.15 1.67C4.89 5.2 6.32 4.06 8 4.06Z', fill: '#EA4335' }));
+                return svg;
+            }
+            if (h.includes('wikipedia.org')) {
+                const svg = createSvgEl('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none' });
+                svg.appendChild(createSvgEl('rect', { x: 1.5, y: 1.5, width: 13, height: 13, rx: 3.5, fill: '#E4E4E7' }));
+                svg.appendChild(createSvgEl('path', { d: 'M3.8 5h1.5l1.6 4.4L8.2 6l1.3 3.4L11.1 5h1.4l-2.2 6.2H9L8 8.3 7 11.2H5.7z', fill: '#18181B' }));
+                return svg;
+            }
+            if (h.includes('bilibili.com')) {
+                const svg = createSvgEl('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none' });
+                svg.appendChild(createSvgEl('path', { d: 'M5 2.5L6.8 4.2M11 2.5L9.2 4.2', stroke: '#00AEEC', 'stroke-width': 1.4, 'stroke-linecap': 'round' }));
+                svg.appendChild(createSvgEl('rect', { x: 2.2, y: 4.3, width: 11.6, height: 8.6, rx: 2.2, stroke: '#00AEEC', 'stroke-width': 1.4 }));
+                svg.appendChild(createSvgEl('circle', { cx: 6, cy: 8.5, r: 0.9, fill: '#00AEEC' }));
+                svg.appendChild(createSvgEl('circle', { cx: 10, cy: 8.5, r: 0.9, fill: '#00AEEC' }));
+                return svg;
+            }
+            return null;
+        }
+
+        function createSiteEmblem(rawUrl, title) {
+            const wrap = document.createElement('span');
+            wrap.className = 'nt-emblem';
+
+            const parsed = safeParsedUrl(rawUrl);
+            const host = parsed ? parsed.hostname.replace(/^www\./, '') : '';
+            const brandSvg = createBrandSvg(host, rawUrl);
+
+            const fb = document.createElement('span');
+            fb.className = 'nt-emblem-fallback' + (brandSvg ? '' : ' nt-emblem-fallback--mono');
+            if (brandSvg) {
+                fb.appendChild(brandSvg);
+            } else {
+                fb.textContent = monogramOf(rawUrl, title);
+                fb.style.color = monogramColor(rawUrl);
+            }
+            wrap.appendChild(fb);
+
+            if (!brandSvg && parsed && (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname) {
+                const img = document.createElement('img');
+                img.className = 'nt-emblem-img';
+                img.alt = '';
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                img.referrerPolicy = 'no-referrer';
+                img.onload = () => {
+                    if (img.naturalWidth > 1) {
+                        wrap.classList.add('has-img');
+                    }
+                };
+                img.onerror = () => {
+                    img.remove();
+                };
+                img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=32`;
+                wrap.appendChild(img);
+            }
+            return wrap;
         }
 
         function relativeTime(ts) {
@@ -816,15 +1165,30 @@
             return fillTpl(engObj && engObj.url, q);
         }
 
+        function isLightHex(hex) {
+            const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+            if (!m) return false;
+            const n = parseInt(m[1], 16);
+            const r = (n >> 16) & 255;
+            const g = (n >> 8) & 255;
+            const b = n & 255;
+            return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 140;
+        }
+
         function updateClock() {
             const nt = (styles && styles.newtab) || {};
+            const clockWrap = document.getElementById('ntClockWrap');
             const clockEl = document.getElementById('ntClock');
+            const dateSub = document.getElementById('ntDateSub');
+            const d = new Date();
+            const longDate = d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+
             if (nt.show_clock === false) {
-                clockEl.style.display = 'none';
+                clockWrap.style.display = 'none';
                 return;
             }
-            clockEl.style.display = 'inline';
-            const d = new Date();
+            clockWrap.style.display = 'flex';
+
             let timeStr;
             if (nt.use_24h_clock === false) {
                 let h = d.getHours();
@@ -834,49 +1198,74 @@
             } else {
                 timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
             }
-            const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', weekday: 'short' });
-            clockEl.textContent = `${timeStr} · ${dateStr}`;
+            clockEl.textContent = timeStr;
+            dateSub.textContent = longDate;
         }
 
         function applySurface() {
             const useCustom = !!(styles.colors && styles.colors.use_custom_colors);
             const src = useCustom ? styles.colors : (activeTheme || {});
-            const t = {
-                bg: src.bg || '#09090b',
-                panel: src.panel || '#0e0e11',
-                surface: src.surface || src.panel || '#141418',
-                elevated: src.elevated || '#1c1c22',
-                border: src.border || '#222228',
-                borderHover: src.border_hover || src.borderHover || '#34343e',
-                fg: src.fg || '#f4f4f6',
-                secondary: src.secondary || '#a1a1aa',
-                muted: src.muted || '#71717a',
-                accent: src.accent || '#6366f1',
-                accentBg: src.accent_bg || src.accentBg || '#1b1d36',
-                hover: src.hover || '#18181e'
-            };
-
+            const isDefaultDark = !useCustom && (!config.theme || config.theme === 'dark');
+            const accent = src.accent || '#7A88F7';
             const root = document.documentElement;
-            root.style.setProperty('--fnx-bg', t.bg);
-            root.style.setProperty('--fnx-panel', t.panel);
-            root.style.setProperty('--fnx-surface', t.surface);
-            root.style.setProperty('--fnx-elevated', t.elevated);
-            root.style.setProperty('--fnx-border', t.border);
-            root.style.setProperty('--fnx-border-hover', t.borderHover);
-            root.style.setProperty('--fnx-fg', t.fg);
-            root.style.setProperty('--fnx-secondary', t.secondary);
-            root.style.setProperty('--fnx-muted', t.muted);
-            root.style.setProperty('--fnx-accent', t.accent);
-            root.style.setProperty('--fnx-accent-bg', t.accentBg);
-            root.style.setProperty('--fnx-hover', t.hover);
+
+            if (isDefaultDark) {
+                root.removeAttribute('data-theme-kind');
+                root.style.setProperty('--nt-bg', '#0B0B0E');
+                root.style.setProperty('--nt-surface', '#141418');
+                root.style.setProperty('--nt-elevated', '#1B1B21');
+                root.style.setProperty('--nt-hover', '#18181D');
+                root.style.setProperty('--nt-hairline', 'rgba(255, 255, 255, 0.06)');
+                root.style.setProperty('--nt-hairline-hover', 'rgba(255, 255, 255, 0.12)');
+                root.style.setProperty('--nt-top-highlight', 'rgba(255, 255, 255, 0.15)');
+                root.style.setProperty('--nt-fg', '#F4F4F5');
+                root.style.setProperty('--nt-dim', '#71717A');
+                root.style.setProperty('--nt-faint', '#52525B');
+                root.style.setProperty('--nt-accent', accent);
+                root.style.setProperty('--nt-accent-soft', `color-mix(in srgb, ${accent} 16%, transparent)`);
+            } else {
+                const bg = src.bg || '#0B0B0E';
+                const light = isLightHex(bg);
+                if (light) {
+                    root.setAttribute('data-theme-kind', 'light');
+                } else {
+                    root.removeAttribute('data-theme-kind');
+                }
+                const fg = src.fg || '#F4F4F5';
+                const surface = src.surface || src.panel || '#141418';
+                const elevated = src.elevated || src.hover || '#1B1B21';
+                root.style.setProperty('--nt-bg', bg);
+                root.style.setProperty('--nt-surface', surface);
+                root.style.setProperty('--nt-elevated', elevated);
+                root.style.setProperty('--nt-hover', src.hover || elevated);
+                root.style.setProperty('--nt-hairline', `color-mix(in srgb, ${fg} ${light ? '9%' : '7%'}, transparent)`);
+                root.style.setProperty('--nt-hairline-hover', `color-mix(in srgb, ${fg} ${light ? '18%' : '14%'}, transparent)`);
+                root.style.setProperty('--nt-top-highlight', light ? 'rgba(255, 255, 255, 0.9)' : `color-mix(in srgb, ${fg} 15%, transparent)`);
+                root.style.setProperty('--nt-fg', fg);
+                root.style.setProperty('--nt-dim', src.secondary || '#71717A');
+                root.style.setProperty('--nt-faint', src.muted || '#52525B');
+                root.style.setProperty('--nt-accent', accent);
+                root.style.setProperty('--nt-accent-soft', src.accent_bg || src.accentBg || `color-mix(in srgb, ${accent} 16%, transparent)`);
+            }
 
             const nt = (styles && styles.newtab) || {};
+            const bannerEl = document.getElementById('ntCustomBanner');
             const titleEl = document.getElementById('ntTitle');
             const subEl = document.getElementById('ntSubtitle');
-            titleEl.textContent = (nt.title !== undefined && nt.title !== null && String(nt.title).trim() !== '') ? nt.title : 'Fynexo';
-            const subTxt = nt.subtitle !== undefined ? String(nt.subtitle) : 'Single-WebView studio browser · Zero-FX compositing';
-            subEl.textContent = subTxt;
-            subEl.style.display = subTxt.trim() ? 'block' : 'none';
+            const rawTitle = (nt.title !== undefined && nt.title !== null) ? String(nt.title).trim() : '';
+            const rawSub = (nt.subtitle !== undefined && nt.subtitle !== null) ? String(nt.subtitle).trim() : '';
+            const hasCustomTitle = rawTitle !== '' && rawTitle !== DEFAULT_NEWTAB_TITLE;
+            const hasCustomSub = rawSub !== '' && rawSub !== DEFAULT_NEWTAB_SUBTITLE;
+
+            if (hasCustomTitle || hasCustomSub) {
+                bannerEl.style.display = 'flex';
+                titleEl.textContent = hasCustomTitle ? rawTitle : '';
+                titleEl.style.display = hasCustomTitle ? 'block' : 'none';
+                subEl.textContent = hasCustomSub ? rawSub : '';
+                subEl.style.display = hasCustomSub ? 'block' : 'none';
+            } else {
+                bannerEl.style.display = 'none';
+            }
 
             const scSec = document.getElementById('shortcutsSection');
             scSec.style.display = nt.show_shortcuts === false ? 'none' : 'flex';
@@ -888,14 +1277,27 @@
             const customCssEl = document.getElementById('__fynexo_newtab_custom_css__');
             if (customCssEl) customCssEl.textContent = nt.custom_css || '';
 
-            const engName = currentEngineObj().name || 'Google';
-            document.getElementById('ntEngineBtn').textContent = engName;
-            document.getElementById('ntSearchInput').placeholder = `Search ${engName}, type !gh / !yt, or enter URL...`;
+            const engObj = currentEngineObj();
+            const engName = (engObj && engObj.name) || 'Google';
+            const engBtn = document.getElementById('ntEngineBtn');
+            if (engBtn) {
+                engBtn.textContent = '';
+                engBtn.appendChild(createSiteEmblem(engObj && engObj.url, engName));
+                const chev = createSvgEl('svg', { width: 10, height: 10, viewBox: '0 0 16 16', fill: 'none', class: 'nt-engine-chevron' });
+                chev.appendChild(createSvgEl('path', { d: 'M4.5 6.5L8 10l3.5-3.5', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+                engBtn.appendChild(chev);
+                engBtn.title = `Search engine: ${engName} (click to choose)`;
+                engBtn.setAttribute('aria-label', `Search engine: ${engName}`);
+                if (typeof engineMenuEl !== 'undefined' && engineMenuEl && engineMenuEl.classList.contains('open')) {
+                    renderEngineMenu();
+                }
+            }
+            document.getElementById('ntSearchInput').placeholder = `Search ${engName}, !gh, or enter URL...`;
 
             const adOn = config.adblock !== false;
             document.getElementById('ntShieldDot').classList.toggle('off', !adOn);
             document.getElementById('ntShieldText').textContent = adOn
-                ? (blockedAds > 0 ? `Adblock · ${blockedAds} blocked` : 'Adblock active')
+                ? (blockedAds > 0 ? `Adblock · ${blockedAds}` : 'Adblock active')
                 : 'Adblock paused';
 
             const incogBtn = document.getElementById('btnIncogPill');
@@ -911,44 +1313,106 @@
             grid.textContent = '';
             const frag = document.createDocumentFragment();
 
+            if (bookmarks.length === 0) {
+                const emptyBtn = document.createElement('button');
+                emptyBtn.type = 'button';
+                emptyBtn.className = 'bm-card bm-card--empty';
+                emptyBtn.textContent = '+ Add a shortcut';
+                emptyBtn.onclick = () => {
+                    document.getElementById('addBmBar').classList.add('open');
+                    document.getElementById('addBmUrl').focus();
+                };
+                frag.appendChild(emptyBtn);
+                grid.appendChild(frag);
+                return;
+            }
+
             bookmarks.forEach(bm => {
                 const card = document.createElement('div');
                 card.className = 'bm-card';
+                card.title = bm.url || '';
+                card.setAttribute('role', 'button');
+                card.tabIndex = 0;
                 card.onclick = () => sendIpc({ type: 'NAVIGATE', url: bm.url });
+                card.onkeydown = (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        sendIpc({ type: 'NAVIGATE', url: bm.url });
+                    }
+                };
 
-                const mono = document.createElement('div');
-                mono.className = 'bm-mono';
-                mono.textContent = monogramOf(bm.url, bm.title);
+                card.appendChild(createSiteEmblem(bm.url, bm.title));
 
-                const meta = document.createElement('div');
-                meta.className = 'bm-meta';
-                const t = document.createElement('div');
+                const t = document.createElement('span');
                 t.className = 'bm-title';
                 t.textContent = bm.title || formatHost(bm.url);
-                const h = document.createElement('div');
-                h.className = 'bm-host';
-                h.textContent = formatHost(bm.url);
-                meta.appendChild(t);
-                meta.appendChild(h);
+                card.appendChild(t);
 
                 const del = document.createElement('button');
                 del.type = 'button';
                 del.className = 'bm-del';
                 del.title = 'Remove shortcut';
+                del.setAttribute('aria-label', 'Remove shortcut');
                 del.textContent = '×';
                 del.onclick = (e) => {
                     e.stopPropagation();
                     sendIpc({ type: 'REMOVE_BOOKMARK', url: bm.url });
                 };
-
-                card.appendChild(mono);
-                card.appendChild(meta);
                 card.appendChild(del);
+
                 frag.appendChild(card);
             });
 
             grid.appendChild(frag);
         }
+
+        function canonicalHistoryUrl(rawUrl) {
+            const s = String(rawUrl || '').trim();
+            if (!s) return '';
+            try {
+                const u = new URL(s);
+                const host = u.hostname.toLowerCase().replace(/^www\./, '');
+                const path = (u.pathname === '/' ? '' : u.pathname.replace(/\/+$/, ''));
+                const dropKeys = new Set(['t', 'pp', 'si', 'feature', 'fbclid', 'gclid']);
+                const params = new URLSearchParams();
+                for (const [k, v] of u.searchParams.entries()) {
+                    const lk = k.toLowerCase();
+                    if (!dropKeys.has(lk) && !lk.startsWith('utm_')) {
+                        params.append(k, v);
+                    }
+                }
+                const qs = params.toString();
+                return `${u.protocol.toLowerCase()}//${host}${u.port ? ':' + u.port : ''}${path}${qs ? '?' + qs : ''}`;
+            } catch (_) {
+                return s.toLowerCase().replace(/\/+$/, '');
+            }
+        }
+
+        function cleanHistoryTitle(rawTitle, rawUrl) {
+            const stripped = String(rawTitle || '').trim().replace(/^\(\d+\+?\)\s*/, '').trim();
+            return stripped || formatHost(rawUrl);
+        }
+
+        function dedupeHistoryItems(items) {
+            const seenUrls = new Set();
+            const seenTitles = new Set();
+            const out = [];
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (!item || !item.url) continue;
+                const urlKey = canonicalHistoryUrl(item.url);
+                if (!urlKey || seenUrls.has(urlKey)) continue;
+                const cleanTitle = cleanHistoryTitle(item.title, item.url);
+                const titleKey = cleanTitle ? `${formatHost(item.url).toLowerCase()}\0${cleanTitle}` : '';
+                if (titleKey && seenTitles.has(titleKey)) continue;
+                seenUrls.add(urlKey);
+                if (titleKey) seenTitles.add(titleKey);
+                out.push(item);
+            }
+            return out;
+        }
+
+        let recentTopItems = [];
 
         function renderHistory() {
             const nt = (styles && styles.newtab) || {};
@@ -957,49 +1421,64 @@
             list.textContent = '';
 
             if (nt.show_history === false) {
+                recentTopItems = [];
                 sec.style.display = 'none';
                 return;
             }
 
-            const topItems = historyItems.slice(0, 8);
-            if (topItems.length === 0) {
+            recentTopItems = dedupeHistoryItems(historyItems).slice(0, 8);
+            if (recentTopItems.length === 0) {
                 sec.style.display = 'none';
                 return;
             }
 
             sec.style.display = 'flex';
             const frag = document.createDocumentFragment();
-            topItems.forEach(item => {
+            recentTopItems.forEach((item, idx) => {
+                const displayTitle = cleanHistoryTitle(item.title, item.url);
                 const row = document.createElement('button');
                 row.type = 'button';
                 row.className = 'hist-row';
+                row.title = `Open ${item.url || ''} (Alt+${idx + 1})`;
                 row.onclick = () => sendIpc({ type: 'NAVIGATE', url: item.url });
 
-                const mono = document.createElement('span');
-                mono.className = 'hist-mono';
-                mono.textContent = monogramOf(item.url, item.title);
+                const left = document.createElement('span');
+                left.className = 'hist-left';
+                left.appendChild(createSiteEmblem(item.url, displayTitle));
 
                 const title = document.createElement('span');
                 title.className = 'hist-title';
-                title.textContent = item.title || formatHost(item.url);
+                title.textContent = displayTitle;
 
                 const host = document.createElement('span');
                 host.className = 'hist-host';
                 host.textContent = formatHost(item.url);
 
+                left.appendChild(title);
+                left.appendChild(host);
+
+                const right = document.createElement('span');
+                right.className = 'hist-right';
+
                 const time = document.createElement('span');
                 time.className = 'hist-time';
                 time.textContent = relativeTime(item.visited_at);
 
-                row.appendChild(mono);
-                row.appendChild(title);
-                row.appendChild(host);
-                row.appendChild(time);
+                const kbd = document.createElement('span');
+                kbd.className = 'hist-kbd';
+                kbd.textContent = `Alt+${idx + 1}`;
+
+                right.appendChild(time);
+                right.appendChild(kbd);
+
+                row.appendChild(left);
+                row.appendChild(right);
                 frag.appendChild(row);
             });
             list.appendChild(frag);
         }
 
+        const searchBox = document.getElementById('ntSearchBox');
         const searchInput = document.getElementById('ntSearchInput');
         const clearBtn = document.getElementById('ntClearBtn');
         const suggestEl = document.getElementById('ntSuggestList');
@@ -1009,7 +1488,9 @@
         function renderSuggestions() {
             const rawTrim = searchInput.value.trim();
             const q = rawTrim.toLowerCase();
-            clearBtn.style.display = searchInput.value.length > 0 ? 'flex' : 'none';
+            const hasVal = searchInput.value.length > 0;
+            clearBtn.style.display = hasVal ? 'flex' : 'none';
+            if (searchBox) searchBox.classList.toggle('has-value', hasVal);
             suggestEl.textContent = '';
 
             if (!q) {
@@ -1037,15 +1518,16 @@
                 const key = (b.url || '').toLowerCase();
                 if (!seen[key] && ((b.title || '').toLowerCase().includes(q) || key.includes(q))) {
                     seen[key] = true;
-                    matches.push({ kind: 'url', title: b.title || formatHost(b.url), url: b.url, tag: 'Saved' });
+                    matches.push({ kind: 'url', title: b.title || formatHost(b.url), url: b.url, tag: 'Shortcut' });
                 }
             });
 
-            historyItems.forEach(h => {
-                const key = (h.url || '').toLowerCase();
-                if (!seen[key] && ((h.title || '').toLowerCase().includes(q) || key.includes(q))) {
+            dedupeHistoryItems(historyItems).forEach(h => {
+                const key = canonicalHistoryUrl(h.url);
+                const cleanTitle = cleanHistoryTitle(h.title, h.url);
+                if (!seen[key] && (cleanTitle.toLowerCase().includes(q) || key.includes(q))) {
                     seen[key] = true;
-                    matches.push({ kind: 'url', title: h.title || formatHost(h.url), url: h.url, tag: 'History' });
+                    matches.push({ kind: 'url', title: cleanTitle, url: h.url, tag: 'Recent' });
                 }
             });
 
@@ -1075,9 +1557,18 @@
                     sendIpc({ type: 'NAVIGATE', url: target });
                 };
 
-                const mono = document.createElement('span');
-                mono.className = 'nt-suggest-mono';
-                mono.textContent = it.kind === 'bang' ? '!' : monogramOf(it.url, it.title);
+                if (it.kind === 'bang') {
+                    const mono = document.createElement('span');
+                    mono.className = 'nt-emblem';
+                    const fb = document.createElement('span');
+                    fb.className = 'nt-emblem-fallback nt-emblem-fallback--mono';
+                    fb.textContent = '!';
+                    fb.style.color = 'var(--nt-accent)';
+                    mono.appendChild(fb);
+                    btn.appendChild(mono);
+                } else {
+                    btn.appendChild(createSiteEmblem(it.url, it.title));
+                }
 
                 const meta = document.createElement('span');
                 meta.className = 'nt-suggest-meta';
@@ -1094,7 +1585,6 @@
                 tag.className = 'nt-suggest-tag';
                 tag.textContent = it.tag;
 
-                btn.appendChild(mono);
                 btn.appendChild(meta);
                 btn.appendChild(tag);
                 frag.appendChild(btn);
@@ -1126,7 +1616,67 @@
             }
         }
 
-        searchInput.addEventListener('input', renderSuggestions);
+        const engineBtnEl = document.getElementById('ntEngineBtn');
+        const engineMenuEl = document.getElementById('ntEngineMenu');
+
+        function closeEngineMenu() {
+            if (!engineMenuEl || !engineBtnEl) return;
+            engineMenuEl.classList.remove('open');
+            engineBtnEl.setAttribute('aria-expanded', 'false');
+        }
+
+        function renderEngineMenu() {
+            if (!engineMenuEl) return;
+            engineMenuEl.textContent = '';
+            const list = getEngines();
+            const cur = currentEngineObj();
+            for (const eng of list) {
+                if (!eng || !eng.id) continue;
+                const active = cur && eng.id === cur.id;
+                const opt = document.createElement('button');
+                opt.type = 'button';
+                opt.className = 'nt-engine-opt' + (active ? ' active' : '');
+                opt.setAttribute('role', 'option');
+                opt.setAttribute('aria-selected', active ? 'true' : 'false');
+                opt.appendChild(createSiteEmblem(eng.url, eng.name || eng.id));
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'nt-engine-opt-name';
+                nameSpan.textContent = eng.name || eng.id;
+                opt.appendChild(nameSpan);
+                const chk = createSvgEl('svg', { width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none', class: 'nt-engine-check' });
+                chk.appendChild(createSvgEl('path', { d: 'M3.5 8.5l3 3 6-6.5', stroke: 'currentColor', 'stroke-width': 1.7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+                opt.appendChild(chk);
+                opt.onclick = (ev) => {
+                    ev.stopPropagation();
+                    config.search_engine = eng.id;
+                    closeEngineMenu();
+                    applySurface();
+                    sendIpc({ type: 'SAVE_CONFIG', config: config });
+                    searchInput.focus();
+                };
+                engineMenuEl.appendChild(opt);
+            }
+        }
+
+        function toggleEngineMenu() {
+            if (!engineMenuEl || !engineBtnEl) return;
+            const willOpen = !engineMenuEl.classList.contains('open');
+            if (willOpen) {
+                suggestEl.style.display = 'none';
+                ntSuggestIdx = -1;
+                renderEngineMenu();
+                engineMenuEl.classList.add('open');
+                engineBtnEl.setAttribute('aria-expanded', 'true');
+            } else {
+                closeEngineMenu();
+            }
+        }
+
+        searchInput.addEventListener('focus', closeEngineMenu);
+        searchInput.addEventListener('input', () => {
+            closeEngineMenu();
+            renderSuggestions();
+        });
         searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowDown' && ntSuggestItems.length > 0) {
                 e.preventDefault();
@@ -1141,8 +1691,10 @@
                 return;
             }
             if (e.key === 'Escape') {
+                closeEngineMenu();
                 suggestEl.style.display = 'none';
                 ntSuggestIdx = -1;
+                searchInput.blur();
                 return;
             }
             if (e.key === 'Enter') {
@@ -1151,9 +1703,53 @@
             }
         });
 
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && engineMenuEl && engineMenuEl.classList.contains('open')) {
+                closeEngineMenu();
+                return;
+            }
+            if (e.key === 'Alt' || e.altKey) {
+                document.documentElement.classList.add('nt-alt-held');
+            }
+            const active = document.activeElement;
+            const inInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+
+            if (e.key === '/' && !inInput && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                searchInput.focus();
+                searchInput.select();
+                return;
+            }
+
+            if ((e.metaKey || e.altKey) && !e.ctrlKey && !e.shiftKey) {
+                const n = Number(e.key);
+                if (Number.isInteger(n) && n >= 1 && n <= recentTopItems.length) {
+                    const target = recentTopItems[n - 1];
+                    if (target && target.url) {
+                        e.preventDefault();
+                        sendIpc({ type: 'NAVIGATE', url: target.url });
+                    }
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'Alt' || !e.altKey) {
+                document.documentElement.classList.remove('nt-alt-held');
+            }
+        });
+
+        window.addEventListener('blur', () => {
+            document.documentElement.classList.remove('nt-alt-held');
+            closeEngineMenu();
+        });
+
         document.addEventListener('click', (e) => {
             if (!e.target.closest || !e.target.closest('.nt-search-wrap')) {
                 suggestEl.style.display = 'none';
+                closeEngineMenu();
+            } else if (!e.target.closest('#ntEngineBtn') && !e.target.closest('#ntEngineMenu')) {
+                closeEngineMenu();
             }
         });
 
@@ -1165,16 +1761,9 @@
 
         document.getElementById('ntGoBtn').onclick = submitHeroSearch;
 
-        document.getElementById('ntEngineBtn').onclick = () => {
-            const list = getEngines();
-            const curIdx = list.findIndex(e => e.id === config.search_engine);
-            const next = list[(curIdx + 1) % list.length];
-            if (next) {
-                config.search_engine = next.id;
-                applySurface();
-                sendIpc({ type: 'SAVE_CONFIG', config: config });
-            }
-            searchInput.focus();
+        engineBtnEl.onclick = (e) => {
+            e.stopPropagation();
+            toggleEngineMenu();
         };
 
         document.getElementById('btnIncogPill').onclick = () => {
@@ -1183,11 +1772,10 @@
             sendIpc({ type: 'SAVE_CONFIG', config: config });
         };
 
-        document.getElementById('btnOpenPrefs').onclick = () => {
-            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings' });
-        };
         document.getElementById('btnShieldPill').onclick = () => {
-            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings' });
+            config.adblock = config.adblock === false;
+            applySurface();
+            sendIpc({ type: 'SAVE_CONFIG', config: config });
         };
 
         const addBar = document.getElementById('addBmBar');

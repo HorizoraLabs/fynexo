@@ -6,21 +6,28 @@
     <title>Preferences — Fynexo</title>
     <style>
         :root {
-            --fnx-bg: #19191c;
-            --fnx-panel: #29292e;
-            --fnx-surface: #212126;
-            --fnx-elevated: #35353c;
-            --fnx-border: #37373f;
-            --fnx-border-hover: #4b4b56;
-            --fnx-fg: #f0f0f3;
-            --fnx-secondary: #c2c2cb;
-            --fnx-muted: #8a8a95;
-            --fnx-accent: #7a88f7;
-            --fnx-accent-bg: #262942;
-            --fnx-hover: #33333a;
-            --cfg-sidebar-w: 244px;
-            --cfg-content-pad: 28px 36px;
-            --cfg-card-radius: 10px;
+            --fnx-bg: #0B0B0E;
+            --fnx-panel: #0E0E12;
+            --fnx-surface: #141418;
+            --fnx-elevated: #1B1B21;
+            --fnx-hover: #18181D;
+            --fnx-divider: rgba(255, 255, 255, 0.05);
+            --fnx-hairline: rgba(255, 255, 255, 0.08);
+            --fnx-hairline-hover: rgba(255, 255, 255, 0.14);
+            --fnx-btn-bg: rgba(255, 255, 255, 0.05);
+            --fnx-btn-bg-hover: rgba(255, 255, 255, 0.09);
+            --fnx-btn-top: rgba(255, 255, 255, 0.14);
+            --fnx-fg: #F4F4F5;
+            --fnx-secondary: #A1A1AA;
+            --fnx-muted: #71717A;
+            --fnx-faint: #52525B;
+            --fnx-accent: #7A88F7;
+            --cfg-sidebar-w: 224px;
+            --cfg-content-pad: 32px 36px 56px;
+        }
+
+        html[data-theme-kind="light"] {
+            --fnx-btn-top: rgba(255, 255, 255, 0.9);
         }
 
         *, *::before, *::after {
@@ -34,15 +41,14 @@
             backdrop-filter: none !important;
         }
 
-        html { scroll-behavior: smooth; }
-
         html, body {
             width: 100%;
+            height: 100%;
             min-height: 100vh;
             background: var(--fnx-bg);
             color: var(--fnx-fg);
             font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            line-height: 1.5;
+            line-height: 1.48;
             overflow-x: hidden;
         }
 
@@ -51,31 +57,30 @@
             touch-action: manipulation;
         }
 
+        code {
+            font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+        }
+
         #__fynexo_settings_app__ {
             width: 100%;
-            min-height: 100vh;
-            padding-top: var(--fnx-host-top-offset, 38px);
+            height: 100%;
+            padding-top: var(--fnx-host-top-offset, 0px);
             display: grid;
             grid-template-columns: var(--cfg-sidebar-w) minmax(0, 1fr);
             align-items: stretch;
+            overflow: hidden;
         }
 
-        #__fynexo_settings_app__.centered-mode .workspace-inner {
-            max-width: 1180px;
-            margin: 0 auto;
-        }
-
-        /* Left Rail */
+        /* Cursor-style Ghost Sidebar */
         .sidebar {
-            background: var(--fnx-panel);
-            border-right: 1px solid var(--fnx-border);
-            padding: 20px 14px 16px;
+            background: transparent;
+            border-right: 1px solid var(--fnx-divider);
+            padding: 24px 14px 12px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            position: sticky;
-            top: var(--fnx-host-top-offset, 38px);
-            height: calc(100vh - var(--fnx-host-top-offset, 38px));
+            height: 100%;
+            overflow-y: auto;
             user-select: none;
         }
 
@@ -90,182 +95,729 @@
             align-items: center;
             justify-content: space-between;
             gap: 8px;
-            padding: 0 6px 16px;
-            border-bottom: 1px solid var(--fnx-border);
+            padding: 0 8px 6px;
         }
 
         .brand-identity {
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 9px;
+            gap: 7px;
             min-width: 0;
         }
 
-        .brand-mark {
-            width: 26px;
-            height: 26px;
-            border-radius: 7px;
-            background: var(--fnx-accent-bg);
-            border: 1px solid var(--fnx-accent);
-            color: var(--fnx-accent);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
+        .brand-glyph {
+            font-size: 11px;
+            color: var(--fnx-faint);
+            line-height: 1;
         }
 
-        .brand-copy { display: flex; flex-direction: column; min-width: 0; }
-        .brand-title { font-size: 13.5px; font-weight: 600; letter-spacing: -0.02em; color: var(--fnx-fg); line-height: 1.2; }
-        .brand-sub { font-size: 11px; color: var(--fnx-muted); line-height: 1.25; }
+        .brand-title {
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: -0.015em;
+            color: var(--fnx-fg);
+        }
 
         .back-btn {
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            padding: 5px 9px;
-            font-size: 12px;
+            height: 24px;
+            padding: 0 8px;
+            font-size: 11.5px;
             font-weight: 500;
-            color: var(--fnx-secondary);
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
+            color: var(--fnx-muted);
+            background: transparent;
+            border: 1px solid transparent;
             border-radius: 6px;
             cursor: pointer;
-            flex-shrink: 0;
-            transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+            transition: background 0.12s ease, color 0.12s ease;
         }
         .back-btn:hover {
-            border-color: var(--fnx-border-hover);
+            background: var(--fnx-btn-bg);
             color: var(--fnx-fg);
-            background: var(--fnx-elevated);
         }
 
-        .nav-list { display: flex; flex-direction: column; gap: 3px; }
+        .nav-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
         .nav-link {
             display: flex;
             align-items: center;
             gap: 9px;
-            padding: 8px 10px;
+            padding: 7px 10px;
             font-size: 13px;
             font-weight: 500;
-            color: var(--fnx-secondary);
+            letter-spacing: -0.005em;
+            color: var(--fnx-muted);
             text-decoration: none;
             border-radius: 7px;
             border: 1px solid transparent;
-            transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+            background: transparent;
+            cursor: pointer;
+            text-align: left;
+            transition: background 0.12s ease, color 0.12s ease;
         }
-        .nav-link svg { color: var(--fnx-muted); flex-shrink: 0; }
-        .nav-link:hover { background: var(--fnx-hover); color: var(--fnx-fg); }
-        .nav-link.active { background: var(--fnx-surface); border-color: var(--fnx-border); color: var(--fnx-fg); }
-        .nav-link.active svg { color: var(--fnx-accent); }
-
-        .sidebar-footer {
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
-            border-radius: var(--cfg-card-radius);
-            padding: 11px 12px;
-            font-size: 11.5px;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
+        .nav-link svg {
+            color: var(--fnx-faint);
+            flex-shrink: 0;
+            transition: color 0.12s ease;
         }
-        .meta-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-        .meta-key { color: var(--fnx-muted); }
-        .meta-val {
+        .nav-link:hover {
+            background: color-mix(in srgb, var(--fnx-fg) 4%, transparent);
             color: var(--fnx-secondary);
+        }
+        .nav-link:hover svg {
+            color: var(--fnx-secondary);
+        }
+        .nav-link.active {
+            background: color-mix(in srgb, var(--fnx-fg) 7%, transparent);
+            color: var(--fnx-fg);
+        }
+        .nav-link.active svg {
+            color: var(--fnx-fg);
+        }
+
+        /* Bare Ghost Sidebar Footer */
+        .sidebar-footer {
+            padding: 8px 10px 12px;
             font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-            font-size: 11px;
-            font-variant-numeric: tabular-nums;
+            font-size: 10.5px;
+            color: var(--fnx-faint);
+            letter-spacing: -0.01em;
+            white-space: nowrap;
+        }
+
+        /* Workspace (Linear max-w-3xl centered) */
+        .workspace {
+            width: 100%;
+            height: 100%;
+            min-width: 0;
+            overflow-y: auto;
+            padding: var(--cfg-content-pad);
+        }
+
+        .workspace-inner {
+            width: 100%;
+            max-width: 768px;
+            margin: 0 auto;
+        }
+        #__fynexo_settings_app__.compact-width .workspace-inner {
+            max-width: 680px;
+        }
+
+        /* Single-Page View Switching */
+        .sec-block {
+            display: none;
+            flex-direction: column;
+            gap: 0;
+        }
+        .sec-block.active {
+            display: flex;
+        }
+
+        .sec-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--fnx-divider);
+        }
+        .sec-header > div:first-child {
+            flex: 1 1 0;
+            min-width: 0;
+        }
+        .sec-title {
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            color: var(--fnx-fg);
+            line-height: 1.25;
+        }
+        .sec-desc {
+            font-size: 12.5px;
+            color: var(--fnx-muted);
+            margin-top: 3px;
+        }
+        .sec-actions {
             display: inline-flex;
             align-items: center;
-            gap: 5px;
+            gap: 6px;
+            flex-shrink: 0;
         }
-        .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; flex-shrink: 0; }
-        .status-dot.off { background: var(--fnx-muted); }
+        .themes-dir-link {
+            border: none;
+            background: transparent;
+            color: var(--fnx-faint);
+            font-size: 11px;
+            cursor: pointer;
+            padding: 2px 5px;
+            border-radius: 5px;
+            max-width: 340px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            transition: color 0.12s ease, background 0.12s ease;
+        }
+        .themes-dir-link:hover {
+            color: var(--fnx-secondary);
+            background: var(--fnx-btn-bg);
+        }
 
-        /* Workspace */
-        .workspace { width: 100%; min-width: 0; padding: var(--cfg-content-pad); }
-        .workspace-inner { width: 100%; display: flex; flex-direction: column; gap: 34px; }
+        /* Linear Left-Label + Right-Control Rows */
+        .set-group-title {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--fnx-faint);
+            padding: 22px 0 6px;
+        }
 
-        .bundle-banner {
+        .set-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            padding: 15px 0;
+            border-bottom: 1px solid var(--fnx-divider);
+        }
+        .set-row.align-top {
+            align-items: flex-start;
+        }
+        .set-meta {
+            flex: 1 1 auto;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .set-label {
+            font-size: 13.5px;
+            font-weight: 500;
+            letter-spacing: -0.01em;
+            color: var(--fnx-fg);
+        }
+        .set-hint {
+            font-size: 12px;
+            color: var(--fnx-muted);
+            line-height: 1.45;
+        }
+        .set-ctrl {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .set-ctrl-col {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 7px;
+            width: 310px;
+            max-width: 100%;
+        }
+
+        /* Stacked Section Block (with 1px hairline divider) */
+        .set-block {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 18px 0;
+            border-bottom: 1px solid var(--fnx-divider);
+        }
+        .set-block:last-child {
+            border-bottom: none;
+        }
+        .set-block-head {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 14px;
-            padding: 13px 16px;
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border-hover);
-            border-radius: var(--cfg-card-radius);
             flex-wrap: wrap;
         }
-        .bundle-title { font-size: 13.5px; font-weight: 600; color: var(--fnx-fg); }
-        .bundle-sub { font-size: 12px; color: var(--fnx-muted); margin-top: 2px; }
 
-        .sec-block { display: flex; flex-direction: column; gap: 14px; scroll-margin-top: 62px; }
-        .sec-header {
+        /* Vercel Secondary Surface Button (No loud solid purple!) */
+        .action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 29px;
+            padding: 0 11px;
+            font-size: 12px;
+            font-weight: 500;
+            border-radius: 7px;
+            background: var(--fnx-btn-bg);
+            border: 1px solid var(--fnx-hairline);
+            border-top-color: var(--fnx-btn-top);
+            color: var(--fnx-fg);
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+        }
+        .action-btn:hover {
+            background: var(--fnx-btn-bg-hover);
+            border-color: var(--fnx-hairline-hover);
+            border-top-color: var(--fnx-btn-top);
+        }
+        .action-btn.compact {
+            height: 26px;
+            padding: 0 9px;
+            font-size: 11.5px;
+        }
+        .action-btn.danger {
+            color: var(--fnx-secondary);
+        }
+        .action-btn.danger:hover {
+            border-color: rgba(244, 63, 94, 0.45);
+            background: rgba(244, 63, 94, 0.1);
+            color: #FB7185;
+        }
+
+        /* Pill Switch (One of only 2 places using --fnx-accent) */
+        .switch-wrap {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+        }
+        .switch-status {
+            font-size: 12px;
+            color: var(--fnx-muted);
+        }
+        .fnx-switch {
+            position: relative;
+            width: 34px;
+            height: 19px;
+            border-radius: 999px;
+            border: 1px solid var(--fnx-hairline);
+            background: color-mix(in srgb, var(--fnx-fg) 8%, transparent);
+            cursor: pointer;
+            flex-shrink: 0;
+            outline: none;
+            transition: background 0.14s ease, border-color 0.14s ease;
+        }
+        .fnx-switch::after {
+            content: "";
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 13px;
+            height: 13px;
+            border-radius: 50%;
+            background: var(--fnx-muted);
+            transition: transform 0.14s ease, background 0.14s ease;
+        }
+        .fnx-switch.on {
+            background: var(--fnx-accent);
+            border-color: var(--fnx-accent);
+        }
+        .fnx-switch.on::after {
+            transform: translateX(15px);
+            background: #FFFFFF;
+        }
+
+        /* Inputs & Segmented Controls */
+        .text-input, .select-input, .code-area {
+            width: 100%;
+            min-width: 0;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline);
+            border-radius: 7px;
+            color: var(--fnx-fg);
+            padding: 6px 10px;
+            font-size: 12.5px;
+            outline: none;
+            transition: border-color 0.12s ease, background 0.12s ease;
+        }
+        .text-input, .select-input {
+            height: 30px;
+        }
+        .text-input::placeholder, .code-area::placeholder {
+            color: var(--fnx-faint);
+        }
+        .text-input.mono, .code-area {
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-size: 11.5px;
+        }
+        .code-area {
+            min-height: 78px;
+            resize: vertical;
+            line-height: 1.5;
+            padding: 8px 10px;
+        }
+        .text-input:focus, .select-input:focus, .code-area:focus {
+            border-color: var(--fnx-hairline-hover);
+            background: var(--fnx-elevated);
+        }
+
+        .seg-group {
+            display: inline-flex;
+            align-items: center;
+            background: var(--fnx-surface);
+            padding: 2px;
+            border-radius: 8px;
+            border: 1px solid var(--fnx-hairline);
+            gap: 2px;
+        }
+        .seg-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 24px;
+            padding: 0 10px;
+            font-size: 12px;
+            font-weight: 500;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            color: var(--fnx-muted);
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.12s ease, color 0.12s ease;
+        }
+        .seg-btn:hover { color: var(--fnx-secondary); }
+        .seg-btn.active {
+            background: var(--fnx-elevated);
+            border-color: var(--fnx-hairline);
+            color: var(--fnx-fg);
+        }
+
+        /* Ghost Preset Links */
+        .preset-row {
             display: flex;
-            align-items: flex-end;
-            justify-content: space-between;
+            align-items: center;
+            gap: 4px;
             flex-wrap: wrap;
-            gap: 12px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid var(--fnx-border);
+            justify-content: flex-end;
         }
-        .sec-title { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; color: var(--fnx-fg); }
-        .sec-desc { font-size: 12.5px; color: var(--fnx-muted); margin-top: 2px; }
-        .theme-header-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+        .preset-chip {
+            padding: 2px 7px;
+            font-size: 11px;
+            font-weight: 500;
+            border-radius: 5px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--fnx-faint);
+            cursor: pointer;
+            transition: background 0.12s ease, color 0.12s ease;
+        }
+        .preset-chip:hover {
+            background: var(--fnx-btn-bg);
+            color: var(--fnx-secondary);
+        }
 
-        .themes-dir-bar {
+        /* Site Emblem Favicon (shared style with Start Page) */
+        .rc-emblem {
+            width: 15px;
+            height: 15px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            position: relative;
+        }
+        .rc-emblem-fallback, .rc-emblem-img {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            display: block;
+            flex-shrink: 0;
+        }
+        .rc-emblem-fallback {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--fnx-muted);
+        }
+        .rc-emblem-img {
+            object-fit: contain;
+        }
+
+        /* Raycast Inline Compact Table */
+        .rc-table {
+            width: 100%;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline);
+            border-top-color: var(--fnx-btn-top);
+            border-radius: 9px;
+            overflow: hidden;
+        }
+        .rc-rows {
+            display: flex;
+            flex-direction: column;
+        }
+        .rc-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 10px;
-            padding: 8px 12px;
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
-            border-radius: 8px;
-            font-size: 11.5px;
-            color: var(--fnx-muted);
-            flex-wrap: wrap;
+            min-height: 36px;
+            padding: 6px 11px;
+            border-bottom: 1px solid var(--fnx-divider);
+            transition: background 0.1s ease;
         }
-        .themes-dir-code {
+        .rc-row:hover {
+            background: color-mix(in srgb, var(--fnx-fg) 3%, transparent);
+        }
+        .rc-row.clickable {
+            cursor: pointer;
+        }
+        .rc-row-empty {
+            padding: 12px 11px;
+            font-size: 12px;
+            color: var(--fnx-faint);
+            border-bottom: 1px solid var(--fnx-divider);
+        }
+
+        .rc-left {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .rc-mid {
+            flex: 1 1 auto;
+            min-width: 0;
+            display: flex;
+            align-items: baseline;
+            gap: 9px;
+        }
+        .rc-name {
+            font-size: 12.5px;
+            font-weight: 500;
+            color: var(--fnx-fg);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex-shrink: 0;
+            max-width: 180px;
+        }
+        .rc-tpl {
             font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
             font-size: 11px;
-            color: var(--fnx-secondary);
+            color: var(--fnx-faint);
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            max-width: 100%;
+            min-width: 0;
         }
+        .rc-right {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            flex-shrink: 0;
+        }
+
+        .rc-badge {
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 2px 6px;
+            border-radius: 5px;
+            background: color-mix(in srgb, var(--fnx-fg) 5%, transparent);
+            border: 1px solid var(--fnx-hairline);
+            color: var(--fnx-secondary);
+            white-space: nowrap;
+        }
+        .rc-active-pill {
+            font-size: 10.5px;
+            font-weight: 500;
+            padding: 1px 6px;
+            border-radius: 5px;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            color: #34D399;
+        }
+        .rc-radio {
+            width: 13px;
+            height: 13px;
+            border-radius: 50%;
+            border: 1.5px solid var(--fnx-faint);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .rc-row.is-default .rc-radio {
+            border-color: #10B981;
+        }
+        .rc-row.is-default .rc-radio::after {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #10B981;
+        }
+
+        .rc-del {
+            opacity: 0;
+            width: 22px;
+            height: 22px;
+            border-radius: 5px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--fnx-muted);
+            font-size: 14px;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: opacity 0.1s ease, background 0.1s ease, color 0.1s ease;
+        }
+        .rc-row:hover .rc-del,
+        .rc-del:focus-visible {
+            opacity: 1;
+        }
+        .rc-del:hover {
+            background: rgba(244, 63, 94, 0.12);
+            color: #FB7185;
+        }
+
+        .rc-add-row {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 9px;
+            background: color-mix(in srgb, var(--fnx-fg) 1.5%, transparent);
+        }
+        .rc-add-row .text-input {
+            height: 27px;
+            font-size: 12px;
+            background: var(--fnx-bg);
+            padding: 4px 8px;
+        }
+
+        /* Theme Grid (Only theme-card.active uses --fnx-accent border) */
+        .theme-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+            gap: 10px;
+            width: 100%;
+        }
+        .theme-card {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline);
+            border-radius: 9px;
+            cursor: pointer;
+            outline: none;
+            text-align: left;
+            min-width: 0;
+            user-select: none;
+            transition: border-color 0.12s ease, background 0.12s ease;
+        }
+        .theme-card:hover {
+            border-color: var(--fnx-hairline-hover);
+            background: var(--fnx-elevated);
+        }
+        .theme-card.active {
+            border-color: var(--fnx-accent);
+            background: var(--fnx-surface);
+        }
+        .theme-meta-right { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
+        .theme-del-btn {
+            opacity: 0;
+            width: 19px;
+            height: 19px;
+            border-radius: 5px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--fnx-muted);
+            font-size: 13px;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: opacity 0.1s ease, color 0.1s ease;
+        }
+        .theme-card:hover .theme-del-btn { opacity: 1; }
+        .theme-del-btn:hover { color: #FB7185; background: rgba(244, 63, 94, 0.12); }
+
+        .mini-preview {
+            height: 52px;
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 9px;
+            border: 1px solid rgba(128, 128, 128, 0.22);
+        }
+        .mini-bar {
+            height: 17px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 5px;
+            gap: 5px;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+        }
+        .mini-tabs { display: flex; align-items: center; gap: 3px; min-width: 0; }
+        .mini-tab { display: flex; align-items: center; gap: 4px; height: 10px; padding: 0 5px; border-radius: 3px; }
+        .mini-dot { width: 4px; height: 4px; border-radius: 50%; flex-shrink: 0; }
+        .mini-line { width: 20px; height: 2px; border-radius: 1px; opacity: 0.82; }
+        .mini-omnibox { width: 32px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+        .mini-body { flex: 1; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; gap: 8px; }
+        .mini-canvas-col { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+        .theme-info { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+        .theme-name-wrap { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+        .theme-name { font-size: 12.5px; font-weight: 600; letter-spacing: -0.01em; color: var(--fnx-fg); }
+        .theme-active-tag {
+            display: none;
+            font-size: 10px;
+            font-weight: 500;
+            padding: 1px 5px;
+            border-radius: 4px;
+            background: color-mix(in srgb, var(--fnx-fg) 7%, transparent);
+            border: 1px solid var(--fnx-hairline);
+            color: var(--fnx-fg);
+        }
+        .theme-card.active .theme-active-tag { display: inline-block; }
+        .theme-hex { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 10px; color: var(--fnx-faint); }
+        .theme-sub { font-size: 11px; color: var(--fnx-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         /* Custom Color Pickers Studio */
         .palette-studio {
             display: none;
             flex-direction: column;
             gap: 12px;
-            padding: 14px 16px;
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-accent);
-            border-radius: var(--cfg-card-radius);
+            padding: 14px;
+            margin-top: 8px;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline);
+            border-radius: 9px;
         }
         .palette-studio.open { display: flex; }
         .color-tokens-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
-            gap: 8px;
+            grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+            gap: 7px;
         }
         .color-swatch-box {
             display: flex;
             align-items: center;
             gap: 8px;
             padding: 6px 8px;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
+            background: var(--fnx-bg);
+            border: 1px solid var(--fnx-hairline);
             border-radius: 7px;
         }
         .color-picker-native {
-            width: 24px;
-            height: 24px;
-            border: 1px solid var(--fnx-border);
+            width: 22px;
+            height: 22px;
+            border: 1px solid var(--fnx-hairline);
             border-radius: 5px;
             padding: 0;
             background: transparent;
@@ -273,7 +825,7 @@
             flex-shrink: 0;
         }
         .color-token-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-        .color-token-lbl { font-size: 11px; font-weight: 500; color: var(--fnx-secondary); }
+        .color-token-lbl { font-size: 10.5px; font-weight: 500; color: var(--fnx-muted); }
         .color-token-hex {
             background: transparent;
             border: none;
@@ -284,354 +836,88 @@
             width: 100%;
         }
 
-        /* Theme Grid */
-        .theme-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-            gap: 12px;
-            width: 100%;
-        }
-        .theme-card {
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            padding: 11px;
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
-            border-radius: var(--cfg-card-radius);
-            cursor: pointer;
-            outline: none;
-            text-align: left;
-            min-width: 0;
-            user-select: none;
-            transition: border-color 0.12s ease, background 0.12s ease;
-        }
-        .theme-card:hover { border-color: var(--fnx-border-hover); background: var(--fnx-hover); }
-        .theme-card.active { border-color: var(--fnx-accent); background: var(--fnx-accent-bg); }
-
-        .theme-meta-right { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
-        .theme-del-btn {
-            width: 20px;
-            height: 20px;
-            border-radius: 5px;
-            border: 1px solid var(--fnx-border);
-            background: var(--fnx-surface);
-            color: var(--fnx-muted);
-            font-size: 12px;
-            line-height: 1;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-        }
-        .theme-del-btn:hover { border-color: #f43f5e; color: #f43f5e; }
-
-        .mini-preview {
-            height: 58px;
-            border-radius: 6px;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            margin-bottom: 10px;
-            border: 1px solid rgba(128, 128, 128, 0.22);
-        }
-        .mini-bar {
-            height: 18px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 5px;
-            gap: 5px;
-            border-bottom: 1px solid rgba(128, 128, 128, 0.18);
-        }
-        .mini-tabs { display: flex; align-items: center; gap: 3px; min-width: 0; }
-        .mini-tab { display: flex; align-items: center; gap: 4px; height: 11px; padding: 0 5px; border-radius: 3px; }
-        .mini-dot { width: 4px; height: 4px; border-radius: 50%; flex-shrink: 0; }
-        .mini-line { width: 22px; height: 2px; border-radius: 1px; opacity: 0.82; }
-        .mini-omnibox { width: 34px; height: 10px; border-radius: 3px; flex-shrink: 0; }
-        .mini-body { flex: 1; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; gap: 8px; }
-        .mini-canvas-col { display: flex; flex-direction: column; gap: 4px; flex: 1; }
-        .theme-info { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-        .theme-name-wrap { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-        .theme-name { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; color: var(--fnx-fg); }
-        .theme-active-tag { display: none; font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: var(--fnx-accent); color: #ffffff; }
-        .theme-card.active .theme-active-tag { display: inline-block; }
-        .theme-hex { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--fnx-muted); }
-        .theme-sub { font-size: 11.5px; color: var(--fnx-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-        /* General Settings Cards */
-        .cards-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 12px;
-            width: 100%;
-        }
-        .setting-card {
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
-            border-radius: var(--cfg-card-radius);
-            padding: 16px 18px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            gap: 12px;
-            min-width: 0;
-        }
-        .setting-card.full-span {
-            grid-column: 1 / -1;
-        }
-        .card-label { font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; color: var(--fnx-fg); }
-        .card-hint { font-size: 12px; color: var(--fnx-muted); margin-top: 2px; }
-
-        .seg-group {
-            display: flex;
-            flex-wrap: wrap;
-            background: var(--fnx-bg);
-            padding: 3px;
-            border-radius: 7px;
-            border: 1px solid var(--fnx-border);
-            gap: 3px;
-            width: 100%;
-        }
-        .seg-btn {
-            flex: 1 1 auto;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
+        /* Storage Path & Adblock Sub-Grid */
+        .storage-path {
             padding: 6px 10px;
-            font-size: 12px;
-            font-weight: 500;
-            background: transparent;
-            border: 1px solid transparent;
-            border-radius: 5px;
+            border-radius: 7px;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline);
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-size: 11.5px;
             color: var(--fnx-muted);
-            cursor: pointer;
-            outline: none;
+            overflow-x: auto;
             white-space: nowrap;
         }
-        .seg-btn:hover { color: var(--fnx-fg); }
-        .seg-btn.active {
-            background: var(--fnx-elevated);
-            border-color: var(--fnx-border);
-            color: var(--fnx-fg);
-        }
-
-        .inline-form {
-            display: flex;
-            align-items: center;
-            gap: 7px;
-            flex-wrap: wrap;
+        .domain-split {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
             width: 100%;
         }
-        .inline-form .text-input {
-            flex: 1;
-            min-width: 120px;
-        }
-
-        .chips-wrap {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            flex-wrap: wrap;
-        }
-        .tag-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 8px;
-            font-size: 11.5px;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
-            border-radius: 6px;
-            color: var(--fnx-fg);
-            max-width: 100%;
-        }
-        .tag-chip code {
-            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-            font-size: 11px;
-            color: var(--fnx-accent);
-        }
-        .chip-x {
-            border: none;
-            background: transparent;
-            color: var(--fnx-muted);
-            cursor: pointer;
-            font-size: 13px;
-            line-height: 1;
-            padding: 0 2px;
-        }
-        .chip-x:hover { color: #f43f5e; }
-
-        .text-input, .select-input, .code-area {
-            width: 100%;
-            min-width: 0;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
-            border-radius: 7px;
-            color: var(--fnx-fg);
-            padding: 7px 10px;
-            font-size: 12.5px;
-            outline: none;
-            transition: border-color 0.12s ease, background 0.12s ease;
-        }
-        .text-input.mono, .code-area {
-            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-            font-size: 12px;
-        }
-        .code-area {
-            min-height: 82px;
-            resize: vertical;
-            line-height: 1.5;
-        }
-        .text-input:focus, .select-input:focus, .code-area:focus {
-            border-color: var(--fnx-accent);
-            background: var(--fnx-bg);
-        }
-
-        .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-        .switch-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            padding: 6px 12px;
-            font-size: 12px;
-            font-weight: 500;
-            border: 1px solid var(--fnx-border);
-            border-radius: 7px;
-            cursor: pointer;
-            background: var(--fnx-surface);
-            color: var(--fnx-secondary);
-            flex-shrink: 0;
-            transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
-        }
-        .switch-btn:hover { border-color: var(--fnx-border-hover); color: var(--fnx-fg); }
-        .switch-btn.on { border-color: var(--fnx-accent); background: var(--fnx-accent-bg); color: var(--fnx-fg); }
-        .switch-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fnx-muted); }
-        .switch-btn.on .switch-dot { background: #10b981; }
-
-        /* Site Rules List & Visual Editor */
-        .rules-list {
+        .domain-col {
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 7px;
+            min-width: 0;
         }
-        .rule-row {
+        .domain-col-head {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 10px;
-            padding: 10px 12px;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
-            border-radius: 8px;
-            flex-wrap: wrap;
-        }
-        .rule-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; flex: 1; }
-        .rule-name { font-size: 13px; font-weight: 500; color: var(--fnx-fg); }
-        .rule-domain {
-            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-            font-size: 11px;
-            padding: 2px 6px;
-            border-radius: 5px;
-            background: var(--fnx-bg);
-            border: 1px solid var(--fnx-border);
+            font-size: 12px;
+            font-weight: 500;
             color: var(--fnx-secondary);
         }
-        .rule-badge {
-            font-size: 10px;
-            font-weight: 600;
-            padding: 1px 5px;
-            border-radius: 4px;
-            background: var(--fnx-accent-bg);
-            border: 1px solid var(--fnx-accent);
-            color: var(--fnx-fg);
+        .domain-col-tag {
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-size: 10.5px;
+            color: var(--fnx-faint);
         }
+
+        /* Rule Editor */
         .rule-editor-panel {
             display: none;
             flex-direction: column;
             gap: 10px;
-            padding: 13px;
-            background: var(--fnx-bg);
-            border: 1px solid var(--fnx-border-hover);
-            border-radius: 8px;
+            padding: 14px;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline-hover);
+            border-radius: 9px;
         }
         .rule-editor-panel.open { display: flex; }
-
-        /* Component Studio */
-        .studio-split {
+        .editor-2col {
             display: grid;
-            grid-template-columns: minmax(0, 1fr);
-            gap: 14px;
-            align-items: stretch;
-            width: 100%;
-        }
-        @media (min-width: 1180px) {
-            .studio-split { grid-template-columns: 380px minmax(0, 1fr); }
-        }
-
-        .studio-inspector {
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
-            border-radius: var(--cfg-card-radius);
-            padding: 14px;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-            min-width: 0;
-        }
-        .inspector-group { display: flex; flex-direction: column; gap: 9px; }
-        .inspector-group + .inspector-group { padding-top: 12px; border-top: 1px solid var(--fnx-border); }
-        .inspector-heading { font-size: 12px; font-weight: 600; color: var(--fnx-fg); }
-        .inspector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-        .field-box { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-        .field-box.span-2 { grid-column: span 2; }
-        .field-label { font-size: 11.5px; font-weight: 500; color: var(--fnx-secondary); display: flex; justify-content: space-between; align-items: center; gap: 6px; }
-        .field-tag { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 10px; color: var(--fnx-muted); }
-
-        .inspector-toggle {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 10px;
-            padding: 7px 10px;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
-            border-radius: 7px;
         }
-        .inspector-toggle-title { font-size: 12px; font-weight: 500; color: var(--fnx-fg); }
-        .inspector-toggle-key { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 10px; color: var(--fnx-muted); }
+        .field-box { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+        .field-label { font-size: 11.5px; font-weight: 500; color: var(--fnx-secondary); display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+        .field-tag { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--fnx-faint); }
 
+        /* Sub-pane tabs (Studio & Rules) */
+        .sub-pane { display: none; flex-direction: column; }
+        .sub-pane.active { display: flex; }
+
+        /* Studio JSON Editor */
         .json-studio {
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
-            border-radius: var(--cfg-card-radius);
+            margin-top: 16px;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline);
+            border-radius: 9px;
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            min-width: 0;
-            width: 100%;
         }
         .json-toolbar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 10px 14px;
-            border-bottom: 1px solid var(--fnx-border);
-            background: var(--fnx-panel);
+            padding: 9px 12px;
+            border-bottom: 1px solid var(--fnx-divider);
             gap: 10px;
             flex-wrap: wrap;
         }
         .json-file-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
-        .json-badge {
-            padding: 2px 6px;
-            border-radius: 4px;
-            background: var(--fnx-surface);
-            border: 1px solid var(--fnx-border);
-            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-            font-size: 10.5px;
-            color: var(--fnx-accent);
-        }
         .json-path {
             font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
             font-size: 11.5px;
@@ -640,43 +926,23 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .json-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-
-        .action-btn {
-            padding: 6px 11px;
-            font-size: 12px;
-            font-weight: 500;
-            border-radius: 6px;
-            border: 1px solid var(--fnx-border);
-            background: var(--fnx-surface);
-            color: var(--fnx-secondary);
-            cursor: pointer;
-            transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
-        }
-        .action-btn:hover { border-color: var(--fnx-border-hover); color: var(--fnx-fg); background: var(--fnx-elevated); }
-        .action-btn.primary { background: var(--fnx-accent); border-color: var(--fnx-accent); color: #ffffff; }
-        .action-btn.primary:hover { opacity: 0.92; background: var(--fnx-accent); color: #ffffff; }
-        .action-btn.danger:hover { border-color: #f43f5e; color: #f43f5e; }
-
         .json-editor {
             width: 100%;
-            flex: 1;
-            min-height: 460px;
-            padding: 14px 16px;
+            min-height: 430px;
+            padding: 13px 14px;
             background: var(--fnx-bg);
             color: var(--fnx-fg);
             border: none;
             outline: none;
             resize: vertical;
             font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
-            font-size: 12.5px;
-            line-height: 1.58;
+            font-size: 12px;
+            line-height: 1.55;
             tab-size: 2;
         }
         .json-status {
-            padding: 8px 14px;
-            border-top: 1px solid var(--fnx-border);
-            background: var(--fnx-panel);
+            padding: 8px 12px;
+            border-top: 1px solid var(--fnx-divider);
             font-size: 11.5px;
             color: var(--fnx-muted);
             display: flex;
@@ -685,81 +951,44 @@
             gap: 8px;
             flex-wrap: wrap;
         }
-        .json-status.error { color: #f43f5e; background: rgba(244, 63, 94, 0.08); }
+        .json-status.error { color: #FB7185; background: rgba(244, 63, 94, 0.08); }
 
-        /* Interactive Click-to-Record Keybinds */
-        .shortcuts-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
-            gap: 10px;
-            width: 100%;
-        }
-        .shortcut-card {
-            background: var(--fnx-panel);
-            border: 1px solid var(--fnx-border);
-            border-radius: var(--cfg-card-radius);
-            padding: 11px 14px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            font-size: 12.5px;
-        }
-        .shortcut-label { color: var(--fnx-secondary); }
+        /* Keybinds Compact List */
         .kb-record-btn {
-            padding: 4px 10px;
+            height: 27px;
+            padding: 0 10px;
             border-radius: 6px;
-            border: 1px solid var(--fnx-border);
-            background: var(--fnx-surface);
+            background: var(--fnx-btn-bg);
+            border: 1px solid var(--fnx-hairline);
+            border-top-color: var(--fnx-btn-top);
             color: var(--fnx-fg);
             font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
             font-size: 11.5px;
             cursor: pointer;
             white-space: nowrap;
+            transition: background 0.12s ease, border-color 0.12s ease;
         }
-        .kb-record-btn:hover { border-color: var(--fnx-border-hover); background: var(--fnx-elevated); }
+        .kb-record-btn:hover {
+            background: var(--fnx-btn-bg-hover);
+            border-color: var(--fnx-hairline-hover);
+        }
         .kb-record-btn.recording {
             border-color: var(--fnx-accent);
-            background: var(--fnx-accent-bg);
             color: var(--fnx-fg);
+            background: color-mix(in srgb, var(--fnx-accent) 16%, transparent);
         }
-
-        .preset-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-        .preset-chip {
-            padding: 3px 8px;
-            font-size: 11px;
-            font-weight: 500;
-            border-radius: 5px;
-            border: 1px solid var(--fnx-border);
-            background: var(--fnx-surface);
-            color: var(--fnx-secondary);
-            cursor: pointer;
-        }
-        .preset-chip:hover { border-color: var(--fnx-border-hover); color: var(--fnx-fg); background: var(--fnx-elevated); }
-
-        .storage-path {
-            padding: 7px 10px;
-            border-radius: 6px;
-            background: var(--fnx-bg);
-            border: 1px solid var(--fnx-border);
-            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
-            font-size: 11.5px;
-            color: var(--fnx-secondary);
-            overflow-x: auto;
-            white-space: nowrap;
-        }
-        .storage-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
         .toast {
             position: fixed;
             bottom: calc(20px + var(--fnx-host-bottom-offset, 0px) + max(env(safe-area-inset-bottom, 0px), 12px));
-            right: 20px;
-            background: var(--fnx-elevated);
-            border: 1px solid var(--fnx-accent);
+            right: 22px;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline-hover);
+            border-top-color: var(--fnx-btn-top);
             color: var(--fnx-fg);
-            font-size: 12.5px;
+            font-size: 12px;
             font-weight: 500;
-            padding: 8px 14px;
+            padding: 7px 13px;
             border-radius: 8px;
             display: none;
             align-items: center;
@@ -768,9 +997,13 @@
         }
 
         @media (max-width: 768px) {
+            html, body { height: auto; }
             #__fynexo_settings_app__ {
                 display: flex;
                 flex-direction: column;
+                height: auto;
+                min-height: 100vh;
+                overflow: visible;
                 padding-top: var(--fnx-host-top-offset, 0px);
                 padding-bottom: calc(var(--fnx-host-bottom-offset, 54px) + max(env(safe-area-inset-bottom, 0px), 12px) + 24px);
             }
@@ -778,27 +1011,42 @@
                 position: sticky;
                 top: var(--fnx-host-top-offset, 0px);
                 height: auto;
+                overflow: visible;
                 z-index: 50;
+                background: var(--fnx-bg);
                 border-right: none;
-                border-bottom: 1px solid var(--fnx-border);
-                padding: 11px 14px 10px;
+                border-bottom: 1px solid var(--fnx-divider);
+                padding: 12px 14px 10px;
                 gap: 10px;
             }
             .sidebar-top { gap: 10px; }
-            .brand-header { padding: 0; border-bottom: none; }
-            .nav-list { flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 6px; padding-bottom: 2px; }
+            .brand-header { padding: 0; }
+            .nav-list { flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 4px; }
             .nav-list::-webkit-scrollbar { display: none; }
-            .nav-link { white-space: nowrap; padding: 6px 11px; font-size: 12px; background: var(--fnx-surface); border-color: var(--fnx-border); }
-            .nav-link.active { border-color: var(--fnx-accent); background: var(--fnx-accent-bg); }
+            .nav-link { white-space: nowrap; padding: 7px 11px; font-size: 12px; }
             .sidebar-footer, .desktop-only-sec, .desktop-only-inline { display: none !important; }
-            .workspace { padding: 18px 14px !important; }
-            .workspace-inner { gap: 26px; }
+            .workspace { height: auto; overflow: visible; padding: 18px 16px 32px !important; }
+            .sec-header { flex-wrap: wrap; align-items: flex-start; gap: 12px; }
+            .sec-actions { flex-wrap: wrap; }
+            .action-btn { min-height: 34px; padding: 6px 12px; }
+            .seg-group { flex-wrap: wrap; }
+            .set-row { flex-direction: column; align-items: stretch; gap: 10px; }
+            .set-ctrl { justify-content: flex-start; flex-wrap: wrap; max-width: 100% !important; }
+            .set-ctrl-col { width: 100%; align-items: flex-start; }
+            .preset-row { justify-content: flex-start; }
+            .domain-split, .editor-2col { grid-template-columns: minmax(0, 1fr); }
+            .rc-mid { flex-direction: column; align-items: flex-start; gap: 2px; }
+            .rc-name { max-width: 100%; }
+            .rc-add-row { flex-wrap: wrap; gap: 8px; padding: 10px; }
+            .rc-add-row .text-input { min-width: 0; flex: 1 1 100%; max-width: none !important; height: 34px; font-size: 12.5px; }
+            #inputBangTrig { flex: 0 0 88px !important; }
+            #inputBangName { flex: 1 1 140px !important; }
+            .rc-add-row .action-btn { width: 100%; justify-content: center; height: 34px; }
+            .rc-del { opacity: 1; width: 32px; height: 32px; }
             .theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-            .cards-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-            .inspector-grid { grid-template-columns: minmax(0, 1fr); }
-            .field-box.span-2 { grid-column: span 1; }
-            .json-editor { min-height: 260px; font-size: 11.5px; }
-            .toast { left: 14px; right: 14px; justify-content: center; }
+            .theme-del-btn { opacity: 1; width: 28px; height: 28px; }
+            .json-editor { min-height: 280px; }
+            .toast { left: 16px; right: 16px; justify-content: center; }
         }
     </style>
     <style id="__fynexo_settings_custom_css__"></style>
@@ -809,360 +1057,362 @@
             <div class="sidebar-top">
                 <div class="brand-header">
                     <div class="brand-identity">
-                        <div class="brand-mark" aria-hidden="true">
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                <path d="M3.5 3.5H12.5M3.5 8H10M3.5 3.5V12.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                                <circle cx="12" cy="11.5" r="1.6" fill="currentColor"/>
-                            </svg>
-                        </div>
-                        <div class="brand-copy">
-                            <span class="brand-title">Preferences</span>
-                            <span class="brand-sub">Fynexo studio</span>
-                        </div>
+                        <span class="brand-glyph" aria-hidden="true">✦</span>
+                        <span class="brand-title">Preferences</span>
                     </div>
                     <button type="button" class="back-btn" id="btnBack">← Back</button>
                 </div>
 
-                <nav class="nav-list" id="sidebarNav">
-                    <a href="#sec-appearance" class="nav-link active" data-sec="sec-appearance">
+                <nav class="nav-list" id="sidebarNav" aria-label="Settings sections">
+                    <button type="button" class="nav-link active" data-sec="sec-appearance">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.5v11" stroke="currentColor" stroke-width="1.4"/></svg>
                         <span>Appearance</span>
-                    </a>
-                    <a href="#sec-general" class="nav-link" data-sec="sec-general">
+                    </button>
+                    <button type="button" class="nav-link" data-sec="sec-general">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="5.5" cy="4.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="8" r="1.2" fill="currentColor"/><circle cx="6.5" cy="11.5" r="1.2" fill="currentColor"/></svg>
+                        <span>General</span>
+                    </button>
+                    <button type="button" class="nav-link" data-sec="sec-search">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7.2" cy="7.2" r="4.4" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5L13.6 13.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-                        <span>Search &amp; general</span>
-                    </a>
-                    <a href="#sec-rules" class="nav-link" data-sec="sec-rules">
+                        <span>Search &amp; !bangs</span>
+                    </button>
+                    <button type="button" class="nav-link" data-sec="sec-bookmarks">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.35"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.35"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.35"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.35"/></svg>
+                        <span>Shortcuts</span>
+                    </button>
+                    <button type="button" class="nav-link" data-sec="sec-rules">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2.2l5 2v3.6c0 3.2-2.1 5.4-5 6.2-2.9-.8-5-3-5-6.2V4.2l5-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
-                        <span>Adblock &amp; site rules</span>
-                    </a>
-                    <a href="#sec-styles" class="nav-link" data-sec="sec-styles">
+                        <span>Adblock &amp; rules</span>
+                    </button>
+                    <button type="button" class="nav-link" data-sec="sec-styles">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M5.2 5L2.4 8l2.8 3M10.8 5l2.8 3-2.8 3M8.8 3.5l-1.6 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         <span>Component studio</span>
-                    </a>
-                    <a href="#sec-shortcuts" class="nav-link desktop-only-sec" data-sec="sec-shortcuts">
+                    </button>
+                    <button type="button" class="nav-link desktop-only-sec" data-sec="sec-shortcuts">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="12" height="9" rx="1.8" stroke="currentColor" stroke-width="1.4"/><path d="M5 6.8h1.2M8.2 6.8h2.8M5 9.6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
                         <span>Keybinds</span>
-                    </a>
+                    </button>
                 </nav>
             </div>
 
-            <div class="sidebar-footer">
-                <div class="meta-row">
-                    <span class="meta-key">Architecture</span>
-                    <span class="meta-val">Single-WebView</span>
-                </div>
-                <div class="meta-row">
-                    <span class="meta-key">Adblock shield</span>
-                    <span class="meta-val"><span class="status-dot" id="metaAdblockDot"></span><span id="metaAdblock">Active</span></span>
-                </div>
-                <div class="meta-row">
-                    <span class="meta-key">Zero-FX filter</span>
-                    <span class="meta-val"><span class="status-dot" id="metaPerfDot"></span><span id="metaPerf">Enabled</span></span>
-                </div>
-                <div class="meta-row">
-                    <span class="meta-key">Private mode</span>
-                    <span class="meta-val" id="metaIncognito">Off</span>
-                </div>
-            </div>
+            <div class="sidebar-footer">Single-WebView · v0.1.0</div>
         </aside>
 
         <main class="workspace">
             <div class="workspace-inner">
-                <!-- Full Setup Bundle Sync Bar -->
-                <div class="bundle-banner">
-                    <div>
-                        <div class="bundle-title">Portable Full Setup Bundle (PC ↔ Android Sync)</div>
-                        <div class="bundle-sub">Export or import all themes, styles, shortcuts, !bangs, site rules, adblock lists, and keybinds in one JSON file.</div>
-                    </div>
-                    <div class="storage-actions">
-                        <input type="file" id="fileImportBundle" accept="application/json,text/plain" style="display: none;">
-                        <button type="button" class="action-btn" id="btnImportBundle">Import full setup (.json)</button>
-                        <button type="button" class="action-btn primary" id="btnExportBundle">Export full setup (.json)</button>
-                    </div>
-                </div>
-
-                <!-- 1. Appearance & Visual Palette -->
-                <section class="sec-block" id="sec-appearance">
+                <!-- 1. Appearance -->
+                <section class="sec-block active" id="sec-appearance">
                     <div class="sec-header">
                         <div>
-                            <h2 class="sec-title">Appearance &amp; JSON themes</h2>
-                            <p class="sec-desc">Pick a preset, import community <code style="font-family: monospace;">*.json</code> palettes, or design colors visually below.</p>
+                            <h2 class="sec-title">Appearance</h2>
+                            <p class="sec-desc">Pick a built-in palette or import <code>*.json</code> themes.</p>
                         </div>
-                        <div class="theme-header-actions">
+                        <div class="sec-actions">
                             <input type="file" id="fileImportTheme" accept="application/json,text/plain" multiple style="display: none;">
                             <button type="button" class="action-btn" id="btnImportTheme">Import .json</button>
                             <button type="button" class="action-btn" id="btnExportTheme">Export .json</button>
                             <button type="button" class="action-btn desktop-only-inline" id="btnOpenThemesDir">Open themes/</button>
-                            <button type="button" id="btnCustomColorsToggle" class="switch-btn">
-                                <span class="switch-dot"></span>
-                                <span id="customColorsLabel">Custom palette: Off</span>
-                            </button>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label">Custom color palette</div>
+                            <div class="set-hint">Override color tokens visually and export as standalone theme JSON.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnCustomColorsToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Custom color palette"></button>
                         </div>
                     </div>
 
                     <div class="palette-studio" id="paletteStudio">
-                        <div class="toggle-row" style="flex-wrap: wrap;">
+                        <div class="set-block-head">
                             <div>
-                                <div class="card-label">Visual Color Palette Designer</div>
-                                <div class="card-hint">Click any swatch to pick colors visually — updates live and can be saved as a standalone <code style="font-family: monospace;">themes/*.json</code> file.</div>
+                                <div class="set-label">Visual Color Designer</div>
+                                <div class="set-hint">Pick swatches live — export as standalone <code>themes/*.json</code>.</div>
                             </div>
-                            <div class="inline-form" style="width: auto;">
-                                <input type="text" id="inputNewThemeName" class="text-input" placeholder="Theme name (e.g. Solarized)" style="width: 190px;">
-                                <button type="button" class="action-btn primary" id="btnSaveAsTheme">Save as theme .json</button>
+                            <div class="sec-actions">
+                                <input type="text" id="inputNewThemeName" class="text-input" placeholder="Theme name (e.g. Solarized)" style="width: 185px;">
+                                <button type="button" class="action-btn" id="btnSaveAsTheme">Save theme .json</button>
                             </div>
                         </div>
                         <div class="color-tokens-grid" id="colorTokensGrid"></div>
                     </div>
 
-                    <div class="themes-dir-bar">
-                        <span>Themes directory (auto-reloads on focus):</span>
-                        <span class="themes-dir-code" id="themesDirLabel">themes/</span>
+                    <div class="set-block">
+                        <div class="set-block-head">
+                            <div class="set-label">Themes</div>
+                            <button type="button" class="themes-dir-link" id="btnCopyThemesDir" title="Click to copy themes path"><code id="themesDirLabel">themes/</code></button>
+                        </div>
+                        <div class="theme-grid" id="themeGrid"></div>
                     </div>
-                    <div class="theme-grid" id="themeGrid"></div>
                 </section>
 
-                <!-- 2. Search, Bangs, Shortcuts, UA & Privacy -->
+                <!-- 2. General (Linear Left-Label + Right-Control rows) -->
                 <section class="sec-block" id="sec-general">
                     <div class="sec-header">
                         <div>
-                            <h2 class="sec-title">Search, !bangs, shortcuts &amp; browser modes</h2>
-                            <p class="sec-desc">Every engine, bang trigger, shortcut website, User-Agent, and privacy option can be edited visually here or via JSON.</p>
+                            <h2 class="sec-title">General</h2>
+                            <p class="sec-desc">Homepage, User-Agent, rendering modes, profile storage, and full setup sync.</p>
+                        </div>
+                        <div class="sec-actions">
+                            <input type="file" id="fileImportBundle" accept="application/json,text/plain" style="display: none;">
+                            <button type="button" class="action-btn" id="btnImportBundle">Import setup .json</button>
+                            <button type="button" class="action-btn" id="btnExportBundle">Export setup .json</button>
                         </div>
                     </div>
 
-                    <div class="cards-grid">
-                        <!-- Search Engines -->
-                        <div class="setting-card">
-                            <div>
-                                <div class="card-label">Search engines</div>
-                                <div class="card-hint">Click to set default engine, or add any custom <code style="font-family: monospace;">{query}</code> search URL.</div>
-                            </div>
-                            <div class="seg-group" id="enginePills"></div>
-                            <div class="inline-form">
-                                <input type="text" id="inputEngName" class="text-input" placeholder="Name (e.g. Kagi)" style="max-width: 120px;">
-                                <input type="text" id="inputEngUrl" class="text-input mono" placeholder="https://kagi.com/search?q={query}">
-                                <button type="button" class="action-btn primary" id="btnAddEngine">+ Add</button>
+                    <div class="set-row align-top">
+                        <div class="set-meta">
+                            <div class="set-label">New tab homepage</div>
+                            <div class="set-hint">Destination loaded when opening a fresh tab.</div>
+                        </div>
+                        <div class="set-ctrl-col">
+                            <input type="text" id="inputHomepage" class="text-input mono" spellcheck="false" placeholder="fynexo://newtab">
+                            <div class="preset-row">
+                                <button type="button" class="preset-chip" data-hp="fynexo://newtab">Start page</button>
+                                <button type="button" class="preset-chip" data-hp="https://www.google.com">Google</button>
+                                <button type="button" class="preset-chip" data-hp="https://duckduckgo.com">DuckDuckGo</button>
+                                <button type="button" class="preset-chip" data-hp="https://github.com">GitHub</button>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- Bang Shortcuts -->
-                        <div class="setting-card">
-                            <div>
-                                <div class="card-label">!Bang quick search triggers</div>
-                                <div class="card-hint">Type e.g. <code style="font-family: monospace;">!gh wry</code> or <code style="font-family: monospace;">!yt music</code> in the address bar or start page.</div>
-                            </div>
-                            <div class="chips-wrap" id="bangsChips"></div>
-                            <div class="inline-form">
-                                <input type="text" id="inputBangTrig" class="text-input mono" placeholder="!npm" style="max-width: 74px;">
-                                <input type="text" id="inputBangName" class="text-input" placeholder="Name" style="max-width: 96px;">
-                                <input type="text" id="inputBangUrl" class="text-input mono" placeholder="https://npmjs.com/search?q={query}">
-                                <button type="button" class="action-btn primary" id="btnAddBang">+ Add</button>
-                            </div>
+                    <div class="set-row align-top">
+                        <div class="set-meta">
+                            <div class="set-label">User-Agent</div>
+                            <div class="set-hint">Switch between System, Desktop, Mobile, or custom UA header live.</div>
                         </div>
-
-                        <!-- Homepage -->
-                        <div class="setting-card">
-                            <div>
-                                <div class="card-label">New tab homepage</div>
-                                <div class="card-hint">Destination loaded when opening a fresh tab.</div>
-                            </div>
-                            <div>
-                                <input type="text" id="inputHomepage" class="text-input mono" spellcheck="false" placeholder="fynexo://newtab">
-                                <div class="preset-row">
-                                    <button type="button" class="preset-chip" data-hp="fynexo://newtab">fynexo://newtab</button>
-                                    <button type="button" class="preset-chip" data-hp="https://www.google.com">Google</button>
-                                    <button type="button" class="preset-chip" data-hp="https://duckduckgo.com">DuckDuckGo</button>
-                                    <button type="button" class="preset-chip" data-hp="https://github.com">GitHub</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- User-Agent & Default Zoom -->
-                        <div class="setting-card">
-                            <div>
-                                <div class="card-label">User-Agent &amp; default page zoom</div>
-                                <div class="card-hint">Switch between Desktop/Mobile UA strings live and set default zoom scale.</div>
-                            </div>
+                        <div class="set-ctrl-col">
                             <div class="seg-group" id="uaModeGroup">
                                 <button type="button" class="seg-btn" data-ua="default">System</button>
-                                <button type="button" class="seg-btn" data-ua="desktop">Desktop PC</button>
+                                <button type="button" class="seg-btn" data-ua="desktop">Desktop</button>
                                 <button type="button" class="seg-btn" data-ua="mobile">Mobile</button>
                                 <button type="button" class="seg-btn" data-ua="custom">Custom</button>
                             </div>
                             <input type="text" id="inputCustomUa" class="text-input mono" placeholder="Mozilla/5.0 ..." style="display: none;">
-                            <div class="toggle-row">
-                                <span style="font-size: 12px; color: var(--fnx-secondary);">Default page zoom</span>
-                                <div class="storage-actions">
-                                    <button type="button" class="action-btn" id="btnZoomOut">−</button>
-                                    <button type="button" class="action-btn" id="btnZoomReset">100%</button>
-                                    <button type="button" class="action-btn" id="btnZoomIn">+</button>
-                                </div>
-                            </div>
                         </div>
+                    </div>
 
-                        <!-- Shortcut Websites Visual Manager -->
-                        <div class="setting-card full-span">
-                            <div class="toggle-row" style="flex-wrap: wrap;">
-                                <div>
-                                    <div class="card-label">Shortcut websites (<code style="font-family: monospace; font-size: 12px;">config/shortcuts.json</code>)</div>
-                                    <div class="card-hint" id="shortcutsHint">Manage start page &amp; omnibox shortcuts visually or share as JSON.</div>
-                                </div>
-                                <div class="storage-actions">
-                                    <input type="file" id="fileImportShortcuts" accept="application/json,text/plain" style="display: none;">
-                                    <button type="button" class="action-btn" id="btnImportShortcuts">Import .json</button>
-                                    <button type="button" class="action-btn" id="btnExportShortcuts">Export .json</button>
-                                    <button type="button" class="action-btn" id="btnResetShortcuts">Reset defaults</button>
-                                </div>
-                            </div>
-                            <div class="chips-wrap" id="shortcutsChips"></div>
-                            <div class="inline-form">
-                                <input type="text" id="inputScTitle" class="text-input" placeholder="Title (e.g. Hacker News)" style="max-width: 200px;">
-                                <input type="text" id="inputScUrl" class="text-input mono" placeholder="https://news.ycombinator.com">
-                                <button type="button" class="action-btn primary" id="btnAddShortcut">+ Add shortcut</button>
-                            </div>
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label">Default page zoom</div>
+                            <div class="set-hint">Base zoom scale applied across browsing tabs.</div>
                         </div>
-
-                        <!-- Smart Force Dark -->
-                        <div class="setting-card">
-                            <div class="toggle-row">
-                                <div>
-                                    <div class="card-label">Smart Force Dark mode</div>
-                                    <div class="card-hint">Converts bright webpages to dark while skipping already-dark sites and preserving images/videos.</div>
-                                </div>
-                                <button type="button" id="btnForceDarkToggle" class="switch-btn">
-                                    <span class="switch-dot"></span>
-                                    <span id="forceDarkLabel">Off</span>
-                                </button>
-                            </div>
+                        <div class="set-ctrl">
+                            <button type="button" class="action-btn compact" id="btnZoomOut">−</button>
+                            <button type="button" class="action-btn compact" id="btnZoomReset" style="min-width: 54px;">100%</button>
+                            <button type="button" class="action-btn compact" id="btnZoomIn">+</button>
                         </div>
+                    </div>
 
-                        <!-- Incognito Private Mode -->
-                        <div class="setting-card">
-                            <div class="toggle-row">
-                                <div>
-                                    <div class="card-label">Private / Incognito mode</div>
-                                    <div class="card-hint">Pauses browsing history recording and tab session disk persistence while enabled.</div>
-                                </div>
-                                <button type="button" id="btnIncognitoToggle" class="switch-btn">
-                                    <span class="switch-dot"></span>
-                                    <span id="incognitoLabel">Off</span>
-                                </button>
-                            </div>
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label">Smart Force Dark</div>
+                            <div class="set-hint">Converts bright webpages to dark while skipping dark sites and preserving media.</div>
                         </div>
-
-                        <!-- Zero-FX -->
-                        <div class="setting-card">
-                            <div class="toggle-row">
-                                <div>
-                                    <div class="card-label">Zero-FX rendering filter</div>
-                                    <div class="card-hint">Strips heavy CSS shadows and backdrop blurs on external pages for peak frame pacing.</div>
-                                </div>
-                                <button type="button" id="btnPerfToggle" class="switch-btn on">
-                                    <span class="switch-dot"></span>
-                                    <span id="perfLabel">Enabled</span>
-                                </button>
-                            </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnForceDarkToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Smart Force Dark"></button>
                         </div>
+                    </div>
 
-                        <!-- Session Restore -->
-                        <div class="setting-card">
-                            <div class="toggle-row">
-                                <div>
-                                    <div class="card-label">Restore tabs &amp; scroll position</div>
-                                    <div class="card-hint">Automatically reopens previous tabs and restores reading scroll depth on startup.</div>
-                                </div>
-                                <button type="button" id="btnRestoreToggle" class="switch-btn on">
-                                    <span class="switch-dot"></span>
-                                    <span id="restoreLabel">Enabled</span>
-                                </button>
-                            </div>
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label">Private / Incognito mode</div>
+                            <div class="set-hint">Pauses browsing history recording and tab session disk persistence.</div>
                         </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnIncognitoToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Private mode"></button>
+                        </div>
+                    </div>
 
-                        <!-- Storage & Cache -->
-                        <div class="setting-card full-span">
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label">Zero-FX rendering filter</div>
+                            <div class="set-hint">Strips heavy CSS shadows and backdrop blurs on external pages for smooth frame pacing.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnPerfToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Zero-FX rendering filter"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label">Restore tabs &amp; scroll position</div>
+                            <div class="set-hint">Reopens previous tabs and restores scroll depth on launch.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnRestoreToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Restore session"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row align-top" style="border-bottom: none;">
+                        <div class="set-meta">
+                            <div class="set-label">Profile storage &amp; cache</div>
+                            <div class="set-hint">Modular JSON config, browsing history, cookies, and WebView cache.</div>
+                            <div class="storage-path" id="dataDirLabel" style="margin-top: 8px;">—</div>
+                        </div>
+                        <div class="set-ctrl" style="max-width: 310px; justify-content: flex-end;">
+                            <button type="button" class="action-btn" id="btnClearHistory">Clear history</button>
+                            <button type="button" class="action-btn danger" id="btnClearSiteData">Clear cache &amp; cookies</button>
+                            <button type="button" class="action-btn desktop-only-inline" id="btnOpenDataDir">Profile folder</button>
+                            <button type="button" class="action-btn desktop-only-inline" id="btnOpenDownloadsDir">Downloads</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 3. Search & !Bangs (Raycast Inline Compact Tables) -->
+                <section class="sec-block" id="sec-search">
+                    <div class="sec-header">
+                        <div>
+                            <h2 class="sec-title">Search &amp; !bangs</h2>
+                            <p class="sec-desc">Pick a default search engine or define custom <code>!bang</code> quick-search triggers.</p>
+                        </div>
+                    </div>
+
+                    <div class="set-block">
+                        <div class="set-block-head">
                             <div>
-                                <div class="card-label">Persistent profile storage &amp; WebView cache</div>
-                                <div class="card-hint">Profile path storing modular JSON files, cookies, and browsing data.</div>
+                                <div class="set-label">Search engines</div>
+                                <div class="set-hint">Click any row to make it default. Templates use <code>{query}</code>.</div>
                             </div>
-                            <div class="storage-path" id="dataDirLabel">—</div>
-                            <div class="storage-actions">
-                                <button type="button" class="action-btn" id="btnClearHistory">Clear history</button>
-                                <button type="button" class="action-btn danger" id="btnClearSiteData">Clear cache &amp; cookies</button>
-                                <button type="button" class="action-btn desktop-only-inline" id="btnOpenDataDir">Open profile folder</button>
-                                <button type="button" class="action-btn desktop-only-inline" id="btnOpenDownloadsDir">Open downloads</button>
+                        </div>
+                        <div class="rc-table">
+                            <div class="rc-rows" id="engineTable"></div>
+                            <div class="rc-add-row">
+                                <input type="text" id="inputEngName" class="text-input" placeholder="Name (e.g. Kagi)" style="max-width: 135px;">
+                                <input type="text" id="inputEngUrl" class="text-input mono" placeholder="https://kagi.com/search?q={query}">
+                                <button type="button" class="action-btn compact" id="btnAddEngine">+ Add</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="set-block">
+                        <div class="set-block-head">
+                            <div>
+                                <div class="set-label">!Bang triggers</div>
+                                <div class="set-hint">Type e.g. <code>!gh wry</code> or <code>!yt music</code> in the address bar or start page.</div>
+                            </div>
+                        </div>
+                        <div class="rc-table">
+                            <div class="rc-rows" id="bangsTable"></div>
+                            <div class="rc-add-row">
+                                <input type="text" id="inputBangTrig" class="text-input mono" placeholder="!npm" style="max-width: 78px;">
+                                <input type="text" id="inputBangName" class="text-input" placeholder="Name" style="max-width: 112px;">
+                                <input type="text" id="inputBangUrl" class="text-input mono" placeholder="https://npmjs.com/search?q={query}">
+                                <button type="button" class="action-btn compact" id="btnAddBang">+ Add</button>
                             </div>
                         </div>
                     </div>
                 </section>
 
-                <!-- 3. Adblock Lists & Per-Site CSS/JS Rules -->
-                <section class="sec-block" id="sec-rules">
+                <!-- 4. Shortcut Websites (Raycast Inline Compact Table) -->
+                <section class="sec-block" id="sec-bookmarks">
                     <div class="sec-header">
                         <div>
-                            <h2 class="sec-title">Adblock lists &amp; per-site CSS / JS rules</h2>
-                            <p class="sec-desc">Customize network domain blocking (<code style="font-family: monospace;">config/adblock.json</code>) and lightweight Stylus/Userscript rules (<code style="font-family: monospace;">config/rules.json</code>) with zero background memory.</p>
+                            <h2 class="sec-title">Shortcuts</h2>
+                            <p class="sec-desc" id="shortcutsHint">Start page &amp; omnibox shortcuts synced to <code>config/shortcuts.json</code>.</p>
+                        </div>
+                        <div class="sec-actions">
+                            <input type="file" id="fileImportShortcuts" accept="application/json,text/plain" style="display: none;">
+                            <button type="button" class="action-btn" id="btnImportShortcuts">Import .json</button>
+                            <button type="button" class="action-btn" id="btnExportShortcuts">Export .json</button>
+                            <button type="button" class="action-btn" id="btnResetShortcuts">Reset defaults</button>
                         </div>
                     </div>
 
-                    <div class="cards-grid">
-                        <!-- Adblock & Domain Lists -->
-                        <div class="setting-card full-span">
-                            <div class="toggle-row" style="flex-wrap: wrap;">
-                                <div>
-                                    <div class="card-label">Network ad &amp; tracker shield (<code style="font-family: monospace; font-size: 12px;">config/adblock.json</code>)</div>
-                                    <div class="card-hint" id="adblockHint">Blocks 65+ built-in ad/telemetry networks plus your custom domains at native network layer.</div>
-                                </div>
-                                <div class="storage-actions">
-                                    <input type="file" id="fileImportAdblock" accept="application/json,text/plain" style="display: none;">
-                                    <button type="button" class="action-btn" id="btnImportAdblock">Import .json</button>
-                                    <button type="button" class="action-btn" id="btnExportAdblock">Export .json</button>
-                                    <button type="button" id="btnAdblockToggle" class="switch-btn on">
-                                        <span class="switch-dot"></span>
-                                        <span id="adblockLabel">Enabled</span>
-                                    </button>
-                                </div>
+                    <div class="set-block">
+                        <div class="rc-table">
+                            <div class="rc-rows" id="shortcutsTable"></div>
+                            <div class="rc-add-row">
+                                <input type="text" id="inputScTitle" class="text-input" placeholder="Name (e.g. Hacker News)" style="max-width: 185px;">
+                                <input type="text" id="inputScUrl" class="text-input mono" placeholder="https://news.ycombinator.com">
+                                <button type="button" class="action-btn compact" id="btnAddShortcut">+ Add shortcut</button>
                             </div>
+                        </div>
+                    </div>
+                </section>
 
-                            <div class="cards-grid" style="margin-top: 4px;">
-                                <div style="display: flex; flex-direction: column; gap: 8px;">
-                                    <div class="field-label"><span>Custom blocked domains</span><span class="field-tag">custom_blocked_domains</span></div>
-                                    <div class="chips-wrap" id="blockedDomainsChips"></div>
-                                    <div class="inline-form">
-                                        <input type="text" id="inputBlockDomain" class="text-input mono" placeholder="ads.example.com">
-                                        <button type="button" class="action-btn primary" id="btnAddBlockDomain">Block</button>
+                <!-- 5. Adblock & Per-Site CSS/JS Rules -->
+                <section class="sec-block" id="sec-rules">
+                    <div class="sec-header">
+                        <div>
+                            <h2 class="sec-title">Adblock &amp; site rules</h2>
+                            <p class="sec-desc">Network domain blocking and lightweight per-site CSS / JS injections.</p>
+                        </div>
+                        <div class="seg-group" id="rulesSubTabs">
+                            <button type="button" class="seg-btn active" data-subpane="pane-adblock">Adblock lists</button>
+                            <button type="button" class="seg-btn" data-subpane="pane-siterules">Site CSS / JS</button>
+                        </div>
+                    </div>
+
+                    <!-- Sub-pane A: Adblock -->
+                    <div class="sub-pane active" id="pane-adblock">
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Network ad &amp; tracker shield</div>
+                                <div class="set-hint" id="adblockHint">Blocks 65+ built-in ad/telemetry networks plus custom domains at the network layer.</div>
+                            </div>
+                            <div class="set-ctrl">
+                                <input type="file" id="fileImportAdblock" accept="application/json,text/plain" style="display: none;">
+                                <button type="button" class="action-btn compact" id="btnImportAdblock">Import .json</button>
+                                <button type="button" class="action-btn compact" id="btnExportAdblock">Export .json</button>
+                                <button type="button" id="btnAdblockToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Network adblock"></button>
+                            </div>
+                        </div>
+
+                        <div class="set-block" style="border-bottom: none;">
+                            <div class="domain-split">
+                                <div class="domain-col">
+                                    <div class="domain-col-head">
+                                        <span>Blocked domains</span>
+                                        <span class="domain-col-tag">custom_blocked_domains</span>
+                                    </div>
+                                    <div class="rc-table">
+                                        <div class="rc-rows" id="blockedDomainsList"></div>
+                                        <div class="rc-add-row">
+                                            <input type="text" id="inputBlockDomain" class="text-input mono" placeholder="ads.example.com">
+                                            <button type="button" class="action-btn compact" id="btnAddBlockDomain">+ Block</button>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div style="display: flex; flex-direction: column; gap: 8px;">
-                                    <div class="field-label"><span>Whitelisted domains (bypass adblock)</span><span class="field-tag">whitelisted_domains</span></div>
-                                    <div class="chips-wrap" id="whitelistDomainsChips"></div>
-                                    <div class="inline-form">
-                                        <input type="text" id="inputWhiteDomain" class="text-input mono" placeholder="example.org">
-                                        <button type="button" class="action-btn primary" id="btnAddWhiteDomain">Whitelist</button>
+                                <div class="domain-col">
+                                    <div class="domain-col-head">
+                                        <span>Whitelisted domains</span>
+                                        <span class="domain-col-tag">whitelisted_domains</span>
+                                    </div>
+                                    <div class="rc-table">
+                                        <div class="rc-rows" id="whitelistDomainsList"></div>
+                                        <div class="rc-add-row">
+                                            <input type="text" id="inputWhiteDomain" class="text-input mono" placeholder="example.org">
+                                            <button type="button" class="action-btn compact" id="btnAddWhiteDomain">+ Allow</button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- Per-Site CSS & JS Rules Engine -->
-                        <div class="setting-card full-span">
-                            <div class="toggle-row" style="flex-wrap: wrap;">
-                                <div>
-                                    <div class="card-label">Per-site CSS &amp; JS rules (<code style="font-family: monospace; font-size: 12px;">config/rules.json</code>)</div>
-                                    <div class="card-hint">Inject custom CSS styles or lightweight JS snippets per domain (<code style="font-family: monospace;">*</code>, <code style="font-family: monospace;">github.com</code>, <code style="font-family: monospace;">*.zhihu.com</code>). Disabled rules use 0 memory.</div>
-                                </div>
-                                <div class="storage-actions">
-                                    <input type="file" id="fileImportRules" accept="application/json,text/plain" style="display: none;">
-                                    <button type="button" class="action-btn" id="btnImportRules">Import .json</button>
-                                    <button type="button" class="action-btn" id="btnExportRules">Export .json</button>
-                                    <button type="button" class="action-btn" id="btnResetRules">Reset</button>
-                                    <button type="button" class="action-btn primary" id="btnNewRule">+ New rule</button>
-                                </div>
+                    <!-- Sub-pane B: Per-Site CSS/JS Rules -->
+                    <div class="sub-pane" id="pane-siterules">
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Per-site CSS &amp; JS rules</div>
+                                <div class="set-hint">Match <code>*</code>, <code>github.com</code>, or <code>*.zhihu.com</code>. Disabled rules use zero memory.</div>
                             </div>
+                            <div class="set-ctrl">
+                                <input type="file" id="fileImportRules" accept="application/json,text/plain" style="display: none;">
+                                <button type="button" class="action-btn compact" id="btnImportRules">Import .json</button>
+                                <button type="button" class="action-btn compact" id="btnExportRules">Export .json</button>
+                                <button type="button" class="action-btn compact" id="btnResetRules">Reset</button>
+                                <button type="button" class="action-btn compact" id="btnNewRule">+ New rule</button>
+                            </div>
+                        </div>
 
+                        <div class="set-block" style="border-bottom: none; gap: 14px;">
                             <div class="rule-editor-panel" id="ruleEditorPanel">
-                                <div class="inspector-grid">
+                                <div class="editor-2col">
                                     <div class="field-box">
                                         <label class="field-label" for="ruleNameInput"><span>Rule name</span></label>
                                         <input type="text" id="ruleNameInput" class="text-input" placeholder="Clean Distractions">
@@ -1173,235 +1423,234 @@
                                     </div>
                                 </div>
                                 <div class="field-box">
-                                    <label class="field-label" for="ruleCssInput"><span>Custom CSS</span><span class="field-tag">Injected into &lt;style&gt;</span></label>
+                                    <label class="field-label" for="ruleCssInput"><span>Custom CSS</span><span class="field-tag">Injected &lt;style&gt;</span></label>
                                     <textarea id="ruleCssInput" class="code-area" spellcheck="false" placeholder=".sidebar-ad, .popup-banner { display: none !important; }"></textarea>
                                 </div>
                                 <div class="field-box">
-                                    <label class="field-label" for="ruleJsInput"><span>Custom JS (optional)</span><span class="field-tag">Runs on DOM ready</span></label>
+                                    <label class="field-label" for="ruleJsInput"><span>Custom JS (optional)</span><span class="field-tag">DOM ready</span></label>
                                     <textarea id="ruleJsInput" class="code-area" spellcheck="false" placeholder="// Optional lightweight userscript..."></textarea>
                                 </div>
-                                <div class="storage-actions">
-                                    <button type="button" class="action-btn primary" id="btnSaveRule">Save rule</button>
+                                <div class="sec-actions">
+                                    <button type="button" class="action-btn" id="btnSaveRule">Save rule</button>
                                     <button type="button" class="action-btn" id="btnCancelRule">Cancel</button>
                                 </div>
                             </div>
 
-                            <div class="rules-list" id="rulesList"></div>
+                            <div class="rc-table">
+                                <div class="rc-rows" id="rulesList"></div>
+                            </div>
                         </div>
                     </div>
                 </section>
 
-                <!-- 4. Component & Start Page Studio -->
+                <!-- 6. Component & Start Page Studio -->
                 <section class="sec-block" id="sec-styles">
                     <div class="sec-header">
                         <div>
-                            <h2 class="sec-title">Component &amp; start page studio</h2>
-                            <p class="sec-desc">Tune chrome geometry and start page layout visually on the left, or edit <code style="font-family: monospace;">config/styles.json</code> directly on the right.</p>
+                            <h2 class="sec-title">Component studio</h2>
+                            <p class="sec-desc">Tune chrome geometry visually or inspect raw <code id="stylesPathLabel">config/styles.json</code>.</p>
+                        </div>
+                        <div class="seg-group" id="studioSubTabs">
+                            <button type="button" class="seg-btn active" data-subpane="pane-studio-visual">Visual controls</button>
+                            <button type="button" class="seg-btn" data-subpane="pane-studio-json">styles.json</button>
                         </div>
                     </div>
 
-                    <div class="studio-split">
-                        <div class="studio-inspector">
-                            <div class="inspector-group">
-                                <div class="inspector-heading">Desktop topbar &amp; omnibox</div>
-                                <div class="inspector-toggle">
-                                    <div>
-                                        <div class="inspector-toggle-title">Show desktop topbar</div>
-                                        <div class="inspector-toggle-key">topbar.visible_on_desktop</div>
-                                    </div>
-                                    <button type="button" id="qsDeskTopToggle" class="switch-btn on">
-                                        <span class="switch-dot"></span>
-                                        <span id="qsDeskTopLabel">Visible</span>
-                                    </button>
-                                </div>
-                                <div class="inspector-grid">
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsTopbarLayout"><span>Header layout</span><span class="field-tag">layout</span></label>
-                                        <select id="qsTopbarLayout" class="select-input">
-                                            <option value="deck">Layered deck (2-row)</option>
-                                            <option value="compact">Compact single-row</option>
-                                        </select>
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsBookmarksBar"><span>Shortcuts bar</span><span class="field-tag">bookmarks_bar</span></label>
-                                        <select id="qsBookmarksBar" class="select-input">
-                                            <option value="always">Always show</option>
-                                            <option value="newtab">Start page only</option>
-                                            <option value="hidden">Hidden</option>
-                                        </select>
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsTopbarHeight"><span>Nav bar height</span><span class="field-tag">height</span></label>
-                                        <input type="text" id="qsTopbarHeight" class="text-input mono" placeholder="38px">
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsTitlebarHeight"><span>Titlebar / tab deck height</span><span class="field-tag">titlebar_height</span></label>
-                                        <input type="text" id="qsTitlebarHeight" class="text-input mono" placeholder="40px">
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsAddrMode"><span>Address bar style</span><span class="field-tag">mode</span></label>
-                                        <select id="qsAddrMode" class="select-input">
-                                            <option value="inline">Inline input</option>
-                                            <option value="modal">Command modal</option>
-                                        </select>
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsAddrPos"><span>Omnibox align (1-row)</span><span class="field-tag">position</span></label>
-                                        <select id="qsAddrPos" class="select-input">
-                                            <option value="center">Center</option>
-                                            <option value="right">Right</option>
-                                            <option value="left">Left</option>
-                                        </select>
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsAddrWidth"><span>Address width (1-row)</span><span class="field-tag">width</span></label>
-                                        <input type="text" id="qsAddrWidth" class="text-input mono" placeholder="340px">
-                                    </div>
-                                </div>
+                    <!-- Sub-pane A: Visual Linear Controls -->
+                    <div class="sub-pane active" id="pane-studio-visual">
+                        <div class="set-group-title">Desktop Topbar &amp; Omnibox</div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Show desktop topbar</div>
+                                <div class="set-hint"><code>topbar.visible_on_desktop</code></div>
                             </div>
-
-                            <div class="inspector-group">
-                                <div class="inspector-heading">Tabs &amp; mobile dock</div>
-                                <div class="inspector-grid">
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsTabHeight"><span>Tab item height</span><span class="field-tag">tabs.height</span></label>
-                                        <input type="text" id="qsTabHeight" class="text-input mono" placeholder="36px">
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsTabWidth"><span>Tab width</span><span class="field-tag">tabs.width</span></label>
-                                        <input type="text" id="qsTabWidth" class="text-input mono" placeholder="152px">
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsTabRadius"><span>Tab radius</span><span class="field-tag">border_radius</span></label>
-                                        <input type="text" id="qsTabRadius" class="text-input mono" placeholder="7px">
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsTabGap"><span>Tab spacing (gap)</span><span class="field-tag">tabs.gap</span></label>
-                                        <input type="text" id="qsTabGap" class="text-input mono" placeholder="0px">
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsMobilePos"><span>Mobile dock</span><span class="field-tag">position</span></label>
-                                        <select id="qsMobilePos" class="select-input">
-                                            <option value="bottom">Bottom</option>
-                                            <option value="top">Top</option>
-                                        </select>
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsMobileHeight"><span>Dock height</span><span class="field-tag">height</span></label>
-                                        <input type="text" id="qsMobileHeight" class="text-input mono" placeholder="54px">
-                                    </div>
-                                </div>
-                                <div class="inspector-toggle">
-                                    <div>
-                                        <div class="inspector-toggle-title">Domain monogram badge</div>
-                                        <div class="inspector-toggle-key">tabs.show_indicator_dot</div>
-                                    </div>
-                                    <button type="button" id="qsTabDotToggle" class="switch-btn on">
-                                        <span class="switch-dot"></span>
-                                        <span id="qsTabDotLabel">Shown</span>
-                                    </button>
-                                </div>
-                                <div class="inspector-toggle">
-                                    <div>
-                                        <div class="inspector-toggle-title">Full-bleed preferences</div>
-                                        <div class="inspector-toggle-key">settings_page.full_width</div>
-                                    </div>
-                                    <button type="button" id="qsFullWidthToggle" class="switch-btn on">
-                                        <span class="switch-dot"></span>
-                                        <span id="qsFullWidthLabel">Full</span>
-                                    </button>
-                                </div>
+                            <div class="set-ctrl">
+                                <button type="button" id="qsDeskTopToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show desktop topbar"></button>
                             </div>
-
-                            <div class="inspector-group">
-                                <div class="inspector-heading">Start page (<code style="font-family: monospace; font-size: 11px;">fynexo://newtab</code>)</div>
-                                <div class="inspector-grid">
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsNtTitle"><span>Hero title</span><span class="field-tag">newtab.title</span></label>
-                                        <input type="text" id="qsNtTitle" class="text-input" placeholder="Fynexo">
-                                    </div>
-                                    <div class="field-box">
-                                        <label class="field-label" for="qsNtCols"><span>Grid columns</span><span class="field-tag">columns</span></label>
-                                        <select id="qsNtCols" class="select-input">
-                                            <option value="0">Auto responsive</option>
-                                            <option value="2">2 columns</option>
-                                            <option value="3">3 columns</option>
-                                            <option value="4">4 columns</option>
-                                            <option value="5">5 columns</option>
-                                            <option value="6">6 columns</option>
-                                        </select>
-                                    </div>
-                                    <div class="field-box span-2">
-                                        <label class="field-label" for="qsNtSub"><span>Hero subtitle</span><span class="field-tag">newtab.subtitle</span></label>
-                                        <input type="text" id="qsNtSub" class="text-input" placeholder="Single-WebView studio browser · Zero-FX compositing">
-                                    </div>
-                                </div>
-                                <div class="inspector-toggle">
-                                    <div>
-                                        <div class="inspector-toggle-title">Show clock &amp; 24h format</div>
-                                        <div class="inspector-toggle-key">newtab.show_clock / use_24h_clock</div>
-                                    </div>
-                                    <div class="storage-actions">
-                                        <button type="button" id="qsNtClockToggle" class="switch-btn on"><span class="switch-dot"></span><span id="qsNtClockLabel">Clock</span></button>
-                                        <button type="button" id="qsNt24hToggle" class="switch-btn on"><span class="switch-dot"></span><span id="qsNt24hLabel">24h</span></button>
-                                    </div>
-                                </div>
-                                <div class="inspector-toggle">
-                                    <div>
-                                        <div class="inspector-toggle-title">Start page sections</div>
-                                        <div class="inspector-toggle-key">show_shortcuts / show_history</div>
-                                    </div>
-                                    <div class="storage-actions">
-                                        <button type="button" id="qsNtScToggle" class="switch-btn on"><span class="switch-dot"></span><span id="qsNtScLabel">Shortcuts</span></button>
-                                        <button type="button" id="qsNtHistToggle" class="switch-btn on"><span class="switch-dot"></span><span id="qsNtHistLabel">History</span></button>
-                                    </div>
-                                </div>
+                        </div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Header layout &amp; shortcuts bar</div>
+                                <div class="set-hint"><code>topbar.layout</code> · <code>topbar.bookmarks_bar</code></div>
+                            </div>
+                            <div class="set-ctrl">
+                                <select id="qsTopbarLayout" class="select-input" style="width: 148px;">
+                                    <option value="deck">Layered deck (2-row)</option>
+                                    <option value="compact">Compact (1-row)</option>
+                                </select>
+                                <select id="qsBookmarksBar" class="select-input" style="width: 138px;">
+                                    <option value="always">Always show</option>
+                                    <option value="newtab">Start page only</option>
+                                    <option value="hidden">Hidden</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Topbar &amp; titlebar height</div>
+                                <div class="set-hint"><code>topbar.height</code> · <code>topbar.titlebar_height</code></div>
+                            </div>
+                            <div class="set-ctrl">
+                                <input type="text" id="qsTopbarHeight" class="text-input mono" placeholder="38px" style="width: 84px;" title="Nav bar height">
+                                <input type="text" id="qsTitlebarHeight" class="text-input mono" placeholder="40px" style="width: 84px;" title="Tab deck height">
+                            </div>
+                        </div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Address bar style, alignment &amp; width</div>
+                                <div class="set-hint"><code>address_bar.mode</code> · <code>position</code> · <code>width</code></div>
+                            </div>
+                            <div class="set-ctrl">
+                                <select id="qsAddrMode" class="select-input" style="width: 122px;">
+                                    <option value="inline">Inline input</option>
+                                    <option value="modal">Modal</option>
+                                </select>
+                                <select id="qsAddrPos" class="select-input" style="width: 92px;">
+                                    <option value="center">Center</option>
+                                    <option value="right">Right</option>
+                                    <option value="left">Left</option>
+                                </select>
+                                <input type="text" id="qsAddrWidth" class="text-input mono" placeholder="340px" style="width: 82px;">
                             </div>
                         </div>
 
+                        <div class="set-group-title">Tabs &amp; Mobile Dock</div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Tab geometry (height · width · radius · gap)</div>
+                                <div class="set-hint"><code>tabs.height</code> · <code>width</code> · <code>border_radius</code> · <code>gap</code></div>
+                            </div>
+                            <div class="set-ctrl">
+                                <input type="text" id="qsTabHeight" class="text-input mono" placeholder="36px" style="width: 68px;" title="Tab height">
+                                <input type="text" id="qsTabWidth" class="text-input mono" placeholder="152px" style="width: 72px;" title="Tab width">
+                                <input type="text" id="qsTabRadius" class="text-input mono" placeholder="7px" style="width: 64px;" title="Tab radius">
+                                <input type="text" id="qsTabGap" class="text-input mono" placeholder="0px" style="width: 64px;" title="Tab gap">
+                            </div>
+                        </div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Domain monogram badge &amp; workspace width</div>
+                                <div class="set-hint"><code>tabs.show_indicator_dot</code> · <code>settings_page.full_width</code></div>
+                            </div>
+                            <div class="set-ctrl">
+                                <span class="switch-status">Badge</span>
+                                <button type="button" id="qsTabDotToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Domain monogram badge"></button>
+                                <span class="switch-status" style="margin-left: 8px;">Wide</span>
+                                <button type="button" id="qsFullWidthToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Workspace width"></button>
+                            </div>
+                        </div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Mobile dock position &amp; height</div>
+                                <div class="set-hint"><code>mobile_bar.position</code> · <code>mobile_bar.height</code></div>
+                            </div>
+                            <div class="set-ctrl">
+                                <select id="qsMobilePos" class="select-input" style="width: 105px;">
+                                    <option value="bottom">Bottom</option>
+                                    <option value="top">Top</option>
+                                </select>
+                                <input type="text" id="qsMobileHeight" class="text-input mono" placeholder="54px" style="width: 82px;">
+                            </div>
+                        </div>
+
+                        <div class="set-group-title">Start Page (fynexo://newtab)</div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Hero title &amp; grid columns</div>
+                                <div class="set-hint">Leave title default to keep minimal clock-only Start Page.</div>
+                            </div>
+                            <div class="set-ctrl">
+                                <input type="text" id="qsNtTitle" class="text-input" placeholder="Fynexo" style="width: 150px;">
+                                <select id="qsNtCols" class="select-input" style="width: 132px;">
+                                    <option value="0">Auto (6 cols)</option>
+                                    <option value="2">2 columns</option>
+                                    <option value="3">3 columns</option>
+                                    <option value="4">4 columns</option>
+                                    <option value="5">5 columns</option>
+                                    <option value="6">6 columns</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Hero subtitle</div>
+                                <div class="set-hint"><code>newtab.subtitle</code></div>
+                            </div>
+                            <div class="set-ctrl" style="width: 310px;">
+                                <input type="text" id="qsNtSub" class="text-input" placeholder="Single-WebView studio browser · Zero-FX compositing">
+                            </div>
+                        </div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Clock &amp; 24-hour format</div>
+                                <div class="set-hint"><code>newtab.show_clock</code> · <code>newtab.use_24h_clock</code></div>
+                            </div>
+                            <div class="set-ctrl">
+                                <span class="switch-status">Clock</span>
+                                <button type="button" id="qsNtClockToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show clock"></button>
+                                <span class="switch-status" style="margin-left: 8px;">24h</span>
+                                <button type="button" id="qsNt24hToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="24h clock"></button>
+                            </div>
+                        </div>
+                        <div class="set-row" style="border-bottom: none;">
+                            <div class="set-meta">
+                                <div class="set-label">Start page sections</div>
+                                <div class="set-hint"><code>newtab.show_shortcuts</code> · <code>newtab.show_history</code></div>
+                            </div>
+                            <div class="set-ctrl">
+                                <span class="switch-status">Shortcuts</span>
+                                <button type="button" id="qsNtScToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show shortcuts"></button>
+                                <span class="switch-status" style="margin-left: 8px;">History</span>
+                                <button type="button" id="qsNtHistToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show history"></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-pane B: Raw JSON Studio -->
+                    <div class="sub-pane" id="pane-studio-json">
                         <div class="json-studio">
                             <div class="json-toolbar">
                                 <div class="json-file-meta">
-                                    <span class="json-badge">JSON</span>
-                                    <span class="json-path" id="stylesPathLabel">config/styles.json</span>
+                                    <span class="rc-badge">JSON</span>
+                                    <span class="json-path" id="stylesPathDisplay">config/styles.json</span>
                                 </div>
-                                <div class="json-actions">
-                                    <button type="button" class="action-btn" id="btnReloadJson">Reload</button>
-                                    <button type="button" class="action-btn" id="btnResetJson">Reset</button>
-                                    <button type="button" class="action-btn primary" id="btnSaveJson">Apply &amp; save</button>
+                                <div class="sec-actions">
+                                    <button type="button" class="action-btn compact" id="btnReloadJson">Reload</button>
+                                    <button type="button" class="action-btn compact" id="btnResetJson">Reset</button>
+                                    <button type="button" class="action-btn compact" id="btnSaveJson">Apply &amp; save</button>
                                 </div>
                             </div>
                             <textarea id="jsonEditor" class="json-editor" spellcheck="false"></textarea>
                             <div class="json-status" id="jsonStatus">
-                                <span id="jsonStatusText">Ready — edit visual controls or modify raw JSON (Ctrl+S to apply).</span>
+                                <span id="jsonStatusText">Ready — edit JSON directly (Ctrl+S to apply).</span>
                                 <span>Auto-reloads on window focus</span>
                             </div>
                         </div>
                     </div>
                 </section>
 
-                <!-- 5. Interactive Click-to-Record Keyboard Shortcuts -->
+                <!-- 7. Keybinds (Desktop-Only Linear Rows) -->
                 <section class="sec-block desktop-only-sec" id="sec-shortcuts">
                     <div class="sec-header">
                         <div>
-                            <h2 class="sec-title">Custom keyboard shortcuts (<code style="font-family: monospace; font-size: 13px;">config/keybinds.json</code>)</h2>
-                            <p class="sec-desc">Click any shortcut button below and press your desired key combination to rebind it instantly.</p>
+                            <h2 class="sec-title">Keybinds</h2>
+                            <p class="sec-desc">Click any keycap on the right and press your combination to rebind in <code>config/keybinds.json</code>.</p>
                         </div>
-                        <div class="theme-header-actions">
+                        <div class="sec-actions">
                             <input type="file" id="fileImportKeybinds" accept="application/json,text/plain" style="display: none;">
                             <button type="button" class="action-btn" id="btnImportKeybinds">Import .json</button>
                             <button type="button" class="action-btn" id="btnExportKeybinds">Export .json</button>
                             <button type="button" class="action-btn" id="btnResetKeybinds">Reset defaults</button>
                         </div>
                     </div>
-                    <div class="shortcuts-grid" id="keybindsGrid"></div>
+                    <div id="keybindsGrid"></div>
                 </section>
             </div>
         </main>
     </div>
 
     <div class="toast" id="toast">
-        <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--fnx-accent);"></span>
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: #10B981;"></span>
         <span id="toastMsg">Saved</span>
     </div>
 
@@ -1437,26 +1686,26 @@
             zoom_reset: 'Ctrl+0'
         };
         const KEYBIND_DEFS = [
-            ['omnibox', 'Open omnibox & quick bar'],
-            ['new_tab', 'Open new tab'],
-            ['close_tab', 'Close active tab'],
-            ['reopen_closed_tab', 'Reopen closed tab'],
-            ['next_tab', 'Cycle open tabs'],
-            ['bookmark_page', 'Save / remove shortcut'],
-            ['find_in_page', 'Find in page'],
-            ['reader_mode', 'Toggle Reader mode'],
-            ['force_dark', 'Toggle Smart Force Dark'],
-            ['fullscreen', 'Immersive fullscreen'],
-            ['preferences', 'Toggle Preferences'],
-            ['zoom_in', 'Zoom in'],
-            ['zoom_out', 'Zoom out'],
-            ['zoom_reset', 'Reset zoom (100%)']
+            ['omnibox', 'Open omnibox & quick bar', 'Focus address bar from anywhere'],
+            ['new_tab', 'Open new tab', 'Launch a fresh Start Page tab'],
+            ['close_tab', 'Close active tab', 'Close current tab or return home'],
+            ['reopen_closed_tab', 'Reopen closed tab', 'Restore the most recently closed tab'],
+            ['next_tab', 'Cycle open tabs', 'Switch sequentially to the next tab'],
+            ['bookmark_page', 'Save / remove shortcut', 'Toggle active site in shortcuts.json'],
+            ['find_in_page', 'Find in page', 'Open HUD page text search'],
+            ['reader_mode', 'Toggle Reader mode', 'Extract clean distraction-free article'],
+            ['force_dark', 'Toggle Smart Force Dark', 'Invert bright sites while keeping media'],
+            ['fullscreen', 'Immersive fullscreen', 'Toggle borderless window fullscreen'],
+            ['preferences', 'Toggle Preferences', 'Jump to or leave Preferences'],
+            ['zoom_in', 'Zoom in', 'Increase page scale by 10%'],
+            ['zoom_out', 'Zoom out', 'Decrease page scale by 10%'],
+            ['zoom_reset', 'Reset zoom (100%)', 'Restore default 100% scale']
         ];
         const COLOR_TOKEN_DEFS = [
             ['bg', 'Canvas bg'],
             ['panel', 'Topbar / panel'],
             ['surface', 'Input surface'],
-            ['elevated', 'Elevated card'],
+            ['elevated', 'Elevated row'],
             ['border', 'Border'],
             ['border_hover', 'Border hover'],
             ['fg', 'Primary text'],
@@ -1528,49 +1777,112 @@
             toastTimer = setTimeout(() => { t.style.display = 'none'; }, 1800);
         }
 
+        function setSwitchState(btnId, on, labelId, onText, offText) {
+            const btn = document.getElementById(btnId);
+            if (btn) {
+                btn.classList.toggle('on', !!on);
+                btn.setAttribute('aria-checked', on ? 'true' : 'false');
+            }
+            if (labelId) {
+                const lbl = document.getElementById(labelId);
+                if (lbl) lbl.textContent = on ? onText : offText;
+            }
+        }
+
+        function createSvgEl(tag, attrs) {
+            const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+            for (const k in attrs) el.setAttribute(k, String(attrs[k]));
+            return el;
+        }
+
+        function createSiteEmblem(url) {
+            const wrap = document.createElement('span');
+            wrap.className = 'rc-emblem';
+            const fallback = document.createElement('span');
+            fallback.className = 'rc-emblem-fallback';
+            const gSvg = createSvgEl('svg', { width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none' });
+            gSvg.appendChild(createSvgEl('circle', { cx: 8, cy: 8, r: 5.8, stroke: 'currentColor', 'stroke-width': 1.3 }));
+            gSvg.appendChild(createSvgEl('path', { d: 'M2.6 8h10.8M8 2.2c1.8 1.6 2.6 3.7 2.6 5.8s-.8 4.2-2.6 5.8M8 2.2C6.2 3.8 5.4 5.9 5.4 8s.8 4.2 2.6 5.8', stroke: 'currentColor', 'stroke-width': 1.1 }));
+            fallback.appendChild(gSvg);
+            wrap.appendChild(fallback);
+
+            try {
+                const raw = String(url || '').replace('{query}', 'test');
+                const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : ('https://' + raw));
+                if (/^https?:$/.test(parsed.protocol) && parsed.hostname) {
+                    const img = document.createElement('img');
+                    img.className = 'rc-emblem-img';
+                    img.alt = '';
+                    img.loading = 'lazy';
+                    img.decoding = 'async';
+                    img.style.display = 'none';
+                    img.src = 'https://www.google.com/s2/favicons?sz=32&domain=' + encodeURIComponent(parsed.hostname);
+                    img.onload = () => {
+                        if (img.naturalWidth > 0) {
+                            fallback.style.display = 'none';
+                            img.style.display = 'block';
+                        }
+                    };
+                    img.onerror = () => { img.remove(); };
+                    wrap.appendChild(img);
+                }
+            } catch (_) {}
+            return wrap;
+        }
+
         function toSixDigitHex(raw) {
             const s = String(raw || '').trim();
             if (/^#[0-9a-fA-F]{6}$/.test(s)) return s;
             if (/^#[0-9a-fA-F]{3}$/.test(s)) {
                 return '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
             }
-            return '#09090b';
+            return '#0B0B0E';
+        }
+
+        function isLightHex(hex) {
+            const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+            if (!m) return false;
+            const n = parseInt(m[1], 16);
+            return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) > 140;
         }
 
         function resolveThemePalette() {
             const useCustom = !!(styles.colors && styles.colors.use_custom_colors);
-            if (useCustom) {
-                const c = styles.colors;
+            const matched = themes.find(item => item && item.id === config.theme);
+            const src = useCustom ? (styles.colors || {}) : ((matched && matched.colors) ? matched.colors : (activeTheme || {}));
+            const isDefaultDark = !useCustom && (!config.theme || config.theme === 'dark');
+
+            if (isDefaultDark) {
                 return {
-                    bg: c.bg || '#09090b',
-                    panel: c.panel || '#0e0e11',
-                    surface: c.surface || c.panel || '#141418',
-                    elevated: c.elevated || '#1c1c22',
-                    border: c.border || '#222228',
-                    borderHover: c.border_hover || '#34343e',
-                    fg: c.fg || '#f4f4f6',
-                    secondary: c.secondary || '#a1a1aa',
-                    muted: c.muted || '#71717a',
-                    accent: c.accent || '#6366f1',
-                    accentBg: c.accent_bg || '#1b1d36',
-                    hover: c.hover || '#18181e'
+                    isDefaultDark: true,
+                    bg: '#0B0B0E',
+                    panel: '#0E0E12',
+                    surface: '#141418',
+                    elevated: '#1B1B21',
+                    border: 'rgba(255, 255, 255, 0.08)',
+                    borderHover: 'rgba(255, 255, 255, 0.14)',
+                    fg: '#F4F4F5',
+                    secondary: '#A1A1AA',
+                    muted: '#71717A',
+                    accent: src.accent || '#7A88F7',
+                    accentBg: '#1B1D36',
+                    hover: '#18181D'
                 };
             }
-            const matched = themes.find(item => item && item.id === config.theme);
-            const src = (matched && matched.colors) ? matched.colors : (activeTheme || {});
             return {
-                bg: src.bg || '#09090b',
-                panel: src.panel || '#0e0e11',
+                isDefaultDark: false,
+                bg: src.bg || '#0B0B0E',
+                panel: src.panel || '#0E0E12',
                 surface: src.surface || src.panel || '#141418',
-                elevated: src.elevated || '#1c1c22',
-                border: src.border || '#222228',
-                borderHover: src.border_hover || src.borderHover || '#34343e',
-                fg: src.fg || '#f4f4f6',
-                secondary: src.secondary || '#a1a1aa',
-                muted: src.muted || '#71717a',
-                accent: src.accent || '#6366f1',
-                accentBg: src.accent_bg || src.accentBg || '#1b1d36',
-                hover: src.hover || '#18181e'
+                elevated: src.elevated || '#1B1B21',
+                border: src.border || 'rgba(255, 255, 255, 0.08)',
+                borderHover: src.border_hover || src.borderHover || 'rgba(255, 255, 255, 0.14)',
+                fg: src.fg || '#F4F4F5',
+                secondary: src.secondary || '#A1A1AA',
+                muted: src.muted || '#71717A',
+                accent: src.accent || '#7A88F7',
+                accentBg: src.accent_bg || src.accentBg || '#1B1D36',
+                hover: src.hover || '#18181D'
             };
         }
 
@@ -1586,7 +1898,7 @@
             const frag = document.createDocumentFragment();
 
             COLOR_TOKEN_DEFS.forEach(([key, label]) => {
-                const curVal = styles.colors[key] || '#09090b';
+                const curVal = styles.colors[key] || '#0B0B0E';
                 const box = document.createElement('div');
                 box.className = 'color-swatch-box';
 
@@ -1610,9 +1922,7 @@
                     hexInp.value = picker.value;
                     applySettingsSurface();
                 };
-                picker.onchange = () => {
-                    pushStyles(`Updated ${key}`);
-                };
+                picker.onchange = () => { pushStyles(`Updated ${key}`); };
                 hexInp.onchange = () => {
                     const v = hexInp.value.trim();
                     if (v) {
@@ -1635,43 +1945,57 @@
         function applySettingsSurface() {
             const useCustom = !!(styles.colors && styles.colors.use_custom_colors);
             const t = resolveThemePalette();
-
             const root = document.documentElement;
+            const light = !t.isDefaultDark && isLightHex(t.bg);
+
+            if (light) root.setAttribute('data-theme-kind', 'light');
+            else root.removeAttribute('data-theme-kind');
+
             root.style.setProperty('--fnx-bg', t.bg);
             root.style.setProperty('--fnx-panel', t.panel);
-            root.style.setProperty('--fnx-surface', t.surface || t.panel);
+            root.style.setProperty('--fnx-surface', t.surface);
             root.style.setProperty('--fnx-elevated', t.elevated);
-            root.style.setProperty('--fnx-border', t.border);
-            root.style.setProperty('--fnx-border-hover', t.borderHover);
+            root.style.setProperty('--fnx-hover', t.hover);
             root.style.setProperty('--fnx-fg', t.fg);
             root.style.setProperty('--fnx-secondary', t.secondary);
             root.style.setProperty('--fnx-muted', t.muted);
             root.style.setProperty('--fnx-accent', t.accent);
-            root.style.setProperty('--fnx-accent-bg', t.accentBg);
-            root.style.setProperty('--fnx-hover', t.hover);
+
+            if (t.isDefaultDark) {
+                root.style.setProperty('--fnx-divider', 'rgba(255, 255, 255, 0.05)');
+                root.style.setProperty('--fnx-hairline', 'rgba(255, 255, 255, 0.08)');
+                root.style.setProperty('--fnx-hairline-hover', 'rgba(255, 255, 255, 0.14)');
+                root.style.setProperty('--fnx-btn-bg', 'rgba(255, 255, 255, 0.05)');
+                root.style.setProperty('--fnx-btn-bg-hover', 'rgba(255, 255, 255, 0.09)');
+                root.style.setProperty('--fnx-faint', '#52525B');
+            } else {
+                root.style.setProperty('--fnx-divider', `color-mix(in srgb, ${t.fg} ${light ? '8%' : '5%'}, transparent)`);
+                root.style.setProperty('--fnx-hairline', `color-mix(in srgb, ${t.fg} ${light ? '12%' : '8%'}, transparent)`);
+                root.style.setProperty('--fnx-hairline-hover', `color-mix(in srgb, ${t.fg} ${light ? '20%' : '15%'}, transparent)`);
+                root.style.setProperty('--fnx-btn-bg', `color-mix(in srgb, ${t.fg} ${light ? '5%' : '5%'}, transparent)`);
+                root.style.setProperty('--fnx-btn-bg-hover', `color-mix(in srgb, ${t.fg} ${light ? '10%' : '9%'}, transparent)`);
+                root.style.setProperty('--fnx-faint', t.muted);
+            }
 
             const sp = styles.settings_page || {};
-            root.style.setProperty('--cfg-sidebar-w', sp.sidebar_width || '244px');
-            root.style.setProperty('--cfg-content-pad', sp.content_padding || '28px 36px');
-            root.style.setProperty('--cfg-card-radius', sp.card_radius || '10px');
+            const sw = sp.sidebar_width && sp.sidebar_width !== '244px' ? sp.sidebar_width : '224px';
+            root.style.setProperty('--cfg-sidebar-w', sw);
+            if (sp.content_padding && sp.content_padding !== '28px 36px') {
+                root.style.setProperty('--cfg-content-pad', sp.content_padding);
+            } else {
+                root.style.setProperty('--cfg-content-pad', '32px 36px 56px');
+            }
 
             const appEl = document.getElementById('__fynexo_settings_app__');
-            if (sp.full_width === false) appEl.classList.add('centered-mode');
-            else appEl.classList.remove('centered-mode');
+            appEl.classList.toggle('compact-width', sp.full_width === false);
 
             const customCssEl = document.getElementById('__fynexo_settings_custom_css__');
             if (customCssEl) customCssEl.textContent = sp.custom_css || '';
 
-            const customBtn = document.getElementById('btnCustomColorsToggle');
-            const customLbl = document.getElementById('customColorsLabel');
-            if (customBtn && customLbl) {
-                customBtn.classList.toggle('on', useCustom);
-                customLbl.textContent = useCustom ? 'Custom palette: On' : 'Custom palette: Off';
-            }
+            setSwitchState('btnCustomColorsToggle', useCustom);
 
             document.querySelectorAll('.theme-card').forEach(card => {
-                const active = !useCustom && card.dataset.theme === config.theme;
-                card.classList.toggle('active', active);
+                card.classList.toggle('active', !useCustom && card.dataset.theme === config.theme);
             });
         }
 
@@ -1748,7 +2072,7 @@
                 col.appendChild(b2);
 
                 const pill = document.createElement('div');
-                pill.style.cssText = `width: 22px; height: 12px; border-radius: 3px; background: ${accentBg}; border: 1px solid ${c.accent};`;
+                pill.style.cssText = `width: 22px; height: 11px; border-radius: 3px; background: ${accentBg}; border: 1px solid ${c.accent};`;
 
                 body.appendChild(col);
                 body.appendChild(pill);
@@ -1828,227 +2152,284 @@
             themeGrid.appendChild(frag);
         }
 
-        function renderEnginePills() {
-            const enginePills = document.getElementById('enginePills');
-            enginePills.textContent = '';
+        function createCompactDeleteBtn(title, onDelete) {
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'rc-del';
+            del.textContent = '×';
+            del.title = title;
+            del.setAttribute('aria-label', title);
+            del.onclick = (e) => {
+                e.stopPropagation();
+                onDelete();
+            };
+            return del;
+        }
+
+        function renderEngineTable() {
+            const tbl = document.getElementById('engineTable');
+            tbl.textContent = '';
             const list = getEngines();
             const builtinIds = ['google', 'duckduckgo', 'bing', 'baidu'];
             const frag = document.createDocumentFragment();
 
             list.forEach(eng => {
-                const b = document.createElement('button');
-                b.type = 'button';
-                b.className = eng.id === config.search_engine ? 'seg-btn active' : 'seg-btn';
-                b.dataset.engine = eng.id;
-                b.title = eng.url || '';
+                const isDef = eng.id === config.search_engine;
+                const row = document.createElement('div');
+                row.className = 'rc-row clickable' + (isDef ? ' is-default' : '');
 
-                const lbl = document.createElement('span');
-                lbl.textContent = eng.name || eng.id;
-                b.appendChild(lbl);
+                const left = document.createElement('div');
+                left.className = 'rc-left';
+                const radio = document.createElement('span');
+                radio.className = 'rc-radio';
+                left.appendChild(radio);
+                left.appendChild(createSiteEmblem(eng.url));
 
+                const mid = document.createElement('div');
+                mid.className = 'rc-mid';
+                const nm = document.createElement('span');
+                nm.className = 'rc-name';
+                nm.textContent = eng.name || eng.id;
+                const tpl = document.createElement('span');
+                tpl.className = 'rc-tpl';
+                tpl.textContent = eng.url || '';
+                mid.appendChild(nm);
+                mid.appendChild(tpl);
+
+                const right = document.createElement('div');
+                right.className = 'rc-right';
+                if (isDef) {
+                    const pill = document.createElement('span');
+                    pill.className = 'rc-active-pill';
+                    pill.textContent = 'Default';
+                    right.appendChild(pill);
+                }
                 if (!builtinIds.includes(eng.id) && list.length > 1) {
-                    const del = document.createElement('span');
-                    del.className = 'chip-x';
-                    del.textContent = '×';
-                    del.title = 'Remove custom search engine';
-                    del.onclick = (e) => {
-                        e.stopPropagation();
+                    right.appendChild(createCompactDeleteBtn('Remove custom search engine', () => {
                         config.search_engines = list.filter(x => x.id !== eng.id);
                         if (config.search_engine === eng.id) {
                             config.search_engine = config.search_engines[0].id;
                         }
-                        renderEnginePills();
+                        renderEngineTable();
                         saveConfig('Removed search engine');
-                    };
-                    b.appendChild(del);
+                    }));
                 }
 
-                b.onclick = () => {
+                row.onclick = () => {
                     config.search_engine = eng.id;
-                    renderEnginePills();
+                    renderEngineTable();
                     saveConfig(`Search engine: ${eng.name || eng.id}`);
                 };
-                frag.appendChild(b);
+
+                row.appendChild(left);
+                row.appendChild(mid);
+                row.appendChild(right);
+                frag.appendChild(row);
             });
-            enginePills.appendChild(frag);
+            tbl.appendChild(frag);
         }
 
-        function renderBangsChips() {
-            const wrap = document.getElementById('bangsChips');
-            wrap.textContent = '';
+        function renderBangsTable() {
+            const tbl = document.getElementById('bangsTable');
+            tbl.textContent = '';
             const bangs = getBangs();
+            if (bangs.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'rc-row-empty';
+                empty.textContent = 'No !bang triggers yet — add one below.';
+                tbl.appendChild(empty);
+                return;
+            }
             const frag = document.createDocumentFragment();
-
             bangs.forEach((b, idx) => {
                 if (!b || !b.trigger) return;
-                const chip = document.createElement('span');
-                chip.className = 'tag-chip';
-                chip.title = b.url || '';
-                const code = document.createElement('code');
-                code.textContent = b.trigger.startsWith('!') ? b.trigger : ('!' + b.trigger);
+                const trigStr = b.trigger.startsWith('!') ? b.trigger : ('!' + b.trigger);
+                const row = document.createElement('div');
+                row.className = 'rc-row';
+
+                const left = document.createElement('div');
+                left.className = 'rc-left';
+                const badge = document.createElement('span');
+                badge.className = 'rc-badge';
+                badge.textContent = trigStr;
+                left.appendChild(badge);
+
+                const mid = document.createElement('div');
+                mid.className = 'rc-mid';
                 const nm = document.createElement('span');
-                nm.textContent = b.name || '';
-                const del = document.createElement('button');
-                del.type = 'button';
-                del.className = 'chip-x';
-                del.textContent = '×';
-                del.title = 'Remove !bang';
-                del.onclick = () => {
+                nm.className = 'rc-name';
+                nm.textContent = b.name || trigStr.slice(1);
+                const tpl = document.createElement('span');
+                tpl.className = 'rc-tpl';
+                tpl.textContent = b.url || '';
+                mid.appendChild(nm);
+                mid.appendChild(tpl);
+
+                const right = document.createElement('div');
+                right.className = 'rc-right';
+                right.appendChild(createCompactDeleteBtn(`Remove ${trigStr}`, () => {
                     config.bangs = bangs.filter((_, i) => i !== idx);
-                    renderBangsChips();
-                    saveConfig(`Removed ${code.textContent}`);
-                };
-                chip.appendChild(code);
-                if (b.name) chip.appendChild(nm);
-                chip.appendChild(del);
-                frag.appendChild(chip);
+                    renderBangsTable();
+                    saveConfig(`Removed ${trigStr}`);
+                }));
+
+                row.appendChild(left);
+                row.appendChild(mid);
+                row.appendChild(right);
+                frag.appendChild(row);
             });
-            wrap.appendChild(frag);
+            tbl.appendChild(frag);
         }
 
-        function renderShortcutsChips() {
-            const wrap = document.getElementById('shortcutsChips');
-            wrap.textContent = '';
+        function renderShortcutsTable() {
+            const tbl = document.getElementById('shortcutsTable');
+            tbl.textContent = '';
+            if (bookmarks.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'rc-row-empty';
+                empty.textContent = 'No shortcuts saved — add one below.';
+                tbl.appendChild(empty);
+                return;
+            }
             const frag = document.createDocumentFragment();
-
             bookmarks.forEach(bm => {
-                const chip = document.createElement('span');
-                chip.className = 'tag-chip';
-                chip.title = bm.url || '';
+                const row = document.createElement('div');
+                row.className = 'rc-row';
+
+                const left = document.createElement('div');
+                left.className = 'rc-left';
+                left.appendChild(createSiteEmblem(bm.url));
+
+                const mid = document.createElement('div');
+                mid.className = 'rc-mid';
                 const nm = document.createElement('span');
+                nm.className = 'rc-name';
                 nm.textContent = bm.title || bm.url;
-                const del = document.createElement('button');
-                del.type = 'button';
-                del.className = 'chip-x';
-                del.textContent = '×';
-                del.title = 'Remove shortcut';
-                del.onclick = () => {
+                const tpl = document.createElement('span');
+                tpl.className = 'rc-tpl';
+                tpl.textContent = bm.url || '';
+                mid.appendChild(nm);
+                mid.appendChild(tpl);
+
+                const right = document.createElement('div');
+                right.className = 'rc-right';
+                right.appendChild(createCompactDeleteBtn('Remove shortcut', () => {
                     sendIpc({ type: 'REMOVE_BOOKMARK', url: bm.url });
-                };
-                chip.appendChild(nm);
-                chip.appendChild(del);
-                frag.appendChild(chip);
+                }));
+
+                row.appendChild(left);
+                row.appendChild(mid);
+                row.appendChild(right);
+                frag.appendChild(row);
             });
-            wrap.appendChild(frag);
+            tbl.appendChild(frag);
         }
 
-        function renderAdblockDomainChips() {
-            const blockedWrap = document.getElementById('blockedDomainsChips');
-            const whiteWrap = document.getElementById('whitelistDomainsChips');
-            blockedWrap.textContent = '';
-            whiteWrap.textContent = '';
+        function renderDomainTable(targetId, domains, emptyText, onRemove) {
+            const tbl = document.getElementById(targetId);
+            tbl.textContent = '';
+            if (domains.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'rc-row-empty';
+                empty.textContent = emptyText;
+                tbl.appendChild(empty);
+                return;
+            }
+            const frag = document.createDocumentFragment();
+            domains.forEach(dom => {
+                const row = document.createElement('div');
+                row.className = 'rc-row';
 
+                const mid = document.createElement('div');
+                mid.className = 'rc-mid';
+                const txt = document.createElement('span');
+                txt.className = 'rc-tpl';
+                txt.style.color = 'var(--fnx-fg)';
+                txt.textContent = dom;
+                mid.appendChild(txt);
+
+                const right = document.createElement('div');
+                right.className = 'rc-right';
+                right.appendChild(createCompactDeleteBtn(`Remove ${dom}`, () => onRemove(dom)));
+
+                row.appendChild(mid);
+                row.appendChild(right);
+                frag.appendChild(row);
+            });
+            tbl.appendChild(frag);
+        }
+
+        function renderAdblockDomainLists() {
             const bList = Array.isArray(adblockCfg.custom_blocked_domains) ? adblockCfg.custom_blocked_domains : [];
             const wList = Array.isArray(adblockCfg.whitelisted_domains) ? adblockCfg.whitelisted_domains : [];
 
-            if (bList.length === 0) {
-                const empty = document.createElement('span');
-                empty.style.cssText = 'font-size:11.5px;color:var(--fnx-muted);';
-                empty.textContent = 'No custom blocked domains yet (65+ built-in ad domains active).';
-                blockedWrap.appendChild(empty);
-            } else {
-                bList.forEach(dom => {
-                    const chip = document.createElement('span');
-                    chip.className = 'tag-chip';
-                    const code = document.createElement('code');
-                    code.textContent = dom;
-                    const del = document.createElement('button');
-                    del.type = 'button';
-                    del.className = 'chip-x';
-                    del.textContent = '×';
-                    del.onclick = () => {
-                        adblockCfg.custom_blocked_domains = bList.filter(x => x !== dom);
-                        renderAdblockDomainChips();
-                        sendIpc({ type: 'SAVE_ADBLOCK', adblock: adblockCfg });
-                        showToast(`Unblocked ${dom}`);
-                    };
-                    chip.appendChild(code);
-                    chip.appendChild(del);
-                    blockedWrap.appendChild(chip);
-                });
-            }
+            renderDomainTable('blockedDomainsList', bList, 'No custom blocked domains.', (dom) => {
+                adblockCfg.custom_blocked_domains = bList.filter(x => x !== dom);
+                renderAdblockDomainLists();
+                sendIpc({ type: 'SAVE_ADBLOCK', adblock: adblockCfg });
+                showToast(`Unblocked ${dom}`);
+            });
 
-            if (wList.length === 0) {
-                const empty = document.createElement('span');
-                empty.style.cssText = 'font-size:11.5px;color:var(--fnx-muted);';
-                empty.textContent = 'No whitelisted domains.';
-                whiteWrap.appendChild(empty);
-            } else {
-                wList.forEach(dom => {
-                    const chip = document.createElement('span');
-                    chip.className = 'tag-chip';
-                    const code = document.createElement('code');
-                    code.textContent = dom;
-                    const del = document.createElement('button');
-                    del.type = 'button';
-                    del.className = 'chip-x';
-                    del.textContent = '×';
-                    del.onclick = () => {
-                        adblockCfg.whitelisted_domains = wList.filter(x => x !== dom);
-                        renderAdblockDomainChips();
-                        sendIpc({ type: 'SAVE_ADBLOCK', adblock: adblockCfg });
-                        showToast(`Removed ${dom} from whitelist`);
-                    };
-                    chip.appendChild(code);
-                    chip.appendChild(del);
-                    whiteWrap.appendChild(chip);
-                });
-            }
+            renderDomainTable('whitelistDomainsList', wList, 'No whitelisted domains.', (dom) => {
+                adblockCfg.whitelisted_domains = wList.filter(x => x !== dom);
+                renderAdblockDomainLists();
+                sendIpc({ type: 'SAVE_ADBLOCK', adblock: adblockCfg });
+                showToast(`Removed ${dom} from whitelist`);
+            });
         }
 
         function renderSiteRulesList() {
             const listEl = document.getElementById('rulesList');
             listEl.textContent = '';
-            const frag = document.createDocumentFragment();
 
             if (siteRules.length === 0) {
                 const empty = document.createElement('div');
-                empty.style.cssText = 'font-size:12px;color:var(--fnx-muted);padding:8px 2px;';
+                empty.className = 'rc-row-empty';
+                empty.style.borderBottom = 'none';
                 empty.textContent = 'No per-site CSS/JS rules configured. Click "+ New rule" to create one.';
                 listEl.appendChild(empty);
                 return;
             }
 
-            siteRules.forEach((rule) => {
+            const frag = document.createDocumentFragment();
+            siteRules.forEach((rule, idx) => {
                 const row = document.createElement('div');
-                row.className = 'rule-row';
+                row.className = 'rc-row';
+                if (idx === siteRules.length - 1) row.style.borderBottom = 'none';
 
-                const info = document.createElement('div');
-                info.className = 'rule-info';
+                const left = document.createElement('div');
+                left.className = 'rc-left';
+                const domBadge = document.createElement('span');
+                domBadge.className = 'rc-badge';
+                domBadge.textContent = rule.domain || '*';
+                left.appendChild(domBadge);
+
+                const mid = document.createElement('div');
+                mid.className = 'rc-mid';
                 const nm = document.createElement('span');
-                nm.className = 'rule-name';
+                nm.className = 'rc-name';
                 nm.textContent = rule.name || rule.id;
-                const dom = document.createElement('span');
-                dom.className = 'rule-domain';
-                dom.textContent = rule.domain || '*';
-                info.appendChild(nm);
-                info.appendChild(dom);
+                mid.appendChild(nm);
 
-                if (rule.css && rule.css.trim()) {
-                    const b = document.createElement('span');
-                    b.className = 'rule-badge';
-                    b.textContent = 'CSS';
-                    info.appendChild(b);
-                }
-                if (rule.js && rule.js.trim()) {
-                    const b = document.createElement('span');
-                    b.className = 'rule-badge';
-                    b.textContent = 'JS';
-                    info.appendChild(b);
+                const tags = [];
+                if (rule.css && rule.css.trim()) tags.push('CSS');
+                if (rule.js && rule.js.trim()) tags.push('JS');
+                if (tags.length > 0) {
+                    const tagTxt = document.createElement('span');
+                    tagTxt.className = 'rc-tpl';
+                    tagTxt.textContent = tags.join(' + ');
+                    mid.appendChild(tagTxt);
                 }
 
-                const actions = document.createElement('div');
-                actions.className = 'storage-actions';
+                const right = document.createElement('div');
+                right.className = 'rc-right';
 
                 const sw = document.createElement('button');
                 sw.type = 'button';
-                sw.className = rule.enabled ? 'switch-btn on' : 'switch-btn';
-                const dot = document.createElement('span');
-                dot.className = 'switch-dot';
-                const swLbl = document.createElement('span');
-                swLbl.textContent = rule.enabled ? 'On' : 'Off';
-                sw.appendChild(dot);
-                sw.appendChild(swLbl);
+                sw.className = rule.enabled ? 'fnx-switch on' : 'fnx-switch';
+                sw.setAttribute('role', 'switch');
+                sw.setAttribute('aria-checked', rule.enabled ? 'true' : 'false');
+                sw.title = rule.enabled ? 'Disable rule' : 'Enable rule';
                 sw.onclick = () => {
                     rule.enabled = !rule.enabled;
                     renderSiteRulesList();
@@ -2058,27 +2439,22 @@
 
                 const editBtn = document.createElement('button');
                 editBtn.type = 'button';
-                editBtn.className = 'action-btn';
+                editBtn.className = 'action-btn compact';
                 editBtn.textContent = 'Edit';
                 editBtn.onclick = () => openRuleEditor(rule);
 
-                const delBtn = document.createElement('button');
-                delBtn.type = 'button';
-                delBtn.className = 'action-btn danger';
-                delBtn.textContent = 'Delete';
-                delBtn.onclick = () => {
+                right.appendChild(editBtn);
+                right.appendChild(sw);
+                right.appendChild(createCompactDeleteBtn('Delete rule', () => {
                     siteRules = siteRules.filter(x => x.id !== rule.id);
                     renderSiteRulesList();
                     sendIpc({ type: 'SAVE_RULES', rules: siteRules });
                     showToast('Deleted rule');
-                };
+                }));
 
-                actions.appendChild(sw);
-                actions.appendChild(editBtn);
-                actions.appendChild(delBtn);
-
-                row.appendChild(info);
-                row.appendChild(actions);
+                row.appendChild(left);
+                row.appendChild(mid);
+                row.appendChild(right);
                 frag.appendChild(row);
             });
 
@@ -2109,13 +2485,24 @@
             grid.textContent = '';
             const frag = document.createDocumentFragment();
 
-            KEYBIND_DEFS.forEach(([actionKey, label]) => {
-                const card = document.createElement('div');
-                card.className = 'shortcut-card';
-                const lbl = document.createElement('span');
-                lbl.className = 'shortcut-label';
-                lbl.textContent = label;
+            KEYBIND_DEFS.forEach(([actionKey, label, hint], idx) => {
+                const row = document.createElement('div');
+                row.className = 'set-row';
+                if (idx === KEYBIND_DEFS.length - 1) row.style.borderBottom = 'none';
 
+                const meta = document.createElement('div');
+                meta.className = 'set-meta';
+                const lbl = document.createElement('div');
+                lbl.className = 'set-label';
+                lbl.textContent = label;
+                const desc = document.createElement('div');
+                desc.className = 'set-hint';
+                desc.textContent = hint;
+                meta.appendChild(lbl);
+                meta.appendChild(desc);
+
+                const ctrl = document.createElement('div');
+                ctrl.className = 'set-ctrl';
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 const isRec = recordingActionKey === actionKey;
@@ -2127,10 +2514,11 @@
                     window.__fynexo_recording_keybind__ = true;
                     renderKeybindsGrid();
                 };
+                ctrl.appendChild(btn);
 
-                card.appendChild(lbl);
-                card.appendChild(btn);
-                frag.appendChild(card);
+                row.appendChild(meta);
+                row.appendChild(ctrl);
+                frag.appendChild(row);
             });
 
             grid.appendChild(frag);
@@ -2147,10 +2535,7 @@
                 renderKeybindsGrid();
                 return;
             }
-
-            if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
-                return;
-            }
+            if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
 
             const parts = [];
             if (e.ctrlKey || e.metaKey) parts.push('Ctrl');
@@ -2175,13 +2560,14 @@
         function syncFormControls() {
             document.getElementById('themesDirLabel').textContent = themesDir;
             document.getElementById('stylesPathLabel').textContent = stylesPath;
+            const pathDisplay = document.getElementById('stylesPathDisplay');
+            if (pathDisplay) pathDisplay.textContent = stylesPath;
             document.getElementById('dataDirLabel').textContent = dataDir || stylesPath;
             document.getElementById('shortcutsHint').textContent =
-                `${bookmarks.length} saved shortcut${bookmarks.length === 1 ? '' : 's'} — synced to shortcuts.json.`;
+                `${bookmarks.length} saved shortcut${bookmarks.length === 1 ? '' : 's'} synced to shortcuts.json.`;
 
             document.getElementById('inputHomepage').value = config.homepage || 'fynexo://newtab';
 
-            // User-Agent & Zoom
             const uaMode = (config.user_agent_mode || 'default').toLowerCase();
             document.querySelectorAll('#uaModeGroup .seg-btn').forEach(b => {
                 b.classList.toggle('active', b.dataset.ua === uaMode);
@@ -2193,58 +2579,31 @@
             const zoomPct = Math.round((Number(config.default_zoom) || 1) * 100);
             document.getElementById('btnZoomReset').textContent = `${zoomPct}%`;
 
-            // Force Dark & Incognito
-            const fdOn = !!config.force_dark;
-            document.getElementById('btnForceDarkToggle').classList.toggle('on', fdOn);
-            document.getElementById('forceDarkLabel').textContent = fdOn ? 'Enabled' : 'Off';
+            setSwitchState('btnForceDarkToggle', !!config.force_dark);
+            setSwitchState('btnIncognitoToggle', !!config.incognito);
 
-            const incOn = !!config.incognito;
-            document.getElementById('btnIncognitoToggle').classList.toggle('on', incOn);
-            document.getElementById('incognitoLabel').textContent = incOn ? 'Active' : 'Off';
-            document.getElementById('metaIncognito').textContent = incOn ? 'Active' : 'Off';
-
-            // Zero-FX
             const perfOn = !!config.enforce_perf;
-            document.getElementById('btnPerfToggle').classList.toggle('on', perfOn);
-            document.getElementById('perfLabel').textContent = perfOn ? 'Enabled' : 'Disabled';
-            document.getElementById('metaPerf').textContent = perfOn ? 'Enabled' : 'Disabled';
-            const metaDot = document.getElementById('metaPerfDot');
-            if (metaDot) metaDot.classList.toggle('off', !perfOn);
+            setSwitchState('btnPerfToggle', perfOn);
 
-            // Adblock
             const adOn = config.adblock !== false;
-            document.getElementById('btnAdblockToggle').classList.toggle('on', adOn);
-            document.getElementById('adblockLabel').textContent = adOn ? 'Enabled' : 'Paused';
+            setSwitchState('btnAdblockToggle', adOn);
             document.getElementById('adblockHint').textContent = adOn
                 ? `Blocks 65+ built-in ad/telemetry domains plus custom rules (${blockedAds} blocked this session).`
                 : 'Network ad & tracker interception is currently paused.';
-            document.getElementById('metaAdblock').textContent = adOn
-                ? (blockedAds > 0 ? `${blockedAds} blocked` : 'Active')
-                : 'Paused';
-            const metaAdDot = document.getElementById('metaAdblockDot');
-            if (metaAdDot) metaAdDot.classList.toggle('off', !adOn);
 
-            // Restore Session
-            const restOn = config.restore_session !== false;
-            document.getElementById('btnRestoreToggle').classList.toggle('on', restOn);
-            document.getElementById('restoreLabel').textContent = restOn ? 'Enabled' : 'Disabled';
+            setSwitchState('btnRestoreToggle', config.restore_session !== false);
 
             document.getElementById('btnClearHistory').textContent = historyCount > 0
                 ? `Clear history (${historyCount})`
                 : 'Clear history';
 
-            // Studio Inspector controls
             const tb = styles.topbar || {};
-            const deskTopVis = tb.visible_on_desktop !== false;
-            document.getElementById('qsDeskTopToggle').classList.toggle('on', deskTopVis);
-            document.getElementById('qsDeskTopLabel').textContent = deskTopVis ? 'Visible' : 'Hidden';
+            setSwitchState('qsDeskTopToggle', tb.visible_on_desktop !== false);
             document.getElementById('qsTopbarLayout').value = (tb.layout || 'deck').toLowerCase() === 'compact' ? 'compact' : 'deck';
             document.getElementById('qsBookmarksBar').value = ['always', 'newtab', 'hidden'].includes((tb.bookmarks_bar || '').toLowerCase()) ? tb.bookmarks_bar.toLowerCase() : 'always';
             document.getElementById('qsTopbarHeight').value = tb.height || '38px';
             const qsTitlebarInput = document.getElementById('qsTitlebarHeight');
-            if (qsTitlebarInput) {
-                qsTitlebarInput.value = tb.titlebar_height || '40px';
-            }
+            if (qsTitlebarInput) qsTitlebarInput.value = tb.titlebar_height || '40px';
 
             if (styles.address_bar) {
                 document.getElementById('qsAddrMode').value = (styles.address_bar.mode || 'inline').toLowerCase() === 'modal' ? 'modal' : 'inline';
@@ -2258,37 +2617,29 @@
                 document.getElementById('qsTabRadius').value = styles.tabs.border_radius || '7px';
                 const tabGap = document.getElementById('qsTabGap');
                 if (tabGap) tabGap.value = styles.tabs.gap || '0px';
-                const showDot = styles.tabs.show_indicator_dot !== false;
-                document.getElementById('qsTabDotToggle').classList.toggle('on', showDot);
-                document.getElementById('qsTabDotLabel').textContent = showDot ? 'Shown' : 'Hidden';
+                setSwitchState('qsTabDotToggle', styles.tabs.show_indicator_dot !== false);
             }
             if (styles.mobile_bar) {
                 document.getElementById('qsMobilePos').value = styles.mobile_bar.position || 'bottom';
                 document.getElementById('qsMobileHeight').value = styles.mobile_bar.height || '54px';
             }
             const fullW = !styles.settings_page || styles.settings_page.full_width !== false;
-            document.getElementById('qsFullWidthToggle').classList.toggle('on', fullW);
-            document.getElementById('qsFullWidthLabel').textContent = fullW ? 'Full' : 'Centered';
+            setSwitchState('qsFullWidthToggle', fullW);
 
-            // Newtab Start Page Studio controls
             const nt = styles.newtab || {};
             document.getElementById('qsNtTitle').value = nt.title !== undefined ? nt.title : 'Fynexo';
             document.getElementById('qsNtSub').value = nt.subtitle !== undefined ? nt.subtitle : 'Single-WebView studio browser · Zero-FX compositing';
             document.getElementById('qsNtCols').value = String(Number(nt.shortcuts_columns) || 0);
-            const ntClock = nt.show_clock !== false;
-            const nt24 = nt.use_24h_clock !== false;
-            const ntSc = nt.show_shortcuts !== false;
-            const ntHi = nt.show_history !== false;
-            document.getElementById('qsNtClockToggle').classList.toggle('on', ntClock);
-            document.getElementById('qsNt24hToggle').classList.toggle('on', nt24);
-            document.getElementById('qsNtScToggle').classList.toggle('on', ntSc);
-            document.getElementById('qsNtHistToggle').classList.toggle('on', ntHi);
+            setSwitchState('qsNtClockToggle', nt.show_clock !== false);
+            setSwitchState('qsNt24hToggle', nt.use_24h_clock !== false);
+            setSwitchState('qsNtScToggle', nt.show_shortcuts !== false);
+            setSwitchState('qsNtHistToggle', nt.show_history !== false);
 
             const editor = document.getElementById('jsonEditor');
             if (document.activeElement !== editor) {
                 editor.value = JSON.stringify(styles, null, 2);
             }
-            setJsonStatus(false, 'Ready — edit visual controls or modify raw JSON (Ctrl+S to apply).');
+            setJsonStatus(false, 'Ready — edit JSON directly (Ctrl+S to apply).');
         }
 
         function setJsonStatus(isError, msg) {
@@ -2332,20 +2683,26 @@
             });
         }
 
-        // Navigation Back
         document.getElementById('btnBack').onclick = () => {
             if (window.history.length > 1) sendIpc({ type: 'GO_BACK' });
             else sendIpc({ type: 'NAVIGATE', url: config.homepage || 'fynexo://newtab' });
         };
 
-        // Full Setup Bundle Export / Import
         document.getElementById('btnExportBundle').onclick = () => sendIpc({ type: 'EXPORT_FULL_SETUP' });
         bindJsonFilePicker('btnImportBundle', 'fileImportBundle', 'IMPORT_FULL_SETUP_JSON');
 
-        // Themes Import / Export / Folder / Custom Palette
         bindJsonFilePicker('btnImportTheme', 'fileImportTheme', 'IMPORT_THEME_JSON');
         document.getElementById('btnExportTheme').onclick = () => sendIpc({ type: 'EXPORT_THEME', id: config.theme });
         document.getElementById('btnOpenThemesDir').onclick = () => sendIpc({ type: 'OPEN_THEMES_DIR' });
+        document.getElementById('btnCopyThemesDir').onclick = () => {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                navigator.clipboard.writeText(themesDir).then(() => {
+                    showToast('Copied themes folder path');
+                }).catch(() => sendIpc({ type: 'OPEN_THEMES_DIR' }));
+            } else {
+                sendIpc({ type: 'OPEN_THEMES_DIR' });
+            }
+        };
 
         document.getElementById('btnCustomColorsToggle').onclick = () => {
             styles.colors = styles.colors || {};
@@ -2353,7 +2710,7 @@
                 const cur = resolveThemePalette();
                 styles.colors = Object.assign({
                     bg: cur.bg, panel: cur.panel, surface: cur.surface, elevated: cur.elevated,
-                    border: cur.border, border_hover: cur.borderHover, fg: cur.fg,
+                    border: '#222228', border_hover: '#34343e', fg: cur.fg,
                     secondary: cur.secondary, muted: cur.muted, accent: cur.accent,
                     accent_bg: cur.accentBg, hover: cur.hover
                 }, styles.colors, { use_custom_colors: true });
@@ -2381,7 +2738,6 @@
             document.getElementById('inputNewThemeName').value = '';
         };
 
-        // Add Custom Search Engine
         document.getElementById('btnAddEngine').onclick = () => {
             const nm = document.getElementById('inputEngName').value.trim();
             const u = document.getElementById('inputEngUrl').value.trim();
@@ -2396,11 +2752,10 @@
             config.search_engine = id;
             document.getElementById('inputEngName').value = '';
             document.getElementById('inputEngUrl').value = '';
-            renderEnginePills();
+            renderEngineTable();
             saveConfig(`Added search engine: ${nm}`);
         };
 
-        // Add Bang Shortcut
         document.getElementById('btnAddBang').onclick = () => {
             let trig = document.getElementById('inputBangTrig').value.trim().toLowerCase();
             const nm = document.getElementById('inputBangName').value.trim();
@@ -2414,11 +2769,10 @@
             document.getElementById('inputBangTrig').value = '';
             document.getElementById('inputBangName').value = '';
             document.getElementById('inputBangUrl').value = '';
-            renderBangsChips();
+            renderBangsTable();
             saveConfig(`Saved bang ${trig}`);
         };
 
-        // Homepage
         const inputHp = document.getElementById('inputHomepage');
         inputHp.onchange = () => {
             const val = inputHp.value.trim();
@@ -2431,7 +2785,6 @@
             };
         });
 
-        // User-Agent & Default Zoom
         document.querySelectorAll('#uaModeGroup .seg-btn').forEach(btn => {
             btn.onclick = () => {
                 config.user_agent_mode = btn.dataset.ua;
@@ -2447,7 +2800,6 @@
         document.getElementById('btnZoomReset').onclick = () => sendIpc({ type: 'SET_ZOOM', zoom: 1.0 });
         document.getElementById('btnZoomIn').onclick = () => sendIpc({ type: 'SET_ZOOM', delta: 0.1 });
 
-        // Shortcut Websites
         bindJsonFilePicker('btnImportShortcuts', 'fileImportShortcuts', 'IMPORT_SHORTCUTS_JSON', { merge: true });
         document.getElementById('btnExportShortcuts').onclick = () => sendIpc({ type: 'EXPORT_SHORTCUTS' });
         document.getElementById('btnResetShortcuts').onclick = () => sendIpc({ type: 'RESET_SHORTCUTS' });
@@ -2460,7 +2812,6 @@
             document.getElementById('inputScUrl').value = '';
         };
 
-        // Mode Toggles
         document.getElementById('btnForceDarkToggle').onclick = () => {
             config.force_dark = !config.force_dark;
             syncFormControls();
@@ -2482,19 +2833,15 @@
             saveConfig(config.restore_session ? 'Session restore enabled' : 'Session restore disabled');
         };
 
-        // Storage & Cache
         document.getElementById('btnClearHistory').onclick = () => {
             sendIpc({ type: 'CLEAR_HISTORY' });
             historyCount = 0;
             syncFormControls();
         };
-        document.getElementById('btnClearSiteData').onclick = () => {
-            sendIpc({ type: 'CLEAR_SITE_DATA' });
-        };
+        document.getElementById('btnClearSiteData').onclick = () => { sendIpc({ type: 'CLEAR_SITE_DATA' }); };
         document.getElementById('btnOpenDataDir').onclick = () => sendIpc({ type: 'OPEN_DATA_DIR' });
         document.getElementById('btnOpenDownloadsDir').onclick = () => sendIpc({ type: 'OPEN_DOWNLOADS_DIR' });
 
-        // Adblock Lists
         bindJsonFilePicker('btnImportAdblock', 'fileImportAdblock', 'IMPORT_ADBLOCK_JSON');
         document.getElementById('btnExportAdblock').onclick = () => sendIpc({ type: 'EXPORT_ADBLOCK' });
         document.getElementById('btnAdblockToggle').onclick = () => {
@@ -2509,7 +2856,7 @@
             adblockCfg.custom_blocked_domains = adblockCfg.custom_blocked_domains || [];
             if (!adblockCfg.custom_blocked_domains.includes(v)) adblockCfg.custom_blocked_domains.push(v);
             inp.value = '';
-            renderAdblockDomainChips();
+            renderAdblockDomainLists();
             sendIpc({ type: 'SAVE_ADBLOCK', adblock: adblockCfg });
             showToast(`Blocked ${v}`);
         };
@@ -2520,12 +2867,11 @@
             adblockCfg.whitelisted_domains = adblockCfg.whitelisted_domains || [];
             if (!adblockCfg.whitelisted_domains.includes(v)) adblockCfg.whitelisted_domains.push(v);
             inp.value = '';
-            renderAdblockDomainChips();
+            renderAdblockDomainLists();
             sendIpc({ type: 'SAVE_ADBLOCK', adblock: adblockCfg });
             showToast(`Whitelisted ${v}`);
         };
 
-        // Per-Site Rules
         bindJsonFilePicker('btnImportRules', 'fileImportRules', 'IMPORT_RULES_JSON');
         document.getElementById('btnExportRules').onclick = () => sendIpc({ type: 'EXPORT_RULES' });
         document.getElementById('btnResetRules').onclick = () => sendIpc({ type: 'RESET_RULES' });
@@ -2557,12 +2903,10 @@
             showToast(`Saved rule: ${nm}`);
         };
 
-        // Keybinds Import / Export / Reset
         bindJsonFilePicker('btnImportKeybinds', 'fileImportKeybinds', 'IMPORT_KEYBINDS_JSON');
         document.getElementById('btnExportKeybinds').onclick = () => sendIpc({ type: 'EXPORT_KEYBINDS' });
         document.getElementById('btnResetKeybinds').onclick = () => sendIpc({ type: 'RESET_KEYBINDS' });
 
-        // Component & Start Page Studio Inspector Bindings
         document.getElementById('qsDeskTopToggle').onclick = () => {
             styles.topbar = styles.topbar || {};
             styles.topbar.visible_on_desktop = styles.topbar.visible_on_desktop === false ? true : false;
@@ -2653,7 +2997,6 @@
             pushStyles('Workspace width updated');
         };
 
-        // Start Page (newtab) Inspector Bindings
         document.getElementById('qsNtTitle').onchange = (e) => {
             styles.newtab = styles.newtab || {};
             styles.newtab.title = e.target.value;
@@ -2690,7 +3033,6 @@
             pushStyles('Start page history visibility updated');
         };
 
-        // Live JSON Editor
         const jsonEditorEl = document.getElementById('jsonEditor');
         let validateTimer = null;
         jsonEditorEl.addEventListener('input', () => {
@@ -2743,34 +3085,59 @@
             }
         });
 
-        // Scroll-Spy Nav
+        // Cursor-style Real Single-View Switching
         const navLinks = Array.from(document.querySelectorAll('.nav-link'));
+        const viewBlocks = Array.from(document.querySelectorAll('.sec-block'));
+
+        function switchSettingsView(secId, updateHash) {
+            const target = viewBlocks.find(v => v.id === secId) || viewBlocks[0];
+            if (!target) return;
+            viewBlocks.forEach(v => v.classList.toggle('active', v === target));
+            navLinks.forEach(l => l.classList.toggle('active', l.dataset.sec === target.id));
+            window.scrollTo(0, 0);
+            if (updateHash && history && history.replaceState) {
+                history.replaceState(null, '', '#' + target.id);
+            }
+        }
+
         navLinks.forEach(link => {
             link.addEventListener('click', () => {
-                navLinks.forEach(l => l.classList.remove('active'));
-                link.classList.add('active');
+                if (link.dataset.sec) switchSettingsView(link.dataset.sec, true);
             });
         });
-        if ('IntersectionObserver' in window) {
-            const secObserver = new IntersectionObserver((entries) => {
-                for (const entry of entries) {
-                    if (entry.isIntersecting) {
-                        const id = entry.target.id;
-                        navLinks.forEach(l => l.classList.toggle('active', l.dataset.sec === id));
-                        break;
-                    }
-                }
-            }, { rootMargin: '-18% 0px -68% 0px', threshold: 0.01 });
-            document.querySelectorAll('.sec-block').forEach(sec => secObserver.observe(sec));
+
+        const initialHash = (location.hash || '').replace(/^#/, '');
+        if (initialHash && viewBlocks.some(v => v.id === initialHash)) {
+            switchSettingsView(initialHash, false);
+        } else {
+            switchSettingsView('sec-appearance', false);
         }
+
+        function bindSubTabSwitcher(groupId) {
+            const grp = document.getElementById(groupId);
+            if (!grp) return;
+            const btns = Array.from(grp.querySelectorAll('.seg-btn'));
+            btns.forEach(btn => {
+                btn.onclick = () => {
+                    const paneId = btn.dataset.subpane;
+                    btns.forEach(b => b.classList.toggle('active', b === btn));
+                    btns.forEach(b => {
+                        const pane = document.getElementById(b.dataset.subpane);
+                        if (pane) pane.classList.toggle('active', b === btn);
+                    });
+                };
+            });
+        }
+        bindSubTabSwitcher('rulesSubTabs');
+        bindSubTabSwitcher('studioSubTabs');
 
         function renderAllSections() {
             renderThemeGrid();
             renderColorTokensStudio();
-            renderEnginePills();
-            renderBangsChips();
-            renderShortcutsChips();
-            renderAdblockDomainChips();
+            renderEngineTable();
+            renderBangsTable();
+            renderShortcutsTable();
+            renderAdblockDomainLists();
             renderSiteRulesList();
             renderKeybindsGrid();
             applySettingsSurface();

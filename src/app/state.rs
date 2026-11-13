@@ -174,4 +174,20 @@ impl AppState {
         };
         serde_json::to_string(&slim)
     }
+
+    /// Serialize only the fields consumed by `fynexo://newtab` (`config`, `styles`,
+    /// `active_theme`, `bookmarks`, `history[..40]`, `blocked_ads`) safely for inline `<script>`.
+    pub fn newtab_boot_json(&self) -> String {
+        let active_theme = self.resolve_active_theme();
+        let history_slice = &self.userdata.history[..self.userdata.history.len().min(40)];
+        let slim = crate::config::NewTabBootPayload {
+            config: &self.config,
+            styles: &self.styles,
+            active_theme: &active_theme,
+            bookmarks: &self.userdata.bookmarks,
+            history: history_slice,
+            blocked_ads: adblock::blocked_count(),
+        };
+        crate::util::json_for_html_script(&slim)
+    }
 }

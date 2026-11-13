@@ -58,7 +58,7 @@ fn default_bookmarks_bar() -> String {
 }
 
 fn default_titlebar_height() -> String {
-    "40px".to_string()
+    "42px".to_string()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -88,13 +88,13 @@ impl Default for TopbarStyles {
             visible_on_mobile: false,
             layout: "deck".to_string(),
             bookmarks_bar: "always".to_string(),
-            height: "38px".to_string(),
-            titlebar_height: "40px".to_string(),
-            padding_x: "6px".to_string(),
+            height: "40px".to_string(),
+            titlebar_height: "42px".to_string(),
+            padding_x: "8px".to_string(),
             background: "var(--fnx-panel)".to_string(),
             border_bottom: "1px solid var(--fnx-border)".to_string(),
             button_size: "28px".to_string(),
-            button_radius: "6px".to_string(),
+            button_radius: "7px".to_string(),
             custom_css: String::new(),
         }
     }
@@ -117,14 +117,14 @@ pub struct TabStyles {
 impl Default for TabStyles {
     fn default() -> Self {
         Self {
-            height: "36px".to_string(),
-            width: "240px".to_string(),
-            min_width: "120px".to_string(),
-            gap: "0px".to_string(),
-            border_radius: "6px".to_string(),
-            font_size: "12px".to_string(),
+            height: "30px".to_string(),
+            width: "204px".to_string(),
+            min_width: "88px".to_string(),
+            gap: "4px".to_string(),
+            border_radius: "8px".to_string(),
+            font_size: "12.5px".to_string(),
             show_indicator_dot: true,
-            close_on_hover_only: false,
+            close_on_hover_only: true,
             custom_css: String::new(),
         }
     }
@@ -154,11 +154,11 @@ impl Default for AddressBarStyles {
         Self {
             mode: "inline".to_string(),
             position: "center".to_string(),
-            height: "30px".to_string(),
-            width: "340px".to_string(),
-            border_radius: "9px".to_string(),
+            height: "29px".to_string(),
+            width: "100%".to_string(),
+            border_radius: "8px".to_string(),
             font_size: "12.5px".to_string(),
-            background: "var(--fnx-bg)".to_string(),
+            background: "var(--fnx-surface)".to_string(),
             border: "1px solid var(--fnx-border)".to_string(),
             custom_css: String::new(),
         }
@@ -327,7 +327,37 @@ impl ComponentStyles {
         let path = Self::styles_path();
         if path.exists() {
             if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(styles) = serde_json::from_str::<ComponentStyles>(&content) {
+                if let Ok(mut styles) = serde_json::from_str::<ComponentStyles>(&content) {
+                    let mut migrated = false;
+                    // Upgrade untouched legacy attached-tab defaults to floating Firefox+Arc pill geometry.
+                    if styles.tabs.custom_css.is_empty()
+                        && styles.tabs.height == "36px"
+                        && styles.tabs.gap == "0px"
+                    {
+                        styles.tabs = TabStyles::default();
+                        migrated = true;
+                    }
+                    if styles.topbar.custom_css.is_empty()
+                        && styles.topbar.height == "38px"
+                        && styles.topbar.titlebar_height == "40px"
+                    {
+                        let layout = styles.topbar.layout.clone();
+                        let bm = styles.topbar.bookmarks_bar.clone();
+                        styles.topbar = TopbarStyles::default();
+                        styles.topbar.layout = layout;
+                        styles.topbar.bookmarks_bar = bm;
+                        migrated = true;
+                    }
+                    if styles.address_bar.custom_css.is_empty()
+                        && (styles.address_bar.background == "var(--fnx-bg)"
+                            || styles.address_bar.width == "340px")
+                    {
+                        styles.address_bar = AddressBarStyles::default();
+                        migrated = true;
+                    }
+                    if migrated {
+                        styles.save();
+                    }
                     return styles;
                 }
             }

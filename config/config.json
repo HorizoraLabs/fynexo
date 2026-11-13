@@ -8,7 +8,8 @@
   "default_zoom": 1.0,
   "user_agent_mode": "default",
   "custom_user_agent": "",
-  "search_engine": "google",
+  "tab_cache_mode": "balanced",
+  "search_engine": "duckduckgo",
   "homepage": "fynexo://newtab",
   "search_engines": [
     {
