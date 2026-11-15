@@ -35,6 +35,7 @@ mod tests {
     fn hud_script_has_no_unresolved_placeholders_and_embeds_tokens() {
         let script = build_script("{}");
         for ph in [
+            "__FNX_MOBILE_HOST__",
             "__FNX_ICONS__",
             "__FNX_DEFAULTS__",
             "__FNX_BASE_CSS__",

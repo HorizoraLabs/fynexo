@@ -118,6 +118,16 @@ pub struct AppConfig {
     pub custom_user_agent: String,
     #[serde(default = "default_tab_cache_mode")]
     pub tab_cache_mode: String,
+    #[serde(default)]
+    pub ext_side_panel: bool,
+    #[serde(default)]
+    pub ext_reader_mode: bool,
+    #[serde(default)]
+    pub ext_yt_ad_skipper: bool,
+    #[serde(default)]
+    pub ext_gh_harmonizer: bool,
+    #[serde(default)]
+    pub ext_media_booster: bool,
     pub search_engine: String,
     pub homepage: String,
     #[serde(default = "default_search_engines")]
@@ -139,6 +149,11 @@ impl Default for AppConfig {
             user_agent_mode: "default".to_string(),
             custom_user_agent: String::new(),
             tab_cache_mode: "balanced".to_string(),
+            ext_side_panel: false,
+            ext_reader_mode: false,
+            ext_yt_ad_skipper: false,
+            ext_gh_harmonizer: false,
+            ext_media_booster: false,
             search_engine: "google".to_string(),
             homepage: "fynexo://newtab".to_string(),
             search_engines: default_search_engines(),

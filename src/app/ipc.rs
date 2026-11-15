@@ -933,6 +933,23 @@ pub fn handle_ipc_message(
                         config_dirty = true;
                     }
                 }
+                type ConfigBoolSlot = (&'static str, fn(&mut AppConfig) -> &mut bool);
+                let ext_fields: [ConfigBoolSlot; 5] = [
+                    ("ext_side_panel", |c| &mut c.ext_side_panel),
+                    ("ext_reader_mode", |c| &mut c.ext_reader_mode),
+                    ("ext_yt_ad_skipper", |c| &mut c.ext_yt_ad_skipper),
+                    ("ext_gh_harmonizer", |c| &mut c.ext_gh_harmonizer),
+                    ("ext_media_booster", |c| &mut c.ext_media_booster),
+                ];
+                for (key, slot) in ext_fields {
+                    if let Some(v) = val[key].as_bool() {
+                        let target = slot(&mut locked.config);
+                        if *target != v {
+                            *target = v;
+                            config_dirty = true;
+                        }
+                    }
+                }
                 if let Some(mode_raw) = val["tab_cache_mode"].as_str() {
                     let norm = AppConfig::normalize_tab_cache_mode(mode_raw);
                     if locked.config.tab_cache_mode != norm {

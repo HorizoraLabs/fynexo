@@ -1,3 +1,6 @@
 target/
 .cargo/
 /gen
+.env
+.env.local
+*.local.json

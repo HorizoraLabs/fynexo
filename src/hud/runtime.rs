@@ -18,7 +18,13 @@ pub fn baked_template_parts() -> &'static (String, String) {
     BAKED.get_or_init(|| {
         let base_css_json =
             serde_json::to_string(BASE_STYLES_CSS).unwrap_or_else(|_| "\"\"".to_string());
+        let mobile_flag = if cfg!(any(target_os = "android", target_os = "ios")) {
+            "true"
+        } else {
+            "false"
+        };
         let filled = HUD_RUNTIME_TEMPLATE
+            .replacen("__FNX_MOBILE_HOST__", mobile_flag, 1)
             .replacen("__FNX_ICONS__", ICONS_SCRIPT, 1)
             .replacen("__FNX_DEFAULTS__", DEFAULTS_SCRIPT, 1)
             .replacen("__FNX_BASE_CSS__", &base_css_json, 1);

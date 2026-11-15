@@ -6,6 +6,7 @@
    // Capture pristine built-ins & IPC reference at document_start before any page script runs.
    const __FNX_IPC_TOKEN = '__FNX_IPC_TOKEN__';
    const __FNX_BRIDGE_TOKEN = '__FNX_BRIDGE_TOKEN__';
+   const __FNX_MOBILE_HOST = __FNX_MOBILE_HOST__;
    const __fnxJsonStringify = JSON.stringify;
    const __fnxJsonParse = JSON.parse;
    const __fnxDefineProperty = Object.defineProperty;
@@ -113,6 +114,11 @@
          user_agent_mode: 'default',
          custom_user_agent: '',
          tab_cache_mode: 'balanced',
+         ext_side_panel: false,
+         ext_reader_mode: false,
+         ext_yt_ad_skipper: false,
+         ext_gh_harmonizer: false,
+         ext_media_booster: false,
          search_engine: 'google',
          homepage: 'fynexo://newtab',
          search_engines: DEFAULT_ENGINES,
@@ -203,6 +209,8 @@
    let closeSidePanelRef = null;
    let isAnyNavPopoverOpenRef = null;
    let isSidePanelOpenRef = null;
+   let syncExtensionsRef = null;
+   let ensureReaderMountedRef = null;
    let openHistoryDrawerRef = null;
    let closeHistoryDrawerRef = null;
    let isHistoryOpenRef = null;
@@ -221,8 +229,10 @@
    let suggestIndex = -1;
    let hudToastTimer = null;
    let progressTimer = null;
+   let progressCrawlTimer = null;
    let progressFadeTimer = null;
    let progressResetTimer = null;
+   let progressBars = [];
    let onResourceStatsCb = null;
    let onForegroundResumeCb = null;
    let onTabsRenderedCb = null;
@@ -561,7 +571,20 @@
    }
 
    function isMobilePlatform() {
-      return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      if (__FNX_MOBILE_HOST) return true;
+      if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) {
+         return true;
+      }
+      try {
+         if (
+            window.matchMedia &&
+            window.matchMedia('(hover: none) and (pointer: coarse)').matches &&
+            Math.min(window.innerWidth || 9999, window.innerHeight || 9999) <= 900
+         ) {
+            return true;
+         }
+      } catch (_) {}
+      return false;
    }
 
    function computeDesktopTopHeight() {
@@ -1236,6 +1259,9 @@
                 #__fynexo_bottom_bar__ {
                     display: none !important;
                 }
+                #__fynexo_progress__ {
+                    display: ${showDeskTop ? 'none' : 'block'} !important;
+                }
             `
                   : `
                 #__fynexo_topbar__ {
@@ -1243,6 +1269,9 @@
                 }
                 #__fynexo_bottom_bar__ {
                     display: ${mb.visible !== false && !isPageKeyboardOpen && !isFullscreen ? 'flex' : 'none'} !important;
+                }
+                #__fynexo_progress__ {
+                    display: ${mb.visible !== false && !isPageKeyboardOpen && !isFullscreen ? 'none' : 'block'} !important;
                 }
                 #__fynexo_hud_card__ {
                     width: calc(100vw - 20px) !important;
@@ -1384,6 +1413,7 @@
       renderTabs(false);
       renderBookmarksBar();
       updateAddressLabels();
+      if (typeof syncExtensionsRef === 'function') syncExtensionsRef();
    }
 
    function showHudToast(text) {
@@ -1836,7 +1866,7 @@
 
    function refreshReaderableState() {
       const internal = isInternalAny(canonicalCurrentUrl());
-      const next = !internal && isPageReaderable();
+      const next = !!config.ext_reader_mode && !internal && isPageReaderable();
       cachedReaderable = next;
       const deskReader =
          shadowRoot && shadowRoot.getElementById('__fynexo_desk_reader__');
@@ -1847,6 +1877,14 @@
    }
 
    function scheduleReaderableCheck() {
+      if (!config.ext_reader_mode) {
+         if (readerCheckTimer) {
+            clearTimeout(readerCheckTimer);
+            readerCheckTimer = null;
+         }
+         refreshReaderableState();
+         return;
+      }
       if (readerCheckTimer) clearTimeout(readerCheckTimer);
       readerCheckTimer = setTimeout(() => {
          readerCheckTimer = null;
@@ -1926,7 +1964,14 @@
          closeReaderMode();
          return;
       }
+      if (!config.ext_reader_mode) {
+         showHudToast('Reader Mode extension is off (enable in 内建 Extension)');
+         return;
+      }
       if (!shadowRoot) return;
+      if (typeof ensureReaderMountedRef === 'function') {
+         ensureReaderMountedRef();
+      }
       const overlay = shadowRoot.getElementById('__fynexo_reader__');
       const article = shadowRoot.getElementById('__fynexo_reader_article__');
       const metaSpan = shadowRoot.getElementById('__fynexo_reader_meta__');
@@ -3486,6 +3531,10 @@
          clearTimeout(progressTimer);
          progressTimer = null;
       }
+      if (progressCrawlTimer) {
+         clearTimeout(progressCrawlTimer);
+         progressCrawlTimer = null;
+      }
       if (progressFadeTimer) {
          clearTimeout(progressFadeTimer);
          progressFadeTimer = null;
@@ -3496,40 +3545,65 @@
       }
    }
 
+   function forEachProgressBar(fn) {
+      for (let i = 0; i < progressBars.length; i++) {
+         if (progressBars[i]) fn(progressBars[i]);
+      }
+   }
+
    function triggerProgress() {
-      if (!shadowRoot) return;
-      const pb = shadowRoot.getElementById('__fynexo_progress__');
-      if (!pb) return;
+      if (!shadowRoot || progressBars.length === 0) return;
       clearProgressTimers();
-      pb.style.transition = 'none';
-      pb.style.width = '0%';
-      pb.style.opacity = '1';
+      forEachProgressBar((pb) => {
+         pb.style.transition = 'none';
+         pb.style.width = '0%';
+         pb.style.opacity = '1';
+      });
       progressTimer = setTimeout(() => {
          progressTimer = null;
-         pb.style.transition =
-            'width 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease';
-         pb.style.width = '60%';
+         forEachProgressBar((pb) => {
+            pb.style.transition =
+               'width 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease';
+            pb.style.width = '58%';
+         });
+         progressCrawlTimer = setTimeout(() => {
+            progressCrawlTimer = null;
+            forEachProgressBar((pb) => {
+               pb.style.transition =
+                  'width 2.4s cubic-bezier(0.08, 0.72, 0.15, 1), opacity 0.16s ease';
+               pb.style.width = '88%';
+            });
+         }, 270);
       }, 16);
    }
 
    function finishProgress(immediate) {
-      if (!shadowRoot) return;
-      const pb = shadowRoot.getElementById('__fynexo_progress__');
-      if (!pb) return;
+      if (!shadowRoot || progressBars.length === 0) return;
       clearProgressTimers();
       if (immediate === true) {
-         pb.style.transition = 'none';
-         pb.style.opacity = '0';
-         pb.style.width = '0%';
+         forEachProgressBar((pb) => {
+            pb.style.transition = 'none';
+            pb.style.opacity = '0';
+            pb.style.width = '0%';
+         });
          return;
       }
-      pb.style.width = '100%';
+      forEachProgressBar((pb) => {
+         pb.style.transition =
+            'width 0.16s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease';
+         pb.style.width = '100%';
+      });
       progressFadeTimer = setTimeout(() => {
          progressFadeTimer = null;
-         pb.style.opacity = '0';
+         forEachProgressBar((pb) => {
+            pb.style.opacity = '0';
+         });
          progressResetTimer = setTimeout(() => {
             progressResetTimer = null;
-            pb.style.width = '0%';
+            forEachProgressBar((pb) => {
+               pb.style.transition = 'none';
+               pb.style.width = '0%';
+            });
          }, 220);
       }, 120);
    }
@@ -4069,6 +4143,7 @@
          const progressBar = document.createElement('div');
          progressBar.id = '__fynexo_progress__';
          shell.appendChild(progressBar);
+         progressBars = [progressBar];
 
          const hudToast = document.createElement('div');
          hudToast.id = '__fynexo_hud_toast__';
@@ -4344,6 +4419,10 @@
          addrActions.appendChild(btnDeskStar);
 
          addrSlot.appendChild(addrActions);
+         const deskPillProgress = document.createElement('div');
+         deskPillProgress.className = 'fnx-pill-progress';
+         addrSlot.appendChild(deskPillProgress);
+         progressBars.push(deskPillProgress);
          centerZone.appendChild(addrSlot);
          navRow.appendChild(centerZone);
 
@@ -4484,7 +4563,7 @@
          btnShield.appendChild(shieldBadge);
          rightZone.appendChild(btnShield);
 
-         // 4.5 Side Panel Toggle (Alt+S)
+         // 4.5 Side Panel Toggle (Alt+S, Opt-In Extension)
          const btnSidePanel = makeDesktopIconBtn(
             'sidepanel',
             'Side Panel (Alt+S)',
@@ -4494,6 +4573,7 @@
             },
          );
          btnSidePanel.id = '__fynexo_btn_sidepanel__';
+         btnSidePanel.style.display = config.ext_side_panel ? '' : 'none';
          rightZone.appendChild(btnSidePanel);
 
          // 5. Main Menu 3-Dots Button (Always visible)
@@ -4688,6 +4768,7 @@
             },
          );
          mobSidePanelItem.classList.add('fnx-mobile-only-row');
+         mobSidePanelItem.style.display = config.ext_side_panel ? '' : 'none';
 
          // Smart Force Dark (live toggle switch)
          const darkItem = document.createElement('div');
@@ -4875,7 +4956,7 @@
          );
 
          // Reader Mode
-         addMenuItem(
+         const readerMenuItem = addMenuItem(
             'reader',
             'Reader mode',
             keybinds.reader_mode || 'Alt+R',
@@ -4883,6 +4964,7 @@
                toggleReaderMode();
             },
          );
+         readerMenuItem.style.display = config.ext_reader_mode ? '' : 'none';
 
          // Downloads Folder (Desktop OS)
          const downloadsDirMenuItem = addMenuItem(
@@ -4959,7 +5041,8 @@
          }
 
          function applyMediaVolume(val) {
-            mediaGainValue = Math.max(0, Math.min(300, Number(val) || 100));
+            const maxCap = config.ext_media_booster ? 300 : 100;
+            mediaGainValue = Math.max(0, Math.min(maxCap, Number(val) || 100));
             if (!currentMediaEl) return;
             if (mediaIsMuted) {
                currentMediaEl.muted = true;
@@ -5177,11 +5260,25 @@
                volPercentLabel.style.color = 'var(--fnx-fg)';
             }
 
+            const boosterOn = !!config.ext_media_booster;
+            volTextSpan.textContent = boosterOn ? 'Volume & Boost' : 'Volume';
+            volSlider.max = boosterOn ? '300' : '100';
+            if (!boosterOn && mediaGainValue > 100) {
+               mediaGainValue = 100;
+               volSlider.value = '100';
+               applyMediaVolume(100);
+            }
+            presetsRow.style.gridTemplateColumns = boosterOn
+               ? 'repeat(5, 1fr)'
+               : 'repeat(2, 1fr)';
+
             for (let i = 0; i < volPresetBtns.length; i++) {
                const b = volPresetBtns[i];
+               const v = Number(b.dataset.vol);
+               b.style.display = !boosterOn && v > 100 ? 'none' : '';
                b.classList.toggle(
                   'active',
-                  !mediaIsMuted && Number(b.dataset.vol) === Number(mediaGainValue),
+                  !mediaIsMuted && v === Number(mediaGainValue),
                );
             }
 
@@ -5972,86 +6069,89 @@
          findBar.appendChild(btnFindClose);
          shell.appendChild(findBar);
 
-         // 1C. Pure-DOM Reader Mode Overlay
-         const readerOverlay = document.createElement('div');
-         readerOverlay.id = '__fynexo_reader__';
-         const readerBar = document.createElement('div');
-         readerBar.className = 'fnx-rd-toolbar';
-         const readerMeta = document.createElement('span');
-         readerMeta.id = '__fynexo_reader_meta__';
-         readerMeta.className = 'fnx-rd-meta';
-         readerMeta.textContent = 'Reader mode';
+         // 1C. Pure-DOM Reader Mode Overlay (Lazy-mounted when ext_reader_mode is active)
+         ensureReaderMountedRef = () => {
+            if (shadowRoot.getElementById('__fynexo_reader__')) return;
+            const readerOverlay = document.createElement('div');
+            readerOverlay.id = '__fynexo_reader__';
+            const readerBar = document.createElement('div');
+            readerBar.className = 'fnx-rd-toolbar';
+            const readerMeta = document.createElement('span');
+            readerMeta.id = '__fynexo_reader_meta__';
+            readerMeta.className = 'fnx-rd-meta';
+            readerMeta.textContent = 'Reader mode';
 
-         const readerCtrls = document.createElement('div');
-         readerCtrls.className = 'fnx-rd-controls';
+            const readerCtrls = document.createElement('div');
+            readerCtrls.className = 'fnx-rd-controls';
 
-         const readerSizeSeg = document.createElement('div');
-         readerSizeSeg.className = 'fnx-rd-seg';
+            const readerSizeSeg = document.createElement('div');
+            readerSizeSeg.className = 'fnx-rd-seg';
 
-         const btnRdSmaller = document.createElement('button');
-         btnRdSmaller.type = 'button';
-         btnRdSmaller.className = 'fnx-pop-seg-btn';
-         btnRdSmaller.title = 'Decrease font size';
-         btnRdSmaller.textContent = 'A−';
-         btnRdSmaller.onclick = () => {
-            readerFontPx = Math.max(14, readerFontPx - 2);
-            syncReaderTypography();
+            const btnRdSmaller = document.createElement('button');
+            btnRdSmaller.type = 'button';
+            btnRdSmaller.className = 'fnx-pop-seg-btn';
+            btnRdSmaller.title = 'Decrease font size';
+            btnRdSmaller.textContent = 'A−';
+            btnRdSmaller.onclick = () => {
+               readerFontPx = Math.max(14, readerFontPx - 2);
+               syncReaderTypography();
+            };
+
+            const readerSizeVal = document.createElement('span');
+            readerSizeVal.id = '__fynexo_reader_size__';
+            readerSizeVal.className = 'fnx-rd-size';
+            readerSizeVal.textContent = readerFontPx + 'px';
+
+            const btnRdLarger = document.createElement('button');
+            btnRdLarger.type = 'button';
+            btnRdLarger.className = 'fnx-pop-seg-btn';
+            btnRdLarger.title = 'Increase font size';
+            btnRdLarger.textContent = 'A+';
+            btnRdLarger.onclick = () => {
+               readerFontPx = Math.min(26, readerFontPx + 2);
+               syncReaderTypography();
+            };
+
+            readerSizeSeg.appendChild(btnRdSmaller);
+            readerSizeSeg.appendChild(readerSizeVal);
+            readerSizeSeg.appendChild(btnRdLarger);
+
+            const readerWidthSeg = document.createElement('div');
+            readerWidthSeg.className = 'fnx-rd-seg';
+
+            const btnRdWidth = document.createElement('button');
+            btnRdWidth.type = 'button';
+            btnRdWidth.id = '__fynexo_reader_width__';
+            btnRdWidth.className = 'fnx-pop-seg-btn';
+            btnRdWidth.title = 'Toggle wide column';
+            btnRdWidth.textContent = 'Wide';
+            btnRdWidth.onclick = () => {
+               readerWide = !readerWide;
+               syncReaderTypography();
+            };
+            readerWidthSeg.appendChild(btnRdWidth);
+
+            const btnRdExit = document.createElement('button');
+            btnRdExit.type = 'button';
+            btnRdExit.className = 'fnx-rd-btn';
+            btnRdExit.appendChild(createIcon('close'));
+            btnRdExit.appendChild(document.createTextNode('Exit Reader'));
+            btnRdExit.onclick = () => closeReaderMode();
+
+            readerCtrls.appendChild(readerSizeSeg);
+            readerCtrls.appendChild(readerWidthSeg);
+            readerCtrls.appendChild(btnRdExit);
+
+            readerBar.appendChild(readerMeta);
+            readerBar.appendChild(readerCtrls);
+
+            const readerArticle = document.createElement('article');
+            readerArticle.id = '__fynexo_reader_article__';
+
+            readerOverlay.appendChild(readerBar);
+            readerOverlay.appendChild(readerArticle);
+            shell.appendChild(readerOverlay);
          };
-
-         const readerSizeVal = document.createElement('span');
-         readerSizeVal.id = '__fynexo_reader_size__';
-         readerSizeVal.className = 'fnx-rd-size';
-         readerSizeVal.textContent = readerFontPx + 'px';
-
-         const btnRdLarger = document.createElement('button');
-         btnRdLarger.type = 'button';
-         btnRdLarger.className = 'fnx-pop-seg-btn';
-         btnRdLarger.title = 'Increase font size';
-         btnRdLarger.textContent = 'A+';
-         btnRdLarger.onclick = () => {
-            readerFontPx = Math.min(26, readerFontPx + 2);
-            syncReaderTypography();
-         };
-
-         readerSizeSeg.appendChild(btnRdSmaller);
-         readerSizeSeg.appendChild(readerSizeVal);
-         readerSizeSeg.appendChild(btnRdLarger);
-
-         const readerWidthSeg = document.createElement('div');
-         readerWidthSeg.className = 'fnx-rd-seg';
-
-         const btnRdWidth = document.createElement('button');
-         btnRdWidth.type = 'button';
-         btnRdWidth.id = '__fynexo_reader_width__';
-         btnRdWidth.className = 'fnx-pop-seg-btn';
-         btnRdWidth.title = 'Toggle wide column';
-         btnRdWidth.textContent = 'Wide';
-         btnRdWidth.onclick = () => {
-            readerWide = !readerWide;
-            syncReaderTypography();
-         };
-         readerWidthSeg.appendChild(btnRdWidth);
-
-         const btnRdExit = document.createElement('button');
-         btnRdExit.type = 'button';
-         btnRdExit.className = 'fnx-rd-btn';
-         btnRdExit.appendChild(createIcon('close'));
-         btnRdExit.appendChild(document.createTextNode('Exit Reader'));
-         btnRdExit.onclick = () => closeReaderMode();
-
-         readerCtrls.appendChild(readerSizeSeg);
-         readerCtrls.appendChild(readerWidthSeg);
-         readerCtrls.appendChild(btnRdExit);
-
-         readerBar.appendChild(readerMeta);
-         readerBar.appendChild(readerCtrls);
-
-         const readerArticle = document.createElement('article');
-         readerArticle.id = '__fynexo_reader_article__';
-
-         readerOverlay.appendChild(readerBar);
-         readerOverlay.appendChild(readerArticle);
-         shell.appendChild(readerOverlay);
 
          // 2. Studio Mobile Bottom Dock
          const mobileBar = document.createElement('div');
@@ -6094,6 +6194,10 @@
 
          mbPill.appendChild(mbPillTrigger);
          mbPill.appendChild(mbReload);
+         const mobPillProgress = document.createElement('div');
+         mobPillProgress.className = 'fnx-pill-progress';
+         mbPill.appendChild(mobPillProgress);
+         progressBars.push(mobPillProgress);
 
          const mbTabs = document.createElement('button');
          mbTabs.className = 'fnx-mb-btn';
@@ -6252,85 +6356,12 @@
          };
          shell.appendChild(mobileDrawer);
 
-         // 3.5 Side Drawer / Web Panel (Alt+S)
+         // 3.5 Side Drawer / Web Panel (Alt+S, Lazy-mounted only when ext_side_panel is active)
          isSidePanelOpen = false;
-         sidePanelEl = document.createElement('div');
-         sidePanelEl.id = '__fynexo_side_panel__';
-
-         const spHeader = document.createElement('div');
-         spHeader.className = 'fnx-sp-header';
-
-         const spTabsWrap = document.createElement('div');
-         spTabsWrap.className = 'fnx-pop-seg fnx-sp-tabs';
-
-         function makeSpTab(iconName, label, isActive) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = isActive
-               ? 'fnx-pop-seg-btn fnx-sp-tab active'
-               : 'fnx-pop-seg-btn fnx-sp-tab';
-            btn.appendChild(createIcon(iconName));
-            btn.appendChild(document.createTextNode(label));
-            return btn;
-         }
-
-         const btnSpWeb = makeSpTab('globe', 'Web Panel', true);
-         const btnSpNotes = makeSpTab('fileText', 'Quick Notes', false);
-         spTabsWrap.appendChild(btnSpWeb);
-         spTabsWrap.appendChild(btnSpNotes);
-         spHeader.appendChild(spTabsWrap);
-
-         const btnSpClose = document.createElement('button');
-         btnSpClose.type = 'button';
-         btnSpClose.className = 'fnx-sp-close';
-         btnSpClose.title = 'Close side panel (Esc)';
-         btnSpClose.appendChild(createIcon('close'));
-         btnSpClose.onclick = () => toggleSidePanel(false);
-         spHeader.appendChild(btnSpClose);
-         sidePanelEl.appendChild(spHeader);
-
-         const spBodyWeb = document.createElement('div');
-         spBodyWeb.className = 'fnx-sp-body';
-         const spUrlBar = document.createElement('div');
-         spUrlBar.className = 'fnx-sp-urlbar';
-         const spInput = document.createElement('input');
-         spInput.type = 'text';
-         spInput.className = 'fnx-sp-input';
-         spInput.placeholder = 'Enter URL for side panel...';
-         const spGoBtn = document.createElement('button');
-         spGoBtn.type = 'button';
-         spGoBtn.className = 'fnx-sp-go';
-         spGoBtn.textContent = 'Go';
-
-         const spReloadBtn = document.createElement('button');
-         spReloadBtn.type = 'button';
-         spReloadBtn.className = 'fnx-sp-icon-btn';
-         spReloadBtn.title = 'Reload side panel';
-         spReloadBtn.appendChild(createIcon('reload'));
-
-         const spPopBtn = document.createElement('button');
-         spPopBtn.type = 'button';
-         spPopBtn.className = 'fnx-sp-icon-btn';
-         spPopBtn.title = 'Open in new tab (if blocked in frame)';
-         spPopBtn.appendChild(createIcon('externalLink'));
-
-         spUrlBar.appendChild(spInput);
-         spUrlBar.appendChild(spGoBtn);
-         spUrlBar.appendChild(spReloadBtn);
-         spUrlBar.appendChild(spPopBtn);
-         spBodyWeb.appendChild(spUrlBar);
-
-         const spIframe = document.createElement('iframe');
-         spIframe.className = 'fnx-sp-iframe';
-         spIframe.setAttribute(
-            'sandbox',
-            'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox',
-         );
-         spIframe.src = 'about:blank';
-         spBodyWeb.appendChild(spIframe);
-
+         let sidePanelRefs = null;
          let sidePanelLastUrl = '';
          let sidePanelIdleTimer = null;
+
          function resolveSpHttpUrl(raw) {
             const trimmed = String(raw || '').trim();
             if (!trimmed) return '';
@@ -6344,71 +6375,184 @@
             }
             return 'https://' + trimmed;
          }
-         function loadSpUrl(url) {
-            const target = resolveSpHttpUrl(url);
-            if (!target) return;
-            sidePanelLastUrl = target;
-            spInput.value = target;
-            spIframe.src = target;
-         }
-         spGoBtn.onclick = () => loadSpUrl(spInput.value);
-         spReloadBtn.onclick = () => {
-            const target = resolveSpHttpUrl(spInput.value || sidePanelLastUrl);
-            if (target) {
-               spIframe.src = 'about:blank';
-               requestAnimationFrame(() => loadSpUrl(target));
+
+         function ensureSidePanelMounted() {
+            if (sidePanelRefs && sidePanelEl) return sidePanelRefs;
+            sidePanelEl = document.createElement('div');
+            sidePanelEl.id = '__fynexo_side_panel__';
+
+            const spHeader = document.createElement('div');
+            spHeader.className = 'fnx-sp-header';
+
+            const spTabsWrap = document.createElement('div');
+            spTabsWrap.className = 'fnx-pop-seg fnx-sp-tabs';
+
+            function makeSpTab(iconName, label, isActive) {
+               const btn = document.createElement('button');
+               btn.type = 'button';
+               btn.className = isActive
+                  ? 'fnx-pop-seg-btn fnx-sp-tab active'
+                  : 'fnx-pop-seg-btn fnx-sp-tab';
+               btn.appendChild(createIcon(iconName));
+               btn.appendChild(document.createTextNode(label));
+               return btn;
             }
-         };
-         spPopBtn.onclick = () => {
-            const target = resolveSpHttpUrl(spInput.value || sidePanelLastUrl);
-            if (!target) return;
-            toggleSidePanel(false);
-            triggerProgress();
-            sendIpc({ type: 'NEW_TAB', url: target });
-         };
-         spInput.onkeydown = (e) => {
-            if (e.key === 'Enter') loadSpUrl(spInput.value);
-         };
 
-         const spBodyNotes = document.createElement('div');
-         spBodyNotes.className = 'fnx-sp-body fnx-sp-notes-wrap hidden';
-         const spTextarea = document.createElement('textarea');
-         spTextarea.className = 'fnx-sp-textarea';
-         spTextarea.placeholder =
-            'Type quick notes, scratchpad, code snippets here... Auto-saved locally.';
-         try {
-            spTextarea.value =
-               window.localStorage.getItem('__fnx_side_notes__') || '';
-         } catch (_) {}
-         spTextarea.oninput = () => {
+            const btnSpWeb = makeSpTab('globe', 'Web Panel', true);
+            const btnSpNotes = makeSpTab('fileText', 'Quick Notes', false);
+            spTabsWrap.appendChild(btnSpWeb);
+            spTabsWrap.appendChild(btnSpNotes);
+            spHeader.appendChild(spTabsWrap);
+
+            const btnSpClose = document.createElement('button');
+            btnSpClose.type = 'button';
+            btnSpClose.className = 'fnx-sp-close';
+            btnSpClose.title = 'Close side panel (Esc)';
+            btnSpClose.appendChild(createIcon('close'));
+            btnSpClose.onclick = () => toggleSidePanel(false);
+            spHeader.appendChild(btnSpClose);
+            sidePanelEl.appendChild(spHeader);
+
+            const spBodyWeb = document.createElement('div');
+            spBodyWeb.className = 'fnx-sp-body';
+            const spUrlBar = document.createElement('div');
+            spUrlBar.className = 'fnx-sp-urlbar';
+            const spInput = document.createElement('input');
+            spInput.type = 'text';
+            spInput.className = 'fnx-sp-input';
+            spInput.placeholder = 'Enter URL for side panel...';
+            const spGoBtn = document.createElement('button');
+            spGoBtn.type = 'button';
+            spGoBtn.className = 'fnx-sp-go';
+            spGoBtn.textContent = 'Go';
+
+            const spReloadBtn = document.createElement('button');
+            spReloadBtn.type = 'button';
+            spReloadBtn.className = 'fnx-sp-icon-btn';
+            spReloadBtn.title = 'Reload side panel';
+            spReloadBtn.appendChild(createIcon('reload'));
+
+            const spPopBtn = document.createElement('button');
+            spPopBtn.type = 'button';
+            spPopBtn.className = 'fnx-sp-icon-btn';
+            spPopBtn.title = 'Open in new tab (if blocked in frame)';
+            spPopBtn.appendChild(createIcon('externalLink'));
+
+            spUrlBar.appendChild(spInput);
+            spUrlBar.appendChild(spGoBtn);
+            spUrlBar.appendChild(spReloadBtn);
+            spUrlBar.appendChild(spPopBtn);
+            spBodyWeb.appendChild(spUrlBar);
+
+            const spIframe = document.createElement('iframe');
+            spIframe.className = 'fnx-sp-iframe';
+            spIframe.setAttribute(
+               'sandbox',
+               'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox',
+            );
+            spIframe.src = 'about:blank';
+            spBodyWeb.appendChild(spIframe);
+
+            function loadSpUrl(url) {
+               const target = resolveSpHttpUrl(url);
+               if (!target) return;
+               sidePanelLastUrl = target;
+               spInput.value = target;
+               spIframe.src = target;
+            }
+            spGoBtn.onclick = () => loadSpUrl(spInput.value);
+            spReloadBtn.onclick = () => {
+               const target = resolveSpHttpUrl(spInput.value || sidePanelLastUrl);
+               if (target) {
+                  spIframe.src = 'about:blank';
+                  requestAnimationFrame(() => loadSpUrl(target));
+               }
+            };
+            spPopBtn.onclick = () => {
+               const target = resolveSpHttpUrl(spInput.value || sidePanelLastUrl);
+               if (!target) return;
+               toggleSidePanel(false);
+               triggerProgress();
+               sendIpc({ type: 'NEW_TAB', url: target });
+            };
+            spInput.onkeydown = (e) => {
+               if (e.key === 'Enter') loadSpUrl(spInput.value);
+            };
+
+            const spBodyNotes = document.createElement('div');
+            spBodyNotes.className = 'fnx-sp-body fnx-sp-notes-wrap hidden';
+            const spTextarea = document.createElement('textarea');
+            spTextarea.className = 'fnx-sp-textarea';
+            spTextarea.placeholder =
+               'Type quick notes, scratchpad, code snippets here... Auto-saved locally.';
             try {
-               window.localStorage.setItem(
-                  '__fnx_side_notes__',
-                  spTextarea.value,
-               );
+               spTextarea.value =
+                  window.localStorage.getItem('__fnx_side_notes__') || '';
             } catch (_) {}
-         };
-         spBodyNotes.appendChild(spTextarea);
+            spTextarea.oninput = () => {
+               try {
+                  window.localStorage.setItem(
+                     '__fnx_side_notes__',
+                     spTextarea.value,
+                  );
+               } catch (_) {}
+            };
+            spBodyNotes.appendChild(spTextarea);
 
-         btnSpWeb.onclick = () => {
-            btnSpWeb.classList.add('active');
-            btnSpNotes.classList.remove('active');
-            spBodyWeb.classList.remove('hidden');
-            spBodyNotes.classList.add('hidden');
-         };
-         btnSpNotes.onclick = () => {
-            btnSpNotes.classList.add('active');
-            btnSpWeb.classList.remove('active');
-            spBodyNotes.classList.remove('hidden');
-            spBodyWeb.classList.add('hidden');
-         };
+            btnSpWeb.onclick = () => {
+               btnSpWeb.classList.add('active');
+               btnSpNotes.classList.remove('active');
+               spBodyWeb.classList.remove('hidden');
+               spBodyNotes.classList.add('hidden');
+            };
+            btnSpNotes.onclick = () => {
+               btnSpNotes.classList.add('active');
+               btnSpWeb.classList.remove('active');
+               spBodyNotes.classList.remove('hidden');
+               spBodyWeb.classList.add('hidden');
+            };
 
-         sidePanelEl.appendChild(spBodyWeb);
-         sidePanelEl.appendChild(spBodyNotes);
-         shell.appendChild(sidePanelEl);
+            sidePanelEl.appendChild(spBodyWeb);
+            sidePanelEl.appendChild(spBodyNotes);
+            shell.appendChild(sidePanelEl);
+            sidePanelRefs = { spIframe, spBodyWeb, loadSpUrl };
+            return sidePanelRefs;
+         }
+
+         function destroySidePanel() {
+            isSidePanelOpen = false;
+            if (sidePanelIdleTimer) {
+               clearTimeout(sidePanelIdleTimer);
+               sidePanelIdleTimer = null;
+            }
+            if (sidePanelRefs && sidePanelRefs.spIframe) {
+               try {
+                  sidePanelRefs.spIframe.src = 'about:blank';
+               } catch (_) {}
+            }
+            if (sidePanelEl) {
+               try {
+                  sidePanelEl.remove();
+               } catch (_) {}
+               sidePanelEl = null;
+            }
+            sidePanelRefs = null;
+            if (typeof btnSidePanel !== 'undefined' && btnSidePanel) {
+               btnSidePanel.style.color = 'inherit';
+            }
+         }
 
          function toggleSidePanel(force) {
             const next = force !== undefined ? !!force : !isSidePanelOpen;
+            if (next && !config.ext_side_panel) {
+               showHudToast('Side Panel extension is off (enable in 内建 Extension)');
+               return;
+            }
+            if (!next && !sidePanelEl) {
+               isSidePanelOpen = false;
+               return;
+            }
+            const refs = ensureSidePanelMounted();
             isSidePanelOpen = next;
             if (sidePanelIdleTimer) {
                clearTimeout(sidePanelIdleTimer);
@@ -6424,16 +6568,16 @@
             }
             if (next) {
                if (
-                  !spBodyWeb.classList.contains('hidden') &&
-                  spIframe.src === 'about:blank'
+                  !refs.spBodyWeb.classList.contains('hidden') &&
+                  refs.spIframe.src === 'about:blank'
                ) {
-                  loadSpUrl(sidePanelLastUrl || 'https://translate.google.com');
+                  refs.loadSpUrl(sidePanelLastUrl || 'https://translate.google.com');
                }
-            } else if (spIframe.src && spIframe.src !== 'about:blank') {
+            } else if (refs.spIframe.src && refs.spIframe.src !== 'about:blank') {
                sidePanelIdleTimer = setTimeout(() => {
                   sidePanelIdleTimer = null;
-                  if (!isSidePanelOpen) {
-                     spIframe.src = 'about:blank';
+                  if (!isSidePanelOpen && sidePanelRefs) {
+                     sidePanelRefs.spIframe.src = 'about:blank';
                   }
                }, 45000);
             }
@@ -8046,11 +8190,22 @@
             }
          }
 
-         // YouTube Auto Ad Skipper & Video Ad Cleaner (Zero-Blackscreen / Fluid Transition)
-         function initYouTubeAdSkipper() {
+         let ytAdSkipperActive = false;
+         let ytStopTeardown = null;
+         function syncYouTubeAdSkipper() {
+            if (!config.ext_yt_ad_skipper) {
+               if (ytStopTeardown) {
+                  ytStopTeardown();
+                  ytStopTeardown = null;
+               }
+               ytAdSkipperActive = false;
+               return;
+            }
+            if (ytAdSkipperActive) return;
             try {
                const host = (window.location.hostname || '').toLowerCase();
                if (!host.includes('youtube.com')) return;
+               ytAdSkipperActive = true;
 
                if (!patchYoutubeDrawers()) {
                   let dTries = 0;
@@ -8165,24 +8320,44 @@
                         clearInterval(bootTimer);
                   }, 500);
                }
-               window.addEventListener(
-                  'yt-navigate-finish',
-                  () => setTimeout(attachPlayerObserver, 200),
-                  { passive: true },
-               );
-               window.addEventListener(
-                  'popstate',
-                  () => setTimeout(attachPlayerObserver, 200),
-                  { passive: true },
-               );
+               const onYtNav = () => setTimeout(attachPlayerObserver, 200);
+               window.addEventListener('yt-navigate-finish', onYtNav, { passive: true });
+               window.addEventListener('popstate', onYtNav, { passive: true });
+               ytStopTeardown = () => {
+                  if (adPollTimer) {
+                     clearInterval(adPollTimer);
+                     adPollTimer = null;
+                  }
+                  if (playerObserver) {
+                     try {
+                        playerObserver.disconnect();
+                     } catch (_) {}
+                     playerObserver = null;
+                  }
+                  observedPlayer = null;
+                  window.removeEventListener('yt-navigate-finish', onYtNav);
+                  window.removeEventListener('popstate', onYtNav);
+               };
             } catch (_) {}
          }
-         initYouTubeAdSkipper();
+         syncYouTubeAdSkipper();
 
-         function initGithubDrawerHarmonizer() {
+         let ghHarmonizerActive = false;
+         let ghStopTeardown = null;
+         function syncGithubDrawerHarmonizer() {
+            if (!config.ext_gh_harmonizer) {
+               if (ghStopTeardown) {
+                  ghStopTeardown();
+                  ghStopTeardown = null;
+               }
+               ghHarmonizerActive = false;
+               return;
+            }
+            if (ghHarmonizerActive) return;
             try {
                const host = (window.location.hostname || '').toLowerCase();
                if (host !== 'github.com' && !host.endsWith('.github.com')) return;
+               ghHarmonizerActive = true;
 
                let ghRafPending = false;
                const resetTopOffsets = () => {
@@ -8414,10 +8589,11 @@
                window.addEventListener('turbo:load', schedulePatch, { passive: true });
                window.addEventListener('resize', patchDrawers, { passive: true });
 
+               let ghObserver = null;
                const attachObserver = () => {
                   const target = document.documentElement || document.body;
-                  if (target) {
-                     new MutationObserver((mutations) => {
+                  if (target && !ghObserver) {
+                     ghObserver = new MutationObserver((mutations) => {
                         for (let i = 0; i < mutations.length; i++) {
                            const t = mutations[i].target;
                            if (
@@ -8431,7 +8607,8 @@
                            schedulePatch();
                            break;
                         }
-                     }).observe(target, {
+                     });
+                     ghObserver.observe(target, {
                         childList: true,
                         subtree: true,
                         attributes: true,
@@ -8439,18 +8616,65 @@
                      });
                   }
                };
+               const onGhReady = () => {
+                  if (!ghHarmonizerActive) return;
+                  attachObserver();
+                  patchDrawers();
+               };
                if (document.readyState === 'loading') {
-                  document.addEventListener('DOMContentLoaded', () => {
-                     attachObserver();
-                     patchDrawers();
-                  }, { once: true });
+                  document.addEventListener('DOMContentLoaded', onGhReady, { once: true });
                } else {
                   attachObserver();
                   patchDrawers();
                }
+               ghStopTeardown = () => {
+                  if (ghSettleTimer) {
+                     clearTimeout(ghSettleTimer);
+                     ghSettleTimer = null;
+                  }
+                  if (ghObserver) {
+                     try {
+                        ghObserver.disconnect();
+                     } catch (_) {}
+                     ghObserver = null;
+                  }
+                  document.removeEventListener('click', schedulePatch, { capture: true });
+                  document.removeEventListener('keydown', schedulePatch, { capture: true });
+                  window.removeEventListener('turbo:load', schedulePatch);
+                  window.removeEventListener('resize', patchDrawers);
+                  resetTopOffsets();
+               };
             } catch (_) {}
          }
-         initGithubDrawerHarmonizer();
+         syncGithubDrawerHarmonizer();
+
+         syncExtensionsRef = () => {
+            if (typeof btnSidePanel !== 'undefined' && btnSidePanel) {
+               btnSidePanel.style.display = config.ext_side_panel ? '' : 'none';
+            }
+            if (typeof mobSidePanelItem !== 'undefined' && mobSidePanelItem) {
+               mobSidePanelItem.style.display = config.ext_side_panel ? '' : 'none';
+            }
+            if (!config.ext_side_panel) {
+               destroySidePanel();
+            }
+            if (typeof readerMenuItem !== 'undefined' && readerMenuItem) {
+               readerMenuItem.style.display = config.ext_reader_mode ? '' : 'none';
+            }
+            if (!config.ext_reader_mode && isReaderOpen) {
+               closeReaderMode();
+            }
+            if (config.ext_reader_mode) {
+               scheduleReaderableCheck();
+            } else {
+               refreshReaderableState();
+            }
+            if (typeof syncMediaPopoverUI === 'function') {
+               syncMediaPopoverUI();
+            }
+            syncYouTubeAdSkipper();
+            syncGithubDrawerHarmonizer();
+         };
 
          window.addEventListener(
             'wheel',

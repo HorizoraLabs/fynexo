@@ -15,6 +15,8 @@ pub struct SiteRule {
     /// Domain glob (`"*"` for all external sites, `"zhihu.com"`, `"*.bilibili.com"`, etc.)
     pub domain: String,
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     pub css: String,
     pub js: String,
 }
@@ -26,6 +28,7 @@ impl Default for SiteRule {
             name: "Custom rule".to_string(),
             domain: "*".to_string(),
             enabled: true,
+            version: None,
             css: String::new(),
             js: String::new(),
         }
@@ -39,6 +42,7 @@ pub fn default_site_rules() -> Vec<SiteRule> {
             name: "Hide Open-in-App floating banners".to_string(),
             domain: "*".to_string(),
             enabled: false,
+            version: None,
             css: "[class*=\"open-in-app\"], [class*=\"download-app-banner\"], [id*=\"app-banner\"] { display: none !important; }".to_string(),
             js: String::new(),
         },
@@ -47,6 +51,7 @@ pub fn default_site_rules() -> Vec<SiteRule> {
             name: "Crisp monospace code blocks".to_string(),
             domain: "github.com".to_string(),
             enabled: false,
+            version: None,
             css: "pre, code, .blob-code-inner { font-family: \"JetBrains Mono\", Consolas, ui-monospace, monospace !important; }".to_string(),
             js: String::new(),
         },

@@ -1,17 +1,53 @@
 use std::sync::OnceLock;
 
+use serde::Serialize;
+
 use crate::config::RuntimePayload;
 
 const PAGE_TEMPLATE: &str = include_str!("settings.html");
 
-fn baked_parts() -> &'static (&'static str, &'static str) {
-    static PARTS: OnceLock<(&'static str, &'static str)> = OnceLock::new();
-    PARTS.get_or_init(|| crate::util::split_template_once(PAGE_TEMPLATE, "__FNX_BOOT_JSON__"))
+#[derive(Serialize)]
+struct BakedSupabaseConfig {
+    url: &'static str,
+    #[serde(rename = "anonKey")]
+    anon_key: &'static str,
+    schema: &'static str,
+    table: &'static str,
+}
+
+fn baked_parts() -> &'static (String, String) {
+    static PARTS: OnceLock<(String, String)> = OnceLock::new();
+    PARTS.get_or_init(|| {
+        let raw_url = option_env!("DATABASE_URL").unwrap_or("").trim();
+        let safe_url = if raw_url.to_ascii_lowercase().starts_with("postgres://")
+            || raw_url.to_ascii_lowercase().starts_with("postgresql://")
+        {
+            ""
+        } else {
+            raw_url
+        };
+        let supa = BakedSupabaseConfig {
+            url: safe_url,
+            anon_key: option_env!("DATABASE_ANON_KEY").unwrap_or("").trim(),
+            schema: option_env!("DATABASE_SCHEMA").unwrap_or("").trim(),
+            table: match option_env!("DATABASE_TABLE") {
+                Some(t) if !t.trim().is_empty() => t.trim(),
+                _ => "extensions",
+            },
+        };
+        let supa_json = crate::util::json_for_html_script(&supa);
+        let (prefix, suffix) =
+            crate::util::split_template_once(PAGE_TEMPLATE, "__FNX_BOOT_JSON__");
+        (
+            prefix.replacen("__FNX_SUPABASE_JSON__", &supa_json, 1),
+            suffix.to_string(),
+        )
+    })
 }
 
 pub fn settings_html(payload: &RuntimePayload) -> String {
     let payload_json = crate::util::json_for_html_script(payload);
-    let (prefix, suffix) = *baked_parts();
+    let (prefix, suffix) = baked_parts();
     crate::util::join_split_template(prefix, &payload_json, suffix)
 }
 
@@ -21,8 +57,12 @@ mod tests {
 
     #[test]
     fn settings_template_replaces_placeholder_cleanly() {
-        let html = PAGE_TEMPLATE.replacen("__FNX_BOOT_JSON__", "{}", 1);
+        let html = PAGE_TEMPLATE
+            .replacen("__FNX_SUPABASE_JSON__", "{}", 1)
+            .replacen("__FNX_BOOT_JSON__", "{}", 1);
+        assert!(!html.contains("__FNX_SUPABASE_JSON__"));
         assert!(!html.contains("__FNX_BOOT_JSON__"));
+        assert!(html.contains("const SUPABASE_CONFIG = {} || {};"));
         assert!(html.contains("const boot = {} || {};"));
     }
 }

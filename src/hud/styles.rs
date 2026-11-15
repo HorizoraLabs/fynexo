@@ -21,17 +21,26 @@
                     -webkit-overflow-scrolling: touch;
                 }
 
-                #__fynexo_progress__ {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
+                #__fynexo_progress__,
+                .fnx-pill-progress {
                     height: 2px;
                     width: 0%;
                     background: var(--fnx-accent);
                     opacity: 0;
-                    z-index: 2147483647;
                     pointer-events: none;
                     will-change: width, opacity;
+                }
+                #__fynexo_progress__ {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    z-index: 2147483647;
+                }
+                .fnx-pill-progress {
+                    position: absolute;
+                    left: 0;
+                    bottom: 0;
+                    z-index: 4;
                 }
 
                 #__fynexo_topbar__ {
@@ -331,12 +340,16 @@
 
                 #__fynexo_addr_slot__ {
                     position: relative;
+                    overflow: hidden;
                     display: flex;
                     align-items: center;
                     margin: 0;
                     min-width: 180px;
                     padding: 0 5px 0 0;
                     transition: max-width 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.15s ease, background 0.15s ease;
+                }
+                #__fynexo_addr_slot__.editing .fnx-pill-progress {
+                    opacity: 0 !important;
                 }
                 #__fynexo_addr_slot__:hover:not(.editing) {
                     border-color: var(--fnx-border-hover) !important;
@@ -1217,6 +1230,8 @@
                     color: var(--fnx-fg);
                 }
                 #__fynexo_mb_pill__ {
+                    position: relative;
+                    overflow: hidden;
                     flex: 1;
                     min-width: 0;
                     background: var(--fnx-surface);

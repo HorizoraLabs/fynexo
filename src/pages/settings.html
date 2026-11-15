@@ -87,13 +87,15 @@
         .sidebar-top {
             display: flex;
             flex-direction: column;
-            gap: 18px;
+            gap: 14px;
+            flex: 1;
+            min-height: 0;
         }
 
         .brand-header {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-start;
             gap: 8px;
             padding: 0 8px 6px;
         }
@@ -118,30 +120,49 @@
             color: var(--fnx-fg);
         }
 
-        .back-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            height: 24px;
-            padding: 0 8px;
-            font-size: 11.5px;
-            font-weight: 500;
-            color: var(--fnx-muted);
-            background: transparent;
-            border: 1px solid transparent;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: background 0.12s ease, color 0.12s ease;
-        }
-        .back-btn:hover {
-            background: var(--fnx-btn-bg);
-            color: var(--fnx-fg);
-        }
-
         .nav-list {
             display: flex;
             flex-direction: column;
             gap: 2px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .nav-group-label {
+            padding: 10px 10px 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--fnx-faint);
+        }
+        .nav-group-label:first-child {
+            padding-top: 2px;
+        }
+
+        .nav-bottom {
+            margin-top: auto;
+            padding-top: 10px;
+            border-top: 1px solid var(--fnx-divider);
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .nav-pill-count {
+            margin-left: auto;
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-size: 10px;
+            line-height: 1;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: var(--fnx-btn-bg);
+            border: 1px solid var(--fnx-hairline);
+            color: var(--fnx-muted);
+        }
+        .nav-link.active .nav-pill-count {
+            color: var(--fnx-fg);
+            border-color: var(--fnx-hairline-hover);
         }
 
         .nav-link {
@@ -197,7 +218,53 @@
             height: 100%;
             min-width: 0;
             overflow-y: auto;
+            scrollbar-gutter: stable;
             padding: var(--cfg-content-pad);
+        }
+
+        .workspace::-webkit-scrollbar,
+        .sidebar::-webkit-scrollbar,
+        .json-editor::-webkit-scrollbar,
+        .code-area::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .workspace::-webkit-scrollbar-button,
+        .sidebar::-webkit-scrollbar-button,
+        .json-editor::-webkit-scrollbar-button,
+        .code-area::-webkit-scrollbar-button {
+            display: none;
+            width: 0;
+            height: 0;
+        }
+        .workspace::-webkit-scrollbar-track,
+        .sidebar::-webkit-scrollbar-track,
+        .json-editor::-webkit-scrollbar-track,
+        .code-area::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .workspace::-webkit-scrollbar-thumb,
+        .sidebar::-webkit-scrollbar-thumb,
+        .json-editor::-webkit-scrollbar-thumb,
+        .code-area::-webkit-scrollbar-thumb {
+            background: color-mix(in srgb, var(--fnx-fg) 18%, transparent);
+            border-radius: 999px;
+            border: 2px solid transparent;
+            background-clip: content-box;
+        }
+        .workspace::-webkit-scrollbar-thumb:hover,
+        .sidebar::-webkit-scrollbar-thumb:hover,
+        .json-editor::-webkit-scrollbar-thumb:hover,
+        .code-area::-webkit-scrollbar-thumb:hover {
+            background: color-mix(in srgb, var(--fnx-fg) 34%, transparent);
+            border: 2px solid transparent;
+            background-clip: content-box;
+        }
+        .workspace::-webkit-scrollbar-corner,
+        .sidebar::-webkit-scrollbar-corner,
+        .json-editor::-webkit-scrollbar-corner,
+        .code-area::-webkit-scrollbar-corner {
+            background: transparent;
         }
 
         .workspace-inner {
@@ -978,6 +1045,99 @@
             background: color-mix(in srgb, var(--fnx-accent) 16%, transparent);
         }
 
+        .ext-mem-tag {
+            display: inline-flex;
+            align-items: center;
+            height: 18px;
+            padding: 0 6px;
+            margin-left: 6px;
+            border-radius: 4px;
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--fnx-muted);
+            background: var(--fnx-btn-bg);
+            border: 1px solid var(--fnx-hairline);
+            vertical-align: middle;
+        }
+        .ext-mem-tag.on {
+            color: var(--fnx-accent);
+            border-color: color-mix(in srgb, var(--fnx-accent) 45%, transparent);
+            background: color-mix(in srgb, var(--fnx-accent) 12%, transparent);
+        }
+
+        .cloud-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 14px 0 10px;
+        }
+        .cloud-config-card {
+            margin: 12px 0;
+            padding: 12px 14px;
+            border-radius: 9px;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline);
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .cloud-config-card.open { display: flex; }
+        .cloud-desc {
+            font-size: 11.5px;
+            color: var(--fnx-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .sec-audit-badge {
+            display: inline-flex;
+            align-items: center;
+            height: 18px;
+            padding: 0 6px;
+            border-radius: 4px;
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-size: 10px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .sec-audit-badge.warn {
+            color: #FBBF24;
+            background: rgba(245, 158, 11, 0.14);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+        }
+        .sec-audit-badge.clean {
+            color: #34D399;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.28);
+        }
+        .sec-audit-banner {
+            padding: 8px 10px;
+            border-radius: 7px;
+            font-size: 11.5px;
+            line-height: 1.45;
+            border: 1px solid var(--fnx-hairline);
+            color: var(--fnx-secondary);
+            background: color-mix(in srgb, var(--fnx-fg) 3%, transparent);
+        }
+        .sec-audit-banner.warn {
+            color: #FDE68A;
+            background: rgba(245, 158, 11, 0.1);
+            border-color: rgba(245, 158, 11, 0.35);
+        }
+        .sec-audit-banner.clean {
+            color: #A7F3D0;
+            background: rgba(16, 185, 129, 0.08);
+            border-color: rgba(16, 185, 129, 0.25);
+        }
+        .inspector-code {
+            min-height: 88px;
+            max-height: 220px;
+            opacity: 0.92;
+        }
+
         .toast {
             position: fixed;
             bottom: calc(20px + var(--fnx-host-bottom-offset, 0px) + max(env(safe-area-inset-bottom, 0px), 12px));
@@ -1021,11 +1181,14 @@
             }
             .sidebar-top { gap: 10px; }
             .brand-header { padding: 0; }
-            .nav-list { flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 4px; }
+            .nav-list { flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 4px; align-items: center; }
             .nav-list::-webkit-scrollbar { display: none; }
+            .nav-group-label { display: none; }
+            .nav-bottom { margin-top: 0; padding-top: 0; border-top: none; flex-direction: row; flex-shrink: 0; }
+            .nav-pill-count { display: none; }
             .nav-link { white-space: nowrap; padding: 7px 11px; font-size: 12px; }
             .sidebar-footer, .desktop-only-sec, .desktop-only-inline { display: none !important; }
-            .workspace { height: auto; overflow: visible; padding: 18px 16px 32px !important; }
+            .workspace { height: auto; overflow: visible; scrollbar-gutter: auto; padding: 18px 16px 32px !important; }
             .sec-header { flex-wrap: wrap; align-items: flex-start; gap: 12px; }
             .sec-actions { flex-wrap: wrap; }
             .action-btn { min-height: 34px; padding: 6px 12px; }
@@ -1060,17 +1223,23 @@
                         <span class="brand-glyph" aria-hidden="true">✦</span>
                         <span class="brand-title">Preferences</span>
                     </div>
-                    <button type="button" class="back-btn" id="btnBack">← Back</button>
                 </div>
 
                 <nav class="nav-list" id="sidebarNav" aria-label="Settings sections">
+                    <div class="nav-group-label">Interface</div>
                     <button type="button" class="nav-link active" data-sec="sec-appearance">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.5v11" stroke="currentColor" stroke-width="1.4"/></svg>
                         <span>Appearance</span>
                     </button>
+                    <button type="button" class="nav-link" data-sec="sec-styles">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M5.2 5L2.4 8l2.8 3M10.8 5l2.8 3-2.8 3M8.8 3.5l-1.6 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <span>Component studio</span>
+                    </button>
+
+                    <div class="nav-group-label">Browsing</div>
                     <button type="button" class="nav-link" data-sec="sec-general">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="5.5" cy="4.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="8" r="1.2" fill="currentColor"/><circle cx="6.5" cy="11.5" r="1.2" fill="currentColor"/></svg>
-                        <span>General</span>
+                        <span>Browsing &amp; tabs</span>
                     </button>
                     <button type="button" class="nav-link" data-sec="sec-search">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7.2" cy="7.2" r="4.4" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5L13.6 13.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -1080,18 +1249,28 @@
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.35"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.35"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.35"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.35"/></svg>
                         <span>Shortcuts</span>
                     </button>
-                    <button type="button" class="nav-link" data-sec="sec-rules">
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2.2l5 2v3.6c0 3.2-2.1 5.4-5 6.2-2.9-.8-5-3-5-6.2V4.2l5-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
-                        <span>Adblock &amp; rules</span>
-                    </button>
-                    <button type="button" class="nav-link" data-sec="sec-styles">
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M5.2 5L2.4 8l2.8 3M10.8 5l2.8 3-2.8 3M8.8 3.5l-1.6 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        <span>Component studio</span>
-                    </button>
                     <button type="button" class="nav-link desktop-only-sec" data-sec="sec-shortcuts">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="12" height="9" rx="1.8" stroke="currentColor" stroke-width="1.4"/><path d="M5 6.8h1.2M8.2 6.8h2.8M5 9.6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
                         <span>Keybinds</span>
                     </button>
+
+                    <div class="nav-group-label">Privacy &amp; Shield</div>
+                    <button type="button" class="nav-link" data-sec="sec-rules">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2.2l5 2v3.6c0 3.2-2.1 5.4-5 6.2-2.9-.8-5-3-5-6.2V4.2l5-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                        <span>Adblock shield</span>
+                    </button>
+                    <button type="button" class="nav-link" data-sec="sec-privacy">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="3.2" y="7.2" width="9.6" height="6.6" rx="1.6" stroke="currentColor" stroke-width="1.4"/><path d="M5.4 7.2V5.4a2.6 2.6 0 0 1 5.2 0v1.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                        <span>Privacy &amp; data</span>
+                    </button>
+
+                    <div class="nav-bottom">
+                        <button type="button" class="nav-link" data-sec="sec-extensions">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6.2 2.5h3.6a1 1 0 0 1 1 1v1.1a1.4 1.4 0 0 0 2.4 1v0a1 1 0 0 1 1 1v3.6a1 1 0 0 1-1 1h-1.1a1.4 1.4 0 0 0-1 2.4v0a1 1 0 0 1-1 1H6.2a1 1 0 0 1-1-1v-1.1a1.4 1.4 0 0 0-2.4-1h0a1 1 0 0 1-1-1V6.6a1 1 0 0 1 1-1h1.1a1.4 1.4 0 0 0 1-2.4v0a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+                            <span>内建 Extension</span>
+                            <span class="nav-pill-count" id="extNavCount">0</span>
+                        </button>
+                    </div>
                 </nav>
             </div>
 
@@ -1148,17 +1327,12 @@
                     </div>
                 </section>
 
-                <!-- 2. General (Linear Left-Label + Right-Control rows) -->
+                <!-- 2. Browsing & Tabs -->
                 <section class="sec-block" id="sec-general">
                     <div class="sec-header">
                         <div>
-                            <h2 class="sec-title">General</h2>
-                            <p class="sec-desc">Homepage, User-Agent, rendering modes, profile storage, and full setup sync.</p>
-                        </div>
-                        <div class="sec-actions">
-                            <input type="file" id="fileImportBundle" accept="application/json,text/plain" style="display: none;">
-                            <button type="button" class="action-btn" id="btnImportBundle">Import setup .json</button>
-                            <button type="button" class="action-btn" id="btnExportBundle">Export setup .json</button>
+                            <h2 class="sec-title">Browsing &amp; tabs</h2>
+                            <p class="sec-desc">Homepage, User-Agent spoofing, page zoom, Zero-FX rendering, and session restore.</p>
                         </div>
                     </div>
 
@@ -1208,26 +1382,6 @@
 
                     <div class="set-row">
                         <div class="set-meta">
-                            <div class="set-label">Smart Force Dark</div>
-                            <div class="set-hint">Converts bright webpages to dark while skipping dark sites and preserving media.</div>
-                        </div>
-                        <div class="set-ctrl">
-                            <button type="button" id="btnForceDarkToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Smart Force Dark"></button>
-                        </div>
-                    </div>
-
-                    <div class="set-row">
-                        <div class="set-meta">
-                            <div class="set-label">Private / Incognito mode</div>
-                            <div class="set-hint">Pauses browsing history recording and tab session disk persistence.</div>
-                        </div>
-                        <div class="set-ctrl">
-                            <button type="button" id="btnIncognitoToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Private mode"></button>
-                        </div>
-                    </div>
-
-                    <div class="set-row">
-                        <div class="set-meta">
                             <div class="set-label">Zero-FX rendering filter</div>
                             <div class="set-hint">Strips heavy CSS shadows and backdrop blurs on external pages for smooth frame pacing.</div>
                         </div>
@@ -1236,27 +1390,13 @@
                         </div>
                     </div>
 
-                    <div class="set-row">
+                    <div class="set-row" style="border-bottom: none;">
                         <div class="set-meta">
                             <div class="set-label">Restore tabs &amp; scroll position</div>
                             <div class="set-hint">Reopens previous tabs and restores scroll depth on launch.</div>
                         </div>
                         <div class="set-ctrl">
                             <button type="button" id="btnRestoreToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Restore session"></button>
-                        </div>
-                    </div>
-
-                    <div class="set-row align-top" style="border-bottom: none;">
-                        <div class="set-meta">
-                            <div class="set-label">Profile storage &amp; cache</div>
-                            <div class="set-hint">Modular JSON config, browsing history, cookies, and WebView cache.</div>
-                            <div class="storage-path" id="dataDirLabel" style="margin-top: 8px;">—</div>
-                        </div>
-                        <div class="set-ctrl" style="max-width: 310px; justify-content: flex-end;">
-                            <button type="button" class="action-btn" id="btnClearHistory">Clear history</button>
-                            <button type="button" class="action-btn danger" id="btnClearSiteData">Clear cache &amp; cookies</button>
-                            <button type="button" class="action-btn desktop-only-inline" id="btnOpenDataDir">Profile folder</button>
-                            <button type="button" class="action-btn desktop-only-inline" id="btnOpenDownloadsDir">Downloads</button>
                         </div>
                     </div>
                 </section>
@@ -1333,80 +1473,134 @@
                     </div>
                 </section>
 
-                <!-- 5. Adblock & Per-Site CSS/JS Rules -->
+                <!-- 5. Adblock Shield -->
                 <section class="sec-block" id="sec-rules">
                     <div class="sec-header">
                         <div>
-                            <h2 class="sec-title">Adblock &amp; site rules</h2>
-                            <p class="sec-desc">Network domain blocking and lightweight per-site CSS / JS injections.</p>
+                            <h2 class="sec-title">Adblock shield</h2>
+                            <p class="sec-desc">Core network ad &amp; tracker interception synced to <code>adblock.json</code> (independent of Built-in Extensions).</p>
                         </div>
-                        <div class="seg-group" id="rulesSubTabs">
-                            <button type="button" class="seg-btn active" data-subpane="pane-adblock">Adblock lists</button>
-                            <button type="button" class="seg-btn" data-subpane="pane-siterules">Site CSS / JS</button>
+                        <div class="sec-actions">
+                            <input type="file" id="fileImportAdblock" accept="application/json,text/plain" style="display: none;">
+                            <button type="button" class="action-btn" id="btnImportAdblock">Import .json</button>
+                            <button type="button" class="action-btn" id="btnExportAdblock">Export .json</button>
                         </div>
                     </div>
 
-                    <!-- Sub-pane A: Adblock -->
-                    <div class="sub-pane active" id="pane-adblock">
-                        <div class="set-row">
-                            <div class="set-meta">
-                                <div class="set-label">Network ad &amp; tracker shield</div>
-                                <div class="set-hint" id="adblockHint">Blocks 65+ built-in ad/telemetry networks plus custom domains at the network layer.</div>
-                            </div>
-                            <div class="set-ctrl">
-                                <input type="file" id="fileImportAdblock" accept="application/json,text/plain" style="display: none;">
-                                <button type="button" class="action-btn compact" id="btnImportAdblock">Import .json</button>
-                                <button type="button" class="action-btn compact" id="btnExportAdblock">Export .json</button>
-                                <button type="button" id="btnAdblockToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Network adblock"></button>
-                            </div>
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label">Network ad &amp; tracker shield</div>
+                            <div class="set-hint" id="adblockHint">Blocks 65+ built-in ad/telemetry networks plus custom domains at the network layer.</div>
                         </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnAdblockToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Network adblock"></button>
+                        </div>
+                    </div>
 
-                        <div class="set-block" style="border-bottom: none;">
-                            <div class="domain-split">
-                                <div class="domain-col">
-                                    <div class="domain-col-head">
-                                        <span>Blocked domains</span>
-                                        <span class="domain-col-tag">custom_blocked_domains</span>
-                                    </div>
-                                    <div class="rc-table">
-                                        <div class="rc-rows" id="blockedDomainsList"></div>
-                                        <div class="rc-add-row">
-                                            <input type="text" id="inputBlockDomain" class="text-input mono" placeholder="ads.example.com">
-                                            <button type="button" class="action-btn compact" id="btnAddBlockDomain">+ Block</button>
-                                        </div>
+                    <div class="set-block" style="border-bottom: none;">
+                        <div class="domain-split">
+                            <div class="domain-col">
+                                <div class="domain-col-head">
+                                    <span>Blocked domains</span>
+                                    <span class="domain-col-tag">custom_blocked_domains</span>
+                                </div>
+                                <div class="rc-table">
+                                    <div class="rc-rows" id="blockedDomainsList"></div>
+                                    <div class="rc-add-row">
+                                        <input type="text" id="inputBlockDomain" class="text-input mono" placeholder="ads.example.com">
+                                        <button type="button" class="action-btn compact" id="btnAddBlockDomain">+ Block</button>
                                     </div>
                                 </div>
+                            </div>
 
-                                <div class="domain-col">
-                                    <div class="domain-col-head">
-                                        <span>Whitelisted domains</span>
-                                        <span class="domain-col-tag">whitelisted_domains</span>
-                                    </div>
-                                    <div class="rc-table">
-                                        <div class="rc-rows" id="whitelistDomainsList"></div>
-                                        <div class="rc-add-row">
-                                            <input type="text" id="inputWhiteDomain" class="text-input mono" placeholder="example.org">
-                                            <button type="button" class="action-btn compact" id="btnAddWhiteDomain">+ Allow</button>
-                                        </div>
+                            <div class="domain-col">
+                                <div class="domain-col-head">
+                                    <span>Whitelisted domains</span>
+                                    <span class="domain-col-tag">whitelisted_domains</span>
+                                </div>
+                                <div class="rc-table">
+                                    <div class="rc-rows" id="whitelistDomainsList"></div>
+                                    <div class="rc-add-row">
+                                        <input type="text" id="inputWhiteDomain" class="text-input mono" placeholder="example.org">
+                                        <button type="button" class="action-btn compact" id="btnAddWhiteDomain">+ Allow</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
+                </section>
 
-                    <!-- Sub-pane B: Per-Site CSS/JS Rules -->
-                    <div class="sub-pane" id="pane-siterules">
+                <!-- 5B. Privacy, Profile Storage & Setup Sync -->
+                <section class="sec-block" id="sec-privacy">
+                    <div class="sec-header">
+                        <div>
+                            <h2 class="sec-title">Privacy &amp; data</h2>
+                            <p class="sec-desc">Incognito mode, browsing history, cache/cookies cleanup, profile paths, and setup backup.</p>
+                        </div>
+                        <div class="sec-actions">
+                            <input type="file" id="fileImportBundle" accept="application/json,text/plain" style="display: none;">
+                            <button type="button" class="action-btn" id="btnImportBundle">Import setup .json</button>
+                            <button type="button" class="action-btn" id="btnExportBundle">Export setup .json</button>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label">Private / Incognito mode</div>
+                            <div class="set-hint">Pauses browsing history recording and tab session disk persistence.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnIncognitoToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Private mode"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row align-top" style="border-bottom: none;">
+                        <div class="set-meta">
+                            <div class="set-label">Profile storage &amp; cache</div>
+                            <div class="set-hint">Modular JSON config, browsing history, cookies, and WebView cache.</div>
+                            <div class="storage-path" id="dataDirLabel" style="margin-top: 8px;">—</div>
+                        </div>
+                        <div class="set-ctrl" style="max-width: 310px; justify-content: flex-end;">
+                            <button type="button" class="action-btn" id="btnClearHistory">Clear history</button>
+                            <button type="button" class="action-btn danger" id="btnClearSiteData">Clear cache &amp; cookies</button>
+                            <button type="button" class="action-btn desktop-only-inline" id="btnOpenDataDir">Profile folder</button>
+                            <button type="button" class="action-btn desktop-only-inline" id="btnOpenDownloadsDir">Downloads</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 5C. 内建 Extension (Built-in Opt-In Modules + Custom CSS/JS + Supabase Cloud Store) -->
+                <section class="sec-block" id="sec-extensions">
+                    <div class="sec-header">
+                        <div>
+                            <h2 class="sec-title">内建 Extension</h2>
+                            <p class="sec-desc">Opt-in memory-heavy modules (off by default), custom scripts, &amp; on-demand cloud store.</p>
+                        </div>
+                        <div class="seg-group" id="extSubTabs">
+                            <button type="button" class="seg-btn active" data-subpane="pane-ext-builtin">Built-in</button>
+                            <button type="button" class="seg-btn" data-subpane="pane-ext-custom">Installed</button>
+                            <button type="button" class="seg-btn" data-subpane="pane-ext-cloud">Cloud Store</button>
+                        </div>
+                    </div>
+
+                    <!-- Sub-pane A: Built-in Opt-In Modules -->
+                    <div class="sub-pane active" id="pane-ext-builtin">
+                        <div id="builtinExtensionsList"></div>
+                    </div>
+
+                    <!-- Sub-pane B: Installed / Custom CSS & JS Extensions -->
+                    <div class="sub-pane" id="pane-ext-custom">
                         <div class="set-row">
                             <div class="set-meta">
-                                <div class="set-label">Per-site CSS &amp; JS rules</div>
-                                <div class="set-hint">Match <code>*</code>, <code>github.com</code>, or <code>*.zhihu.com</code>. Disabled rules use zero memory.</div>
+                                <div class="set-label">Custom &amp; downloaded extensions (<code>rules.json</code>)</div>
+                                <div class="set-hint">Match <code>*</code>, <code>github.com</code>, or <code>*.zhihu.com</code>. Disabled extensions use 0 RAM; publish yours to Supabase anytime.</div>
                             </div>
                             <div class="set-ctrl">
                                 <input type="file" id="fileImportRules" accept="application/json,text/plain" style="display: none;">
                                 <button type="button" class="action-btn compact" id="btnImportRules">Import .json</button>
                                 <button type="button" class="action-btn compact" id="btnExportRules">Export .json</button>
                                 <button type="button" class="action-btn compact" id="btnResetRules">Reset</button>
-                                <button type="button" class="action-btn compact" id="btnNewRule">+ New rule</button>
+                                <button type="button" class="action-btn compact" id="btnNewRule">+ Add Extension</button>
                             </div>
                         </div>
 
@@ -1414,7 +1608,7 @@
                             <div class="rule-editor-panel" id="ruleEditorPanel">
                                 <div class="editor-2col">
                                     <div class="field-box">
-                                        <label class="field-label" for="ruleNameInput"><span>Rule name</span></label>
+                                        <label class="field-label" for="ruleNameInput"><span>Extension name</span></label>
                                         <input type="text" id="ruleNameInput" class="text-input" placeholder="Clean Distractions">
                                     </div>
                                     <div class="field-box">
@@ -1431,7 +1625,7 @@
                                     <textarea id="ruleJsInput" class="code-area" spellcheck="false" placeholder="// Optional lightweight userscript..."></textarea>
                                 </div>
                                 <div class="sec-actions">
-                                    <button type="button" class="action-btn" id="btnSaveRule">Save rule</button>
+                                    <button type="button" class="action-btn" id="btnSaveRule">Save extension</button>
                                     <button type="button" class="action-btn" id="btnCancelRule">Cancel</button>
                                 </div>
                             </div>
@@ -1439,6 +1633,120 @@
                             <div class="rc-table">
                                 <div class="rc-rows" id="rulesList"></div>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-pane C: Supabase On-Demand Cloud Extensions -->
+                    <div class="sub-pane" id="pane-ext-cloud">
+                        <div class="cloud-toolbar">
+                            <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 260px; min-width: 0;">
+                                <input type="text" id="inputCloudSearch" class="text-input" placeholder="Search cloud extensions..." style="max-width: 240px;">
+                                <select id="selectCloudCategory" class="select-input" style="width: 132px;">
+                                    <option value="all">All categories</option>
+                                </select>
+                            </div>
+                            <div class="sec-actions">
+                                <button type="button" class="action-btn compact" id="btnCloudUpload">+ Upload Extension</button>
+                                <button type="button" class="action-btn compact" id="btnToggleCloudCfg">API Config</button>
+                                <button type="button" class="action-btn compact" id="btnRefreshCloud">Refresh</button>
+                            </div>
+                        </div>
+
+                        <div class="cloud-config-card" id="cloudConfigCard">
+                            <div class="set-hint">Injected at build time via <code>.env.local</code> / <code>DATABASE_*</code> (gitignored), or override locally for testing here.</div>
+                            <div class="editor-2col">
+                                <div class="field-box">
+                                    <label class="field-label" for="inputSupabaseUrl"><span>Supabase Project URL</span><span class="field-tag">https://xxx.supabase.co</span></label>
+                                    <input type="text" id="inputSupabaseUrl" class="text-input mono" spellcheck="false" placeholder="https://your-project.supabase.co">
+                                </div>
+                                <div class="field-box">
+                                    <label class="field-label" for="inputSupabaseKey"><span>Supabase Anon / Publishable Key</span><span class="field-tag">anon key</span></label>
+                                    <input type="text" id="inputSupabaseKey" class="text-input mono" spellcheck="false" placeholder="sb_publishable_... / eyJ...">
+                                </div>
+                            </div>
+                            <div class="editor-2col">
+                                <div class="field-box">
+                                    <label class="field-label" for="inputSupabaseSchema"><span>Postgres Schema</span><span class="field-tag">Accept-Profile</span></label>
+                                    <input type="text" id="inputSupabaseSchema" class="text-input mono" spellcheck="false" placeholder="public">
+                                </div>
+                                <div class="field-box">
+                                    <label class="field-label" for="inputSupabaseTable"><span>Table Name</span><span class="field-tag">default: extensions</span></label>
+                                    <input type="text" id="inputSupabaseTable" class="text-input mono" spellcheck="false" placeholder="extensions">
+                                </div>
+                            </div>
+                            <div class="sec-actions">
+                                <button type="button" class="action-btn compact" id="btnSaveCloudCfg">Save &amp; Connect</button>
+                            </div>
+                        </div>
+
+                        <div class="cloud-config-card" id="publishExtPanel">
+                            <div class="set-hint">Submit a CSS/JS extension from Fynexo. New uploads enter the database as <code>unverified</code> (未验证) and only appear in Cloud Store after verification.</div>
+                            <div class="editor-2col">
+                                <div class="field-box">
+                                    <label class="field-label" for="pubExtName"><span>Extension name</span></label>
+                                    <input type="text" id="pubExtName" class="text-input" placeholder="e.g. Clean Reader Theme">
+                                </div>
+                                <div class="field-box">
+                                    <label class="field-label" for="pubExtDomain"><span>Domain pattern</span><span class="field-tag">* or example.com</span></label>
+                                    <input type="text" id="pubExtDomain" class="text-input mono" placeholder="*">
+                                </div>
+                            </div>
+                            <div class="editor-2col">
+                                <div class="field-box">
+                                    <label class="field-label" for="pubExtAuthor"><span>Author</span></label>
+                                    <input type="text" id="pubExtAuthor" class="text-input" placeholder="Your handle or nickname">
+                                </div>
+                                <div class="field-box">
+                                    <label class="field-label" for="pubExtCategory"><span>Category</span></label>
+                                    <input type="text" id="pubExtCategory" class="text-input" placeholder="community / media / productivity">
+                                </div>
+                            </div>
+                            <div class="field-box">
+                                <label class="field-label" for="pubExtDesc"><span>Description</span></label>
+                                <input type="text" id="pubExtDesc" class="text-input" placeholder="Brief description of what this extension does">
+                            </div>
+                            <div class="field-box">
+                                <label class="field-label" for="pubExtCss"><span>Custom CSS</span></label>
+                                <textarea id="pubExtCss" class="code-area" spellcheck="false" placeholder="/* Optional CSS */"></textarea>
+                            </div>
+                            <div class="field-box">
+                                <label class="field-label" for="pubExtJs"><span>Custom JS</span></label>
+                                <textarea id="pubExtJs" class="code-area" spellcheck="false" placeholder="// Optional JS"></textarea>
+                            </div>
+                            <div class="sec-audit-banner clean" id="publishAuditPreview">Security check: Clean — no risky patterns detected.</div>
+                            <div class="sec-actions">
+                                <button type="button" class="action-btn compact" id="btnSubmitPublish">Submit for verification</button>
+                                <button type="button" class="action-btn compact" id="btnCancelPublish">Cancel</button>
+                            </div>
+                        </div>
+
+                        <div class="cloud-config-card" id="cloudInspectorPanel">
+                            <div class="set-block-head">
+                                <div style="min-width: 0;">
+                                    <div class="set-label" id="inspExtTitle">Extension Source</div>
+                                    <div class="set-hint" id="inspExtMeta">—</div>
+                                </div>
+                                <span class="sec-audit-badge clean" id="inspAuditBadge">Clean</span>
+                            </div>
+                            <div class="sec-audit-banner clean" id="inspAuditBanner">Static audit passed — no suspicious APIs detected.</div>
+                            <div class="field-box">
+                                <label class="field-label" for="inspExtCss"><span>CSS Source (read-only)</span></label>
+                                <textarea id="inspExtCss" class="code-area inspector-code" readonly spellcheck="false"></textarea>
+                            </div>
+                            <div class="field-box">
+                                <label class="field-label" for="inspExtJs"><span>JS Source (read-only)</span></label>
+                                <textarea id="inspExtJs" class="code-area inspector-code" readonly spellcheck="false"></textarea>
+                            </div>
+                            <div class="sec-actions">
+                                <button type="button" class="action-btn compact" id="btnInspInstall">Install</button>
+                                <button type="button" class="action-btn compact" id="btnInspClose">Close</button>
+                            </div>
+                        </div>
+
+                        <div class="set-hint" id="cloudStatusHint" style="margin-bottom: 10px;">Only verified extensions appear below; CSS/JS payloads download on-demand when you click Install.</div>
+
+                        <div class="rc-table">
+                            <div class="rc-rows" id="cloudExtList"></div>
                         </div>
                     </div>
                 </section>
@@ -1716,6 +2024,12 @@
             ['hover', 'Hover state']
         ];
 
+        // =========================================================================
+        // Supabase Cloud Extensions (Injected via build.rs / .env.local, never in Git)
+        // =========================================================================
+        const SUPABASE_CONFIG = __FNX_SUPABASE_JSON__ || {};
+        const SUPABASE_STORAGE_KEY = '__fnx_supabase_ext_cfg__';
+
         const boot = __FNX_BOOT_JSON__ || {};
         let config = Object.assign({
             theme: 'dark',
@@ -1727,6 +2041,12 @@
             default_zoom: 1.0,
             user_agent_mode: 'default',
             custom_user_agent: '',
+            tab_cache_mode: 'balanced',
+            ext_side_panel: false,
+            ext_reader_mode: false,
+            ext_yt_ad_skipper: false,
+            ext_gh_harmonizer: false,
+            ext_media_booster: false,
             search_engine: 'google',
             homepage: 'fynexo://newtab',
             search_engines: DEFAULT_ENGINES,
@@ -2378,6 +2698,69 @@
             });
         }
 
+        const JS_SECURITY_RULES = [
+            ['Dynamic code execution (eval / Function)', /\b(?:eval|Function)\s*\(|\b(?:setTimeout|setInterval)\s*\(\s*['"`]/i],
+            ['Network request API (fetch / XHR / WS)', /\b(?:fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource)\b/i],
+            ['Cookie or web storage access', /document\s*\.\s*cookie|\b(?:localStorage|sessionStorage|indexedDB)\b/i],
+            ['Dynamic <script> / <iframe> injection', /createElement\s*\(\s*['"`](?:script|iframe)['"`]|<(?:script|iframe)\b/i],
+            ['Encoded / obfuscated code (atob / escapes)', /\b(?:atob|fromCharCode)\b|(?:\\x[0-9a-f]{2}){4,}|(?:\\u[0-9a-f]{4}){4,}/i],
+            ['Password / form submission interception', /type\s*=\s*['"]?password|addEventListener\s*\(\s*['"]submit['"]/i],
+            ['Browser IPC / bridge probing', /\bwindow\s*\.\s*ipc\b|__fynexo_|__TAURI_/i]
+        ];
+        const CSS_SECURITY_RULES = [
+            ['External URL or @import in CSS', /@import\b|url\s*\(\s*['"]?\s*(?:https?:|\/\/)/i],
+            ['Legacy CSS script expression', /expression\s*\(|-moz-binding\s*:/i]
+        ];
+
+        function auditExtensionPayload(css, js, domain) {
+            const warnings = [];
+            const cssText = String(css || '');
+            const jsText = String(js || '');
+            const domText = String(domain || '*').trim() || '*';
+
+            if (jsText.trim()) {
+                JS_SECURITY_RULES.forEach(([label, re]) => {
+                    if (re.test(jsText)) warnings.push(label);
+                });
+                if (domText === '*') {
+                    warnings.push('Wildcard domain (*) combined with JS');
+                }
+                const lines = jsText.split(/\r?\n/);
+                if (lines.some(line => line.length > 600)) {
+                    warnings.push('Long minified/single-line JS (>600 chars)');
+                }
+            }
+            if (cssText.trim()) {
+                CSS_SECURITY_RULES.forEach(([label, re]) => {
+                    if (re.test(cssText)) warnings.push(label);
+                });
+            }
+
+            return {
+                hasWarnings: warnings.length > 0,
+                warnings,
+                summary: warnings.join('; '),
+                statusValue: warnings.length > 0 ? 'warning' : 'unverified'
+            };
+        }
+
+        function renderAuditBanner(el, audit, mode) {
+            if (!el) return;
+            el.classList.remove('warn', 'clean');
+            if (audit && audit.hasWarnings) {
+                el.classList.add('warn');
+                const prefix = mode === 'upload'
+                    ? 'Warning — upload will be flagged as "warning" in database: '
+                    : 'Security Warning — review source carefully before enabling: ';
+                el.textContent = prefix + audit.warnings.join(' · ');
+            } else {
+                el.classList.add('clean');
+                el.textContent = mode === 'upload'
+                    ? 'Security check: Clean — upload enters queue as "unverified".'
+                    : 'Security check: Clean — no suspicious patterns detected.';
+            }
+        }
+
         function renderSiteRulesList() {
             const listEl = document.getElementById('rulesList');
             listEl.textContent = '';
@@ -2386,13 +2769,15 @@
                 const empty = document.createElement('div');
                 empty.className = 'rc-row-empty';
                 empty.style.borderBottom = 'none';
-                empty.textContent = 'No per-site CSS/JS rules configured. Click "+ New rule" to create one.';
+                empty.textContent = 'No custom CSS/JS extensions configured. Click "+ Add Extension" or install from Cloud Store.';
                 listEl.appendChild(empty);
+                updateExtensionNavCount();
                 return;
             }
 
             const frag = document.createDocumentFragment();
             siteRules.forEach((rule, idx) => {
+                const audit = auditExtensionPayload(rule.css, rule.js, rule.domain);
                 const row = document.createElement('div');
                 row.className = 'rc-row';
                 if (idx === siteRules.length - 1) row.style.borderBottom = 'none';
@@ -2403,6 +2788,13 @@
                 domBadge.className = 'rc-badge';
                 domBadge.textContent = rule.domain || '*';
                 left.appendChild(domBadge);
+                if (audit.hasWarnings) {
+                    const warnTag = document.createElement('span');
+                    warnTag.className = 'sec-audit-badge warn';
+                    warnTag.textContent = 'Warning';
+                    warnTag.title = audit.summary;
+                    left.appendChild(warnTag);
+                }
 
                 const mid = document.createElement('div');
                 mid.className = 'rc-mid';
@@ -2433,9 +2825,17 @@
                 sw.onclick = () => {
                     rule.enabled = !rule.enabled;
                     renderSiteRulesList();
+                    if (cloudLoadedOnce) renderCloudExtensions();
                     sendIpc({ type: 'SAVE_RULES', rules: siteRules });
                     showToast(`${rule.name || 'Rule'}: ${rule.enabled ? 'Enabled' : 'Disabled'}`);
                 };
+
+                const pubBtn = document.createElement('button');
+                pubBtn.type = 'button';
+                pubBtn.className = 'action-btn compact';
+                pubBtn.textContent = 'Publish';
+                pubBtn.title = 'Upload extension to Supabase Cloud Store (starts as unverified)';
+                pubBtn.onclick = () => openPublishPanel(rule);
 
                 const editBtn = document.createElement('button');
                 editBtn.type = 'button';
@@ -2443,11 +2843,13 @@
                 editBtn.textContent = 'Edit';
                 editBtn.onclick = () => openRuleEditor(rule);
 
+                right.appendChild(pubBtn);
                 right.appendChild(editBtn);
                 right.appendChild(sw);
                 right.appendChild(createCompactDeleteBtn('Delete rule', () => {
                     siteRules = siteRules.filter(x => x.id !== rule.id);
                     renderSiteRulesList();
+                    if (cloudLoadedOnce) renderCloudExtensions();
                     sendIpc({ type: 'SAVE_RULES', rules: siteRules });
                     showToast('Deleted rule');
                 }));
@@ -2459,6 +2861,662 @@
             });
 
             listEl.appendChild(frag);
+            updateExtensionNavCount();
+        }
+
+        function updateExtensionNavCount() {
+            const navBadge = document.getElementById('extNavCount');
+            if (!navBadge) return;
+            let active = 0;
+            BUILTIN_EXTENSION_GROUPS.forEach((group) => {
+                group.items.forEach((item) => {
+                    if (item.get()) active += 1;
+                });
+            });
+            const customEnabled = Array.isArray(siteRules)
+                ? siteRules.filter(r => r && r.enabled).length
+                : 0;
+            navBadge.textContent = String(active + customEnabled);
+        }
+
+        // =========================================================================
+        // Supabase Cloud Extensions (On-Demand Catalog + Single-Item Download)
+        // =========================================================================
+        let cloudCatalog = [];
+        let cloudLoadedOnce = false;
+        let cloudLoading = false;
+
+        function getSupabaseCreds() {
+            let stored = {};
+            try {
+                stored = JSON.parse(localStorage.getItem(SUPABASE_STORAGE_KEY) || '{}') || {};
+            } catch (_) {}
+            const url = (SUPABASE_CONFIG.url || stored.url || '').trim().replace(/\/+$/, '');
+            const anonKey = (SUPABASE_CONFIG.anonKey || stored.anonKey || '').trim();
+            const schema = (SUPABASE_CONFIG.schema || stored.schema || 'public').trim() || 'public';
+            const table = (SUPABASE_CONFIG.table || stored.table || 'extensions').trim() || 'extensions';
+            return { url, anonKey, schema, table, isConfigured: Boolean(url && anonKey) };
+        }
+
+        async function supabaseRequest(path, options) {
+            const creds = getSupabaseCreds();
+            if (!creds.isConfigured) {
+                throw new Error('Supabase API URL & Anon Key are not configured yet.');
+            }
+            const opts = options || {};
+            const method = String(opts.method || 'GET').toUpperCase();
+            const profileHeaders = {};
+            if (creds.schema && creds.schema !== 'public') {
+                profileHeaders['Accept-Profile'] = creds.schema;
+                if (method !== 'GET' && method !== 'HEAD') {
+                    profileHeaders['Content-Profile'] = creds.schema;
+                }
+            }
+            const headers = Object.assign({
+                apikey: creds.anonKey,
+                Authorization: 'Bearer ' + creds.anonKey,
+                'Content-Type': 'application/json'
+            }, profileHeaders, opts.headers || {});
+            const res = await fetch(`${creds.url}/rest/v1/${creds.table}${path}`, Object.assign({}, opts, { headers }));
+            if (!res.ok) {
+                const text = await res.text().catch(() => '');
+                throw new Error(`HTTP ${res.status}${text ? ': ' + text.slice(0, 140) : ''}`);
+            }
+            const raw = await res.text();
+            return raw ? JSON.parse(raw) : [];
+        }
+
+        function setCloudHint(msg) {
+            const el = document.getElementById('cloudStatusHint');
+            if (el) el.textContent = msg;
+        }
+
+        function syncCloudConfigInputs() {
+            const creds = getSupabaseCreds();
+            const urlEl = document.getElementById('inputSupabaseUrl');
+            const keyEl = document.getElementById('inputSupabaseKey');
+            const schemaEl = document.getElementById('inputSupabaseSchema');
+            const tableEl = document.getElementById('inputSupabaseTable');
+            const card = document.getElementById('cloudConfigCard');
+            if (urlEl && !urlEl.value) urlEl.value = creds.url;
+            if (keyEl && !keyEl.value) keyEl.value = creds.anonKey;
+            if (schemaEl && !schemaEl.value) schemaEl.value = creds.schema;
+            if (tableEl && !tableEl.value) tableEl.value = creds.table;
+            if (card && !creds.isConfigured) card.classList.add('open');
+        }
+
+        function renderCloudExtensions() {
+            const listEl = document.getElementById('cloudExtList');
+            if (!listEl) return;
+            listEl.textContent = '';
+
+            const creds = getSupabaseCreds();
+            if (!creds.isConfigured) {
+                const empty = document.createElement('div');
+                empty.className = 'rc-row-empty';
+                empty.style.borderBottom = 'none';
+                empty.textContent = 'Supabase API not connected. Configure .env.local before build or enter your URL & Anon Key in API Config above.';
+                listEl.appendChild(empty);
+                return;
+            }
+
+            if (cloudLoading) {
+                const loadingRow = document.createElement('div');
+                loadingRow.className = 'rc-row-empty';
+                loadingRow.style.borderBottom = 'none';
+                loadingRow.textContent = 'Fetching extension catalog metadata from Supabase...';
+                listEl.appendChild(loadingRow);
+                return;
+            }
+
+            const q = (document.getElementById('inputCloudSearch')?.value || '').trim().toLowerCase();
+            const cat = (document.getElementById('selectCloudCategory')?.value || 'all').toLowerCase();
+            const filtered = cloudCatalog.filter((item) => {
+                if (cat !== 'all' && (item.category || 'custom').toLowerCase() !== cat) return false;
+                if (!q) return true;
+                const hay = `${item.name || ''} ${item.domain || ''} ${item.description || ''} ${item.author || ''}`.toLowerCase();
+                return hay.includes(q);
+            });
+
+            if (filtered.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'rc-row-empty';
+                empty.style.borderBottom = 'none';
+                empty.textContent = cloudCatalog.length === 0
+                    ? 'No verified extensions found in Supabase yet. Click Refresh or upload one above.'
+                    : 'No matching extensions for the current filter.';
+                listEl.appendChild(empty);
+                return;
+            }
+
+            const frag = document.createDocumentFragment();
+            filtered.forEach((item, idx) => {
+                const ruleId = 'cloud-' + (item.slug || item.id);
+                const installedRule = siteRules.find(r => r && r.id === ruleId);
+
+                const row = document.createElement('div');
+                row.className = 'rc-row';
+                if (idx === filtered.length - 1) row.style.borderBottom = 'none';
+
+                const left = document.createElement('div');
+                left.className = 'rc-left';
+                const domBadge = document.createElement('span');
+                domBadge.className = 'rc-badge';
+                domBadge.textContent = item.domain || '*';
+                left.appendChild(domBadge);
+
+                const mid = document.createElement('div');
+                mid.className = 'rc-mid';
+                const nm = document.createElement('span');
+                nm.className = 'rc-name';
+                nm.textContent = item.name || item.slug || 'Extension';
+                mid.appendChild(nm);
+
+                const sizeKb = item.size_bytes ? `${Math.max(1, Math.round(item.size_bytes / 1024))} KB` : '';
+                const metaParts = [item.category || 'custom', item.version ? `v${item.version}` : '', sizeKb, item.author ? `@${item.author}` : ''].filter(Boolean);
+                if (item.description || metaParts.length) {
+                    const descEl = document.createElement('span');
+                    descEl.className = 'cloud-desc';
+                    descEl.textContent = [metaParts.join(' · '), item.description || ''].filter(Boolean).join(' — ');
+                    descEl.title = descEl.textContent;
+                    mid.appendChild(descEl);
+                }
+
+                const right = document.createElement('div');
+                right.className = 'rc-right';
+
+                const inspBtn = document.createElement('button');
+                inspBtn.type = 'button';
+                inspBtn.className = 'action-btn compact';
+                inspBtn.textContent = 'Inspect';
+                inspBtn.title = 'Inspect CSS/JS source and run local security check';
+                inspBtn.onclick = () => inspectCloudExtension(item, inspBtn);
+                right.appendChild(inspBtn);
+
+                if (installedRule) {
+                    const cloudVer = item.version ? String(item.version) : '';
+                    const localVer = installedRule.version ? String(installedRule.version) : '';
+                    if (cloudVer && localVer !== cloudVer) {
+                        const updBtn = document.createElement('button');
+                        updBtn.type = 'button';
+                        updBtn.className = 'action-btn compact';
+                        updBtn.textContent = 'Update';
+                        updBtn.title = `Update from ${localVer || 'legacy'} to v${cloudVer}`;
+                        updBtn.onclick = () => installCloudExtension(item, updBtn, false);
+                        right.appendChild(updBtn);
+                    }
+
+                    const sw = document.createElement('button');
+                    sw.type = 'button';
+                    sw.className = installedRule.enabled ? 'fnx-switch on' : 'fnx-switch';
+                    sw.setAttribute('role', 'switch');
+                    sw.setAttribute('aria-checked', installedRule.enabled ? 'true' : 'false');
+                    sw.title = installedRule.enabled ? 'Disable extension' : 'Enable extension';
+                    sw.onclick = () => {
+                        installedRule.enabled = !installedRule.enabled;
+                        renderSiteRulesList();
+                        renderCloudExtensions();
+                        sendIpc({ type: 'SAVE_RULES', rules: siteRules });
+                        showToast(`${installedRule.name}: ${installedRule.enabled ? 'Enabled' : 'Disabled'}`);
+                    };
+
+                    const rmBtn = document.createElement('button');
+                    rmBtn.type = 'button';
+                    rmBtn.className = 'action-btn compact';
+                    rmBtn.textContent = 'Remove';
+                    rmBtn.onclick = () => {
+                        siteRules = siteRules.filter(x => x.id !== ruleId);
+                        renderSiteRulesList();
+                        renderCloudExtensions();
+                        sendIpc({ type: 'SAVE_RULES', rules: siteRules });
+                        showToast(`Removed ${item.name}`);
+                    };
+                    right.appendChild(rmBtn);
+                    right.appendChild(sw);
+                } else {
+                    const dlBtn = document.createElement('button');
+                    dlBtn.type = 'button';
+                    dlBtn.className = 'action-btn compact';
+                    dlBtn.textContent = 'Install';
+                    dlBtn.onclick = () => installCloudExtension(item, dlBtn, false);
+                    right.appendChild(dlBtn);
+                }
+
+                row.appendChild(left);
+                row.appendChild(mid);
+                row.appendChild(right);
+                frag.appendChild(row);
+            });
+
+            listEl.appendChild(frag);
+        }
+
+        function refreshCloudCategorySelect() {
+            const sel = document.getElementById('selectCloudCategory');
+            if (!sel) return;
+            const prev = sel.value || 'all';
+            const cats = Array.from(new Set(cloudCatalog.map(x => (x.category || 'custom').trim()).filter(Boolean))).sort();
+            sel.textContent = '';
+            const allOpt = document.createElement('option');
+            allOpt.value = 'all';
+            allOpt.textContent = 'All categories';
+            sel.appendChild(allOpt);
+            cats.forEach((c) => {
+                const o = document.createElement('option');
+                o.value = c;
+                o.textContent = c;
+                sel.appendChild(o);
+            });
+            sel.value = cats.includes(prev) ? prev : 'all';
+        }
+
+        async function fetchCloudCatalog(forceToast) {
+            const creds = getSupabaseCreds();
+            if (!creds.isConfigured) {
+                syncCloudConfigInputs();
+                renderCloudExtensions();
+                if (forceToast) showToast('Enter Supabase URL & Anon Key first');
+                return;
+            }
+            cloudLoading = true;
+            renderCloudExtensions();
+            try {
+                // Metadata only, strictly verified entries (status=eq.verified)
+                const rows = await supabaseRequest(
+                    '?select=id,slug,name,category,domain,description,author,version,size_bytes&status=eq.verified&order=downloads.desc'
+                );
+                cloudCatalog = Array.isArray(rows) ? rows : [];
+                cloudLoadedOnce = true;
+                refreshCloudCategorySelect();
+                setCloudHint(`Connected · ${cloudCatalog.length} verified extension${cloudCatalog.length === 1 ? '' : 's'} (CSS/JS downloaded only on Install).`);
+                if (forceToast) showToast('Cloud catalog refreshed');
+            } catch (err) {
+                setCloudHint(`Supabase fetch failed: ${err.message || err}`);
+                if (forceToast) showToast('Failed to load cloud catalog');
+            } finally {
+                cloudLoading = false;
+                renderCloudExtensions();
+            }
+        }
+
+        async function fetchExtensionPayload(meta) {
+            const rows = await supabaseRequest(
+                `?id=eq.${encodeURIComponent(meta.id)}&select=id,slug,name,domain,css,js,version&limit=1`
+            );
+            const full = Array.isArray(rows) ? rows[0] : null;
+            if (!full) throw new Error('Extension payload not found');
+            return full;
+        }
+
+        function commitCloudExtensionRule(meta, full) {
+            const ruleId = 'cloud-' + (full.slug || full.id);
+            const existingIdx = siteRules.findIndex(r => r && r.id === ruleId);
+            const prevEnabled = existingIdx >= 0 ? !!siteRules[existingIdx].enabled : true;
+            const ruleVer = full.version || meta.version || '1.0.0';
+            const ruleObj = {
+                id: ruleId,
+                name: full.name || meta.name || 'Cloud Extension',
+                domain: full.domain || meta.domain || '*',
+                enabled: prevEnabled,
+                version: String(ruleVer),
+                css: full.css || '',
+                js: full.js || ''
+            };
+            if (existingIdx >= 0) siteRules[existingIdx] = ruleObj;
+            else siteRules.push(ruleObj);
+
+            renderSiteRulesList();
+            renderCloudExtensions();
+            sendIpc({ type: 'SAVE_RULES', rules: siteRules });
+            showToast(`${existingIdx >= 0 ? 'Updated' : 'Installed'}: ${ruleObj.name} (v${ruleObj.version})`);
+        }
+
+        function openCloudInspector(meta, full, audit) {
+            const panel = document.getElementById('cloudInspectorPanel');
+            if (!panel) return;
+            document.getElementById('inspExtTitle').textContent = full.name || meta.name || 'Extension Source';
+            const sizeKb = `${Math.max(1, Math.round(new Blob([full.css || '', full.js || '']).size / 1024))} KB`;
+            document.getElementById('inspExtMeta').textContent = [
+                full.domain || meta.domain || '*',
+                full.version ? `v${full.version}` : '',
+                meta.author ? `@${meta.author}` : '',
+                sizeKb
+            ].filter(Boolean).join(' · ');
+
+            const badge = document.getElementById('inspAuditBadge');
+            badge.classList.remove('warn', 'clean');
+            badge.classList.add(audit.hasWarnings ? 'warn' : 'clean');
+            badge.textContent = audit.hasWarnings ? `Warning (${audit.warnings.length})` : 'Clean';
+            renderAuditBanner(document.getElementById('inspAuditBanner'), audit, 'inspect');
+
+            document.getElementById('inspExtCss').value = (full.css && full.css.trim()) ? full.css : '/* No CSS */';
+            document.getElementById('inspExtJs').value = (full.js && full.js.trim()) ? full.js : '// No JS';
+
+            const ruleId = 'cloud-' + (full.slug || full.id);
+            const installedRule = siteRules.find(r => r && r.id === ruleId);
+            const instBtn = document.getElementById('btnInspInstall');
+            const cloudVer = full.version || meta.version || '';
+            const needsUpdate = installedRule && cloudVer && String(installedRule.version || '') !== String(cloudVer);
+            if (audit.hasWarnings) {
+                instBtn.textContent = needsUpdate ? 'Trust & Update' : 'Trust & Install';
+            } else if (needsUpdate) {
+                instBtn.textContent = 'Update';
+            } else if (installedRule) {
+                instBtn.textContent = 'Reinstall';
+            } else {
+                instBtn.textContent = 'Install';
+            }
+            instBtn.disabled = false;
+            instBtn.onclick = () => {
+                commitCloudExtensionRule(meta, full);
+                panel.classList.remove('open');
+            };
+
+            panel.classList.add('open');
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        async function inspectCloudExtension(meta, btn) {
+            if (!meta || !meta.id) return;
+            const prevLabel = btn ? btn.textContent : 'Inspect';
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Loading...';
+            }
+            try {
+                const full = await fetchExtensionPayload(meta);
+                const audit = auditExtensionPayload(full.css, full.js, full.domain);
+                openCloudInspector(meta, full, audit);
+            } catch (err) {
+                showToast(`Inspect failed: ${err.message || err}`);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = prevLabel;
+                }
+            }
+        }
+
+        async function installCloudExtension(meta, btn, forceTrust) {
+            if (!meta || !meta.id) return;
+            const prevLabel = btn ? btn.textContent : 'Install';
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Downloading...';
+            }
+            try {
+                const full = await fetchExtensionPayload(meta);
+                const audit = auditExtensionPayload(full.css, full.js, full.domain);
+                if (audit.hasWarnings && !forceTrust) {
+                    openCloudInspector(meta, full, audit);
+                    showToast('Security Warning detected — review source before installing');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = prevLabel;
+                    }
+                    return;
+                }
+                commitCloudExtensionRule(meta, full);
+            } catch (err) {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = prevLabel;
+                }
+                showToast(`Install failed: ${err.message || err}`);
+            }
+        }
+
+        function updatePublishAuditPreview() {
+            const domain = document.getElementById('pubExtDomain')?.value || '*';
+            const css = document.getElementById('pubExtCss')?.value || '';
+            const js = document.getElementById('pubExtJs')?.value || '';
+            const audit = auditExtensionPayload(css, js, domain);
+            renderAuditBanner(document.getElementById('publishAuditPreview'), audit, 'upload');
+            return audit;
+        }
+
+        function openPublishPanel(prefillRule) {
+            const cloudTab = document.querySelector('#extSubTabs .seg-btn[data-subpane="pane-ext-cloud"]');
+            if (cloudTab) cloudTab.click();
+            syncCloudConfigInputs();
+            const panel = document.getElementById('publishExtPanel');
+            if (!panel) return;
+            panel.classList.add('open');
+            document.getElementById('pubExtName').value = (prefillRule && prefillRule.name) || '';
+            document.getElementById('pubExtDomain').value = (prefillRule && prefillRule.domain) || '*';
+            document.getElementById('pubExtAuthor').value = document.getElementById('pubExtAuthor').value || '';
+            document.getElementById('pubExtCategory').value = document.getElementById('pubExtCategory').value || 'community';
+            document.getElementById('pubExtDesc').value = (prefillRule && prefillRule.name)
+                ? `${prefillRule.name} (${prefillRule.domain || '*'})`
+                : '';
+            document.getElementById('pubExtCss').value = (prefillRule && prefillRule.css) || '';
+            document.getElementById('pubExtJs').value = (prefillRule && prefillRule.js) || '';
+            updatePublishAuditPreview();
+            document.getElementById('pubExtName').focus();
+        }
+
+        async function submitPublishedExtension() {
+            const creds = getSupabaseCreds();
+            if (!creds.isConfigured) {
+                syncCloudConfigInputs();
+                showToast('Set Supabase URL & Anon Key in API Config first');
+                return;
+            }
+            const name = document.getElementById('pubExtName').value.trim();
+            const domain = document.getElementById('pubExtDomain').value.trim() || '*';
+            const author = document.getElementById('pubExtAuthor').value.trim() || 'community';
+            const category = document.getElementById('pubExtCategory').value.trim() || 'community';
+            const description = document.getElementById('pubExtDesc').value.trim() || `Submitted from Fynexo (${domain})`;
+            const css = document.getElementById('pubExtCss').value;
+            const js = document.getElementById('pubExtJs').value;
+
+            if (!name) return showToast('Enter an extension name');
+            if (!css.trim() && !js.trim()) return showToast('Provide CSS or JS to upload');
+            const payloadBytes = new Blob([css, js]).size;
+            if (payloadBytes > 100 * 1024) {
+                return showToast(`CSS + JS exceeds 100 KB limit (${Math.ceil(payloadBytes / 1024)} KB)`);
+            }
+
+            const audit = auditExtensionPayload(css, js, domain);
+            const btn = document.getElementById('btnSubmitPublish');
+            const prevText = btn ? btn.textContent : 'Submit for verification';
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Uploading...';
+            }
+            try {
+                const slugBase = name
+                    .toLowerCase()
+                    .replace(/[^a-z0-9_-]+/g, '-')
+                    .replace(/^-|-$/g, '') || 'custom-ext';
+                const corePayload = {
+                    slug: `${slugBase}-${Date.now().toString(36)}`,
+                    name,
+                    category,
+                    domain,
+                    description,
+                    author,
+                    version: '1.0.0',
+                    css,
+                    js,
+                    status: audit.statusValue
+                };
+                const fullPayload = Object.assign({}, corePayload, {
+                    size_bytes: payloadBytes,
+                    security_warning: audit.summary
+                });
+                try {
+                    await supabaseRequest('', {
+                        method: 'POST',
+                        headers: { Prefer: 'return=minimal' },
+                        body: JSON.stringify(fullPayload)
+                    });
+                } catch (postErr) {
+                    const msg = String(postErr && postErr.message ? postErr.message : postErr);
+                    if (/PGRST204|column/i.test(msg)) {
+                        await supabaseRequest('', {
+                            method: 'POST',
+                            headers: { Prefer: 'return=minimal' },
+                            body: JSON.stringify(corePayload)
+                        });
+                    } else {
+                        throw postErr;
+                    }
+                }
+                document.getElementById('publishExtPanel').classList.remove('open');
+                if (audit.hasWarnings) {
+                    showToast(`已上传 "${name}"（数据库已标为 Warning，需人工重点审核）`);
+                } else {
+                    showToast(`已上传 "${name}"（状态：unverified），验证通过后将在 Cloud Store 显示`);
+                }
+            } catch (err) {
+                showToast(`Upload failed: ${err.message || err}`);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = prevText;
+                }
+            }
+        }
+
+        const BUILTIN_EXTENSION_GROUPS = [
+            {
+                title: 'Workspace & Reading · 工作区与阅读',
+                items: [
+                    {
+                        key: 'ext_side_panel',
+                        name: 'Side Panel & Web Dock',
+                        mem: 'WebView + Notes',
+                        desc: 'Split-screen side drawer iframe & scratchpad (Alt+S). Unmounted until enabled.',
+                        get: () => !!config.ext_side_panel,
+                        set: (next) => { config.ext_side_panel = next; }
+                    },
+                    {
+                        key: 'ext_reader_mode',
+                        name: 'Reader Mode',
+                        mem: 'DOM Scanner',
+                        desc: 'Automatic article extraction & clean reading view (Alt+R). Skips page scans when off.',
+                        get: () => !!config.ext_reader_mode,
+                        set: (next) => { config.ext_reader_mode = next; }
+                    }
+                ]
+            },
+            {
+                title: 'Media & Site Enhancers · 媒体与站点增强',
+                items: [
+                    {
+                        key: 'ext_yt_ad_skipper',
+                        name: 'YouTube Ad Skipper',
+                        mem: 'Observer + Timer',
+                        desc: 'Detects YouTube promo slots, clicks skip buttons, and hides ad overlays automatically.',
+                        get: () => !!config.ext_yt_ad_skipper,
+                        set: (next) => { config.ext_yt_ad_skipper = next; }
+                    },
+                    {
+                        key: 'ext_gh_harmonizer',
+                        name: 'GitHub Drawer Harmonizer',
+                        mem: 'Subtree Observer',
+                        desc: 'Aligns GitHub sticky sidebars & modal drawers beneath Fynexo topbar height.',
+                        get: () => !!config.ext_gh_harmonizer,
+                        set: (next) => { config.ext_gh_harmonizer = next; }
+                    },
+                    {
+                        key: 'ext_media_booster',
+                        name: 'Media Volume Booster (300%)',
+                        mem: 'WebAudio DSP',
+                        desc: 'Mounts WebAudio GainNode + DynamicsCompressor for >100% media amplification.',
+                        get: () => !!config.ext_media_booster,
+                        set: (next) => { config.ext_media_booster = next; }
+                    }
+                ]
+            },
+            {
+                title: 'Visual & Memory Pool · 视觉渲染与缓存池',
+                items: [
+                    {
+                        key: 'force_dark',
+                        name: 'Smart Force Dark',
+                        mem: 'CSS Filter',
+                        desc: 'Inverts bright webpages to dark while preserving images & video (Alt+Shift+D).',
+                        get: () => !!config.force_dark,
+                        set: (next) => { config.force_dark = next; }
+                    },
+                    {
+                        key: 'tab_cache_smooth',
+                        name: 'Multi-Tab Live Keep-Alive',
+                        mem: 'Smooth RAM Pool',
+                        desc: 'Keeps up to 6 background tabs warm in memory instead of discarding idle WebViews.',
+                        get: () => (config.tab_cache_mode || 'balanced').toLowerCase() === 'smooth',
+                        set: (next) => { config.tab_cache_mode = next ? 'smooth' : 'balanced'; }
+                    }
+                ]
+            }
+        ];
+
+        function renderBuiltinExtensions() {
+            const container = document.getElementById('builtinExtensionsList');
+            if (!container) return;
+            container.textContent = '';
+
+            const frag = document.createDocumentFragment();
+
+            BUILTIN_EXTENSION_GROUPS.forEach((group) => {
+                const heading = document.createElement('div');
+                heading.className = 'set-group-title';
+                heading.textContent = group.title;
+                frag.appendChild(heading);
+
+                group.items.forEach((item, idx) => {
+                    const isOn = item.get();
+
+                    const row = document.createElement('div');
+                    row.className = 'set-row';
+                    if (idx === group.items.length - 1) row.style.borderBottom = 'none';
+
+                    const meta = document.createElement('div');
+                    meta.className = 'set-meta';
+
+                    const label = document.createElement('div');
+                    label.className = 'set-label';
+                    label.textContent = item.name;
+
+                    const tag = document.createElement('span');
+                    tag.className = isOn ? 'ext-mem-tag on' : 'ext-mem-tag';
+                    tag.textContent = isOn ? `Active · ${item.mem}` : `Off · ${item.mem}`;
+                    label.appendChild(tag);
+
+                    const hint = document.createElement('div');
+                    hint.className = 'set-hint';
+                    hint.textContent = item.desc;
+
+                    meta.appendChild(label);
+                    meta.appendChild(hint);
+
+                    const ctrl = document.createElement('div');
+                    ctrl.className = 'set-ctrl';
+
+                    const sw = document.createElement('button');
+                    sw.type = 'button';
+                    sw.className = isOn ? 'fnx-switch on' : 'fnx-switch';
+                    sw.setAttribute('role', 'switch');
+                    sw.setAttribute('aria-checked', isOn ? 'true' : 'false');
+                    sw.setAttribute('aria-label', item.name);
+                    sw.onclick = () => {
+                        const next = !item.get();
+                        item.set(next);
+                        renderBuiltinExtensions();
+                        saveConfig(`${item.name}: ${next ? 'Enabled' : 'Disabled'}`);
+                    };
+
+                    ctrl.appendChild(sw);
+                    row.appendChild(meta);
+                    row.appendChild(ctrl);
+                    frag.appendChild(row);
+                });
+            });
+
+            container.appendChild(frag);
+            updateExtensionNavCount();
         }
 
         function openRuleEditor(existingRule) {
@@ -2579,7 +3637,6 @@
             const zoomPct = Math.round((Number(config.default_zoom) || 1) * 100);
             document.getElementById('btnZoomReset').textContent = `${zoomPct}%`;
 
-            setSwitchState('btnForceDarkToggle', !!config.force_dark);
             setSwitchState('btnIncognitoToggle', !!config.incognito);
 
             const perfOn = !!config.enforce_perf;
@@ -2682,11 +3739,6 @@
                 e.target.value = '';
             });
         }
-
-        document.getElementById('btnBack').onclick = () => {
-            if (window.history.length > 1) sendIpc({ type: 'GO_BACK' });
-            else sendIpc({ type: 'NAVIGATE', url: config.homepage || 'fynexo://newtab' });
-        };
 
         document.getElementById('btnExportBundle').onclick = () => sendIpc({ type: 'EXPORT_FULL_SETUP' });
         bindJsonFilePicker('btnImportBundle', 'fileImportBundle', 'IMPORT_FULL_SETUP_JSON');
@@ -2812,11 +3864,6 @@
             document.getElementById('inputScUrl').value = '';
         };
 
-        document.getElementById('btnForceDarkToggle').onclick = () => {
-            config.force_dark = !config.force_dark;
-            syncFormControls();
-            saveConfig(config.force_dark ? 'Smart Force Dark enabled' : 'Smart Force Dark off');
-        };
         document.getElementById('btnIncognitoToggle').onclick = () => {
             config.incognito = !config.incognito;
             syncFormControls();
@@ -3106,7 +4153,8 @@
             });
         });
 
-        const initialHash = (location.hash || '').replace(/^#/, '');
+        const rawHash = (location.hash || '').replace(/^#/, '');
+        const initialHash = rawHash === 'pane-siterules' ? 'sec-extensions' : rawHash;
         if (initialHash && viewBlocks.some(v => v.id === initialHash)) {
             switchSettingsView(initialHash, false);
         } else {
@@ -3119,7 +4167,6 @@
             const btns = Array.from(grp.querySelectorAll('.seg-btn'));
             btns.forEach(btn => {
                 btn.onclick = () => {
-                    const paneId = btn.dataset.subpane;
                     btns.forEach(b => b.classList.toggle('active', b === btn));
                     btns.forEach(b => {
                         const pane = document.getElementById(b.dataset.subpane);
@@ -3128,8 +4175,46 @@
                 };
             });
         }
-        bindSubTabSwitcher('rulesSubTabs');
+        bindSubTabSwitcher('extSubTabs');
         bindSubTabSwitcher('studioSubTabs');
+
+        const cloudTabBtn = document.querySelector('#extSubTabs .seg-btn[data-subpane="pane-ext-cloud"]');
+        if (cloudTabBtn) {
+            cloudTabBtn.addEventListener('click', () => {
+                syncCloudConfigInputs();
+                if (!cloudLoadedOnce) fetchCloudCatalog(false);
+            });
+        }
+        document.getElementById('btnToggleCloudCfg').onclick = () => {
+            syncCloudConfigInputs();
+            document.getElementById('cloudConfigCard').classList.toggle('open');
+        };
+        document.getElementById('btnSaveCloudCfg').onclick = () => {
+            const url = document.getElementById('inputSupabaseUrl').value.trim().replace(/\/+$/, '');
+            const anonKey = document.getElementById('inputSupabaseKey').value.trim();
+            const schema = (document.getElementById('inputSupabaseSchema')?.value || '').trim() || 'public';
+            const table = (document.getElementById('inputSupabaseTable')?.value || '').trim() || 'extensions';
+            try {
+                localStorage.setItem(SUPABASE_STORAGE_KEY, JSON.stringify({ url, anonKey, schema, table }));
+            } catch (_) {}
+            document.getElementById('cloudConfigCard').classList.remove('open');
+            fetchCloudCatalog(true);
+        };
+        document.getElementById('btnCloudUpload').onclick = () => openPublishPanel(null);
+        document.getElementById('btnSubmitPublish').onclick = () => submitPublishedExtension();
+        document.getElementById('btnCancelPublish').onclick = () => {
+            document.getElementById('publishExtPanel').classList.remove('open');
+        };
+        ['pubExtDomain', 'pubExtCss', 'pubExtJs'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', () => updatePublishAuditPreview());
+        });
+        document.getElementById('btnInspClose').onclick = () => {
+            document.getElementById('cloudInspectorPanel').classList.remove('open');
+        };
+        document.getElementById('btnRefreshCloud').onclick = () => fetchCloudCatalog(true);
+        document.getElementById('inputCloudSearch').oninput = () => renderCloudExtensions();
+        document.getElementById('selectCloudCategory').onchange = () => renderCloudExtensions();
 
         function renderAllSections() {
             renderThemeGrid();
@@ -3138,7 +4223,9 @@
             renderBangsTable();
             renderShortcutsTable();
             renderAdblockDomainLists();
+            renderBuiltinExtensions();
             renderSiteRulesList();
+            renderCloudExtensions();
             renderKeybindsGrid();
             applySettingsSurface();
             syncFormControls();
