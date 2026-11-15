@@ -1,13 +1,12 @@
 use std::sync::OnceLock;
 
-use super::defaults::DEFAULTS_SCRIPT;
-use super::icons::ICONS_SCRIPT;
-use super::styles::BASE_STYLES_CSS;
-
 /// HUD runtime (plain JavaScript, lint/syntax-checkable with `node --check`).
-/// Placeholders: __FNX_ICONS__, __FNX_DEFAULTS__, __FNX_BASE_CSS__, __FNX_INITIAL_JSON__
-/// (and __FNX_IPC_TOKEN__, __FNX_BRIDGE_TOKEN__, filled in by `hud::generate_hud_script`).
+/// Placeholders: __FNX_ICONS__, __FNX_DEFAULTS__, __FNX_BASE_CSS__, __FNX_EXTENSIONS__,
+/// __FNX_INITIAL_JSON__ (and __FNX_IPC_TOKEN__, __FNX_BRIDGE_TOKEN__, filled in by `hud::generate_hud_script`).
 const HUD_RUNTIME_TEMPLATE: &str = include_str!("runtime.js");
+const ICONS_SCRIPT: &str = include_str!("icons.js");
+const EXTENSIONS_SCRIPT: &str = include_str!("extensions.js");
+const BASE_STYLES_CSS: &str = include_str!("styles.css");
 const INITIAL_JSON_PLACEHOLDER: &str = "__FNX_INITIAL_JSON__";
 
 /// Pre-baked static HUD prefix and suffix split around `__FNX_INITIAL_JSON__`.
@@ -23,11 +22,13 @@ pub fn baked_template_parts() -> &'static (String, String) {
         } else {
             "false"
         };
+        let defaults_js = super::defaults::defaults_script();
         let filled = HUD_RUNTIME_TEMPLATE
             .replacen("__FNX_MOBILE_HOST__", mobile_flag, 1)
             .replacen("__FNX_ICONS__", ICONS_SCRIPT, 1)
-            .replacen("__FNX_DEFAULTS__", DEFAULTS_SCRIPT, 1)
-            .replacen("__FNX_BASE_CSS__", &base_css_json, 1);
+            .replacen("__FNX_DEFAULTS__", &defaults_js, 1)
+            .replacen("__FNX_BASE_CSS__", &base_css_json, 1)
+            .replacen("__FNX_EXTENSIONS__;", EXTENSIONS_SCRIPT, 1);
         match filled.split_once(INITIAL_JSON_PLACEHOLDER) {
             Some((prefix, suffix)) => (prefix.to_string(), suffix.to_string()),
             None => (filled, String::new()),

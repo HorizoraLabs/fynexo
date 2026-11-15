@@ -119,6 +119,7 @@
          ext_yt_ad_skipper: false,
          ext_gh_harmonizer: false,
          ext_media_booster: false,
+         ext_userscript_engine: true,
          search_engine: 'google',
          homepage: 'fynexo://newtab',
          search_engines: DEFAULT_ENGINES,
@@ -223,6 +224,13 @@
    let findRanges = [];
    let findIdx = -1;
    let appliedRuleJsIds = Object.create(null);
+   let scriptForgeMenuCommands = [];
+   let scriptForgeCmdSeq = 1;
+   let activePageScriptCount = 0;
+   let syncShieldPopoverUIRef = null;
+   const scriptForgeMemStore = Object.create(null);
+   const scriptForgeListeners = Object.create(null);
+   let scriptForgeListenerSeq = 1;
    let lastDeskTabsSig = '';
    let lastDrawerTabsSig = '';
    let suggestItems = [];
@@ -656,35 +664,541 @@
       return h === clean || h.endsWith('.' + clean);
    }
 
+   function parseUserscriptMeta(code) {
+      const src = String(code || '');
+      const match = src.match(
+         /\/\/\s*==UserScript==([\s\S]*?)\/\/\s*==\/UserScript==/,
+      );
+      if (!match) return null;
+      const meta = {
+         name: '',
+         version: '',
+         description: '',
+         author: '',
+         runAt: 'document-end',
+         matches: [],
+         includes: [],
+         excludes: [],
+      };
+      const lines = match[1].split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+         const line = lines[i].trim();
+         const m = line.match(/^\/\/\s*@([A-Za-z0-9_-]+)\s+(.*)$/);
+         if (!m) continue;
+         const key = m[1].toLowerCase();
+         const val = m[2].trim();
+         if (!val) continue;
+         if (key === 'name' && !meta.name) meta.name = val;
+         else if (key === 'version' && !meta.version) meta.version = val;
+         else if (key === 'description' && !meta.description)
+            meta.description = val;
+         else if (key === 'author' && !meta.author) meta.author = val;
+         else if (key === 'run-at') {
+            const ra = val.toLowerCase();
+            if (
+               ra === 'document-start' ||
+               ra === 'document-body' ||
+               ra === 'document-end' ||
+               ra === 'document-idle'
+            ) {
+               meta.runAt = ra;
+            }
+         } else if (key === 'match') meta.matches.push(val);
+         else if (key === 'include') meta.includes.push(val);
+         else if (key === 'exclude') meta.excludes.push(val);
+      }
+      return meta;
+   }
+
+   function escapeRegexExact(s) {
+      return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+   }
+
+   function escapeRegexGlob(s) {
+      return String(s)
+         .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+         .replace(/\*/g, '.*');
+   }
+
+   function userscriptPatternMatchesUrl(pattern, href) {
+      const p = String(pattern || '').trim();
+      const target = String(href || '');
+      if (!p || !target) return false;
+      if (p === '*' || p === '<all_urls>') {
+         return /^https?:\/\//i.test(target);
+      }
+      if (p.length > 2 && p.startsWith('/') && p.endsWith('/')) {
+         try {
+            return new RegExp(p.slice(1, -1)).test(target);
+         } catch (_) {
+            return false;
+         }
+      }
+      const schemeMatch = p.match(/^(\*|https?):\/\/(\*\.[^/]+|[^/]+)(\/.*)?$/i);
+      if (schemeMatch) {
+         const schemeRe =
+            schemeMatch[1] === '*' ? 'https?' : escapeRegexExact(schemeMatch[1]);
+         const hostPat = schemeMatch[2];
+         const hostRe =
+            hostPat === '*'
+               ? '[^/]+'
+               : hostPat.startsWith('*.')
+                 ? '(?:[^/]+\\.)?' + escapeRegexGlob(hostPat.slice(2))
+                 : escapeRegexGlob(hostPat);
+         const pathRe = escapeRegexGlob(schemeMatch[3] || '/*');
+         try {
+            return new RegExp(
+               '^' + schemeRe + '://' + hostRe + pathRe + '$',
+               'i',
+            ).test(target);
+         } catch (_) {
+            return false;
+         }
+      }
+      try {
+         return new RegExp('^' + escapeRegexGlob(p) + '$', 'i').test(target);
+      } catch (_) {
+         return false;
+      }
+   }
+
+   function urlMatchesUserscriptMeta(href, meta) {
+      if (!meta) return true;
+      for (let i = 0; i < meta.excludes.length; i++) {
+         if (userscriptPatternMatchesUrl(meta.excludes[i], href)) return false;
+      }
+      if (meta.matches.length === 0 && meta.includes.length === 0) return true;
+      for (let i = 0; i < meta.matches.length; i++) {
+         if (userscriptPatternMatchesUrl(meta.matches[i], href)) return true;
+      }
+      for (let i = 0; i < meta.includes.length; i++) {
+         if (userscriptPatternMatchesUrl(meta.includes[i], href)) return true;
+      }
+      return false;
+   }
+
+   function createScriptForgeSandbox(r, meta) {
+      const ruleId = String(r.id || 'script');
+      const scriptName = (meta && meta.name) || r.name || ruleId;
+      const storePrefix = '__fnx_gm_' + ruleId + '_';
+      const mem =
+         scriptForgeMemStore[ruleId] ||
+         (scriptForgeMemStore[ruleId] = Object.create(null));
+
+      const gmInfo = {
+         scriptHandler: 'ScriptForge',
+         version: '1.0.0',
+         script: {
+            name: scriptName,
+            version: (meta && meta.version) || r.version || '1.0.0',
+            description: (meta && meta.description) || '',
+            author: (meta && meta.author) || '',
+            domain: r.domain || '*',
+            runAt: (meta && meta.runAt) || 'document-end',
+            matches:
+               meta && Array.isArray(meta.matches) ? meta.matches.slice() : [],
+            includes:
+               meta && Array.isArray(meta.includes) ? meta.includes.slice() : [],
+            excludes:
+               meta && Array.isArray(meta.excludes) ? meta.excludes.slice() : [],
+         },
+      };
+
+      const notifyValueChange = (key, oldVal, newVal) => {
+         const keys = Object.keys(scriptForgeListeners);
+         for (let i = 0; i < keys.length; i++) {
+            const entry = scriptForgeListeners[keys[i]];
+            if (entry && entry.ruleId === ruleId && entry.key === key) {
+               try {
+                  entry.cb(key, oldVal, newVal, false);
+               } catch (_) {}
+            }
+         }
+      };
+
+      const gmGetValue = (key, defaultValue) => {
+         const k = String(key);
+         try {
+            if (window.localStorage) {
+               const raw = window.localStorage.getItem(storePrefix + k);
+               if (raw === null) return defaultValue;
+               return __fnxJsonParse(raw);
+            }
+         } catch (_) {}
+         return Object.prototype.hasOwnProperty.call(mem, k)
+            ? mem[k]
+            : defaultValue;
+      };
+
+      const gmDeleteValue = (key) => {
+         const k = String(key);
+         const oldVal = gmGetValue(k, undefined);
+         try {
+            if (window.localStorage) {
+               window.localStorage.removeItem(storePrefix + k);
+            }
+         } catch (_) {}
+         delete mem[k];
+         if (oldVal !== undefined) notifyValueChange(k, oldVal, undefined);
+      };
+
+      const gmSetValue = (key, value) => {
+         const k = String(key);
+         if (value === undefined) {
+            gmDeleteValue(k);
+            return;
+         }
+         const oldVal = gmGetValue(k, undefined);
+         let encoded;
+         try {
+            encoded = __fnxJsonStringify(value);
+         } catch (_) {
+            encoded = 'null';
+         }
+         try {
+            if (window.localStorage) {
+               window.localStorage.setItem(storePrefix + k, encoded);
+            }
+         } catch (_) {}
+         mem[k] = value;
+         notifyValueChange(k, oldVal, value);
+      };
+
+      const gmListValues = () => {
+         const out = [];
+         try {
+            if (window.localStorage) {
+               for (let i = 0; i < window.localStorage.length; i++) {
+                  const fullKey = window.localStorage.key(i);
+                  if (fullKey && fullKey.startsWith(storePrefix)) {
+                     out.push(fullKey.slice(storePrefix.length));
+                  }
+               }
+               return out;
+            }
+         } catch (_) {}
+         return Object.keys(mem);
+      };
+
+      const gmAddValueChangeListener = (key, cb) => {
+         if (typeof cb !== 'function') return 0;
+         const id = scriptForgeListenerSeq++;
+         scriptForgeListeners[id] = { ruleId, key: String(key), cb };
+         return id;
+      };
+
+      const gmRemoveValueChangeListener = (id) => {
+         delete scriptForgeListeners[id];
+      };
+
+      const gmAddStyle = (cssText) => {
+         const st = document.createElement('style');
+         st.setAttribute('data-fnx-gm-style', ruleId);
+         st.textContent = String(cssText || '');
+         const parent =
+            document.head || document.documentElement || document.body;
+         if (parent) parent.appendChild(st);
+         return st;
+      };
+
+      const gmSetClipboard = (text) => {
+         copyTextToClipboard(String(text ?? ''), 'Copied by ScriptForge');
+      };
+
+      const gmNotification = (detailsOrText, title) => {
+         const msg =
+            detailsOrText && typeof detailsOrText === 'object'
+               ? detailsOrText.text || detailsOrText.title || title || 'ScriptForge'
+               : detailsOrText || title || 'ScriptForge';
+         showHudToast(String(msg));
+      };
+
+      const gmOpenInTab = (url, options) => {
+         const target = String(url || '').trim();
+         if (!target) return null;
+         const bg =
+            typeof options === 'boolean'
+               ? options
+               : !!(options && (options.active === false || options.loadInBackground));
+         sendIpc({ type: 'NEW_TAB', url: target, background: bg });
+         return { close: () => {} };
+      };
+
+      const gmRegisterMenuCommand = (caption, onClick) => {
+         if (typeof onClick !== 'function') return '';
+         const id = 'sf_cmd_' + scriptForgeCmdSeq++;
+         scriptForgeMenuCommands.push({
+            id,
+            ruleId,
+            scriptName,
+            caption: String(caption || 'Run command'),
+            onClick,
+         });
+         if (typeof syncShieldPopoverUIRef === 'function') {
+            syncShieldPopoverUIRef();
+         }
+         return id;
+      };
+
+      const gmUnregisterMenuCommand = (cmdId) => {
+         const before = scriptForgeMenuCommands.length;
+         scriptForgeMenuCommands = scriptForgeMenuCommands.filter(
+            (c) => c.id !== cmdId && c.caption !== cmdId,
+         );
+         if (
+            scriptForgeMenuCommands.length !== before &&
+            typeof syncShieldPopoverUIRef === 'function'
+         ) {
+            syncShieldPopoverUIRef();
+         }
+      };
+
+      const gmXmlhttpRequest = (details) => {
+         const d = details || {};
+         const url = String(d.url || '');
+         const method = String(d.method || 'GET').toUpperCase();
+         const controller =
+            typeof AbortController === 'function' ? new AbortController() : null;
+         let timedOut = false;
+         let timeoutTimer = null;
+         if (d.timeout && d.timeout > 0 && controller) {
+            timeoutTimer = setTimeout(() => {
+               timedOut = true;
+               try {
+                  controller.abort();
+               } catch (_) {}
+            }, Number(d.timeout));
+         }
+         const init = {
+            method,
+            headers: d.headers || {},
+            credentials: d.anonymous ? 'omit' : 'include',
+         };
+         if (controller) init.signal = controller.signal;
+         if (d.data !== undefined && method !== 'GET' && method !== 'HEAD') {
+            init.body = d.data;
+         }
+
+         fetch(url, init)
+            .then(async (res) => {
+               if (timeoutTimer) clearTimeout(timeoutTimer);
+               let rawHeaders = '';
+               try {
+                  res.headers.forEach((v, k) => {
+                     rawHeaders += k + ': ' + v + '\r\n';
+                  });
+               } catch (_) {}
+               const rt = String(d.responseType || 'text').toLowerCase();
+               let responseVal = null;
+               let responseText = '';
+               if (rt === 'blob') {
+                  responseVal = await res.blob();
+               } else if (rt === 'arraybuffer') {
+                  responseVal = await res.arrayBuffer();
+               } else if (rt === 'json') {
+                  responseText = await res.text();
+                  try {
+                     responseVal = __fnxJsonParse(responseText);
+                  } catch (_) {
+                     responseVal = null;
+                  }
+               } else {
+                  responseText = await res.text();
+                  responseVal = responseText;
+               }
+               if (typeof d.onload === 'function') {
+                  d.onload({
+                     readyState: 4,
+                     status: res.status,
+                     statusText: res.statusText || '',
+                     responseHeaders: rawHeaders,
+                     finalUrl: res.url || url,
+                     responseText,
+                     response: responseVal,
+                  });
+               }
+            })
+            .catch((err) => {
+               if (timeoutTimer) clearTimeout(timeoutTimer);
+               if (timedOut && typeof d.ontimeout === 'function') {
+                  d.ontimeout({ error: 'timeout' });
+               } else if (typeof d.onerror === 'function') {
+                  d.onerror({ error: String((err && err.message) || err || 'Network error') });
+               }
+            });
+
+         return {
+            abort: () => {
+               if (timeoutTimer) clearTimeout(timeoutTimer);
+               if (controller) {
+                  try {
+                     controller.abort();
+                  } catch (_) {}
+               }
+            },
+         };
+      };
+
+      const gmLog = console.log.bind(console, '[ScriptForge:' + scriptName + ']');
+
+      const gmAsync = {
+         info: gmInfo,
+         addStyle: (cssText) => Promise.resolve(gmAddStyle(cssText)),
+         getValue: (key, defVal) => Promise.resolve(gmGetValue(key, defVal)),
+         setValue: (key, val) => Promise.resolve(gmSetValue(key, val)),
+         deleteValue: (key) => Promise.resolve(gmDeleteValue(key)),
+         listValues: () => Promise.resolve(gmListValues()),
+         addValueChangeListener: (key, cb) =>
+            Promise.resolve(gmAddValueChangeListener(key, cb)),
+         removeValueChangeListener: (id) =>
+            Promise.resolve(gmRemoveValueChangeListener(id)),
+         setClipboard: (text) => Promise.resolve(gmSetClipboard(text)),
+         notification: (detailsOrText, title) =>
+            Promise.resolve(gmNotification(detailsOrText, title)),
+         openInTab: (url, opts) => Promise.resolve(gmOpenInTab(url, opts)),
+         registerMenuCommand: (caption, cb) =>
+            Promise.resolve(gmRegisterMenuCommand(caption, cb)),
+         unregisterMenuCommand: (id) =>
+            Promise.resolve(gmUnregisterMenuCommand(id)),
+         xmlHttpRequest: gmXmlhttpRequest,
+         log: gmLog,
+      };
+
+      return {
+         unsafeWindow: window,
+         GM: gmAsync,
+         GM_info: gmInfo,
+         GM_addStyle: gmAddStyle,
+         GM_getValue: gmGetValue,
+         GM_setValue: gmSetValue,
+         GM_deleteValue: gmDeleteValue,
+         GM_listValues: gmListValues,
+         GM_addValueChangeListener: gmAddValueChangeListener,
+         GM_removeValueChangeListener: gmRemoveValueChangeListener,
+         GM_setClipboard: gmSetClipboard,
+         GM_notification: gmNotification,
+         GM_openInTab: gmOpenInTab,
+         GM_registerMenuCommand: gmRegisterMenuCommand,
+         GM_unregisterMenuCommand: gmUnregisterMenuCommand,
+         GM_xmlhttpRequest: gmXmlhttpRequest,
+         GM_log: gmLog,
+      };
+   }
+
    function applySiteRules() {
       if (isInternalAny()) {
          if (siteRulesEl && siteRulesEl.isConnected) siteRulesEl.remove();
+         scriptForgeMenuCommands = [];
+         activePageScriptCount = 0;
+         if (typeof syncShieldPopoverUIRef === 'function') {
+            syncShieldPopoverUIRef();
+         }
          return;
       }
+
+      const engineOn = config.ext_userscript_engine !== false;
+      if (!engineOn) {
+         try {
+            const gmStyles = document.querySelectorAll('style[data-fnx-gm-style]');
+            for (let i = 0; i < gmStyles.length; i++) gmStyles[i].remove();
+         } catch (_) {}
+         scriptForgeMenuCommands = [];
+         appliedRuleJsIds = Object.create(null);
+      }
+
       const host = window.location.hostname || '';
+      const href = window.location.href || '';
       let combinedCss = '';
+      let matchedCount = 0;
+
       for (let i = 0; i < enabledRules.length; i++) {
          const r = enabledRules[i];
          if (!r || !r.enabled) continue;
          if (!domainMatchesRule(host, r.domain)) continue;
+         const meta = r.js ? parseUserscriptMeta(r.js) : null;
+         if (meta && !urlMatchesUserscriptMeta(href, meta)) continue;
+         matchedCount += 1;
+
          if (r.css && r.css.trim()) {
             combinedCss += '\n/* Rule: ' + (r.name || r.id) + ' */\n' + r.css;
          }
-         if (r.js && r.js.trim() && !appliedRuleJsIds[r.id]) {
+         if (engineOn && r.js && r.js.trim() && !appliedRuleJsIds[r.id]) {
             appliedRuleJsIds[r.id] = true;
             const code = r.js;
+            const runAt = (meta && meta.runAt) || 'document-end';
             const runRuleJs = () => {
                try {
-                  new Function(code)();
+                  const sb = createScriptForgeSandbox(r, meta);
+                  const fn = new Function(
+                     'unsafeWindow',
+                     'GM',
+                     'GM_info',
+                     'GM_addStyle',
+                     'GM_getValue',
+                     'GM_setValue',
+                     'GM_deleteValue',
+                     'GM_listValues',
+                     'GM_addValueChangeListener',
+                     'GM_removeValueChangeListener',
+                     'GM_setClipboard',
+                     'GM_notification',
+                     'GM_openInTab',
+                     'GM_registerMenuCommand',
+                     'GM_unregisterMenuCommand',
+                     'GM_xmlhttpRequest',
+                     'GM_log',
+                     code,
+                  );
+                  fn.call(
+                     sb.unsafeWindow,
+                     sb.unsafeWindow,
+                     sb.GM,
+                     sb.GM_info,
+                     sb.GM_addStyle,
+                     sb.GM_getValue,
+                     sb.GM_setValue,
+                     sb.GM_deleteValue,
+                     sb.GM_listValues,
+                     sb.GM_addValueChangeListener,
+                     sb.GM_removeValueChangeListener,
+                     sb.GM_setClipboard,
+                     sb.GM_notification,
+                     sb.GM_openInTab,
+                     sb.GM_registerMenuCommand,
+                     sb.GM_unregisterMenuCommand,
+                     sb.GM_xmlhttpRequest,
+                     sb.GM_log,
+                  );
                } catch (err) {
                   console.warn(
-                     '[Fynexo Site Rule JS Error]:',
-                     r.name || r.id,
+                     '[ScriptForge Userscript Error]:',
+                     (meta && meta.name) || r.name || r.id,
                      err,
                   );
                }
             };
-            if (document.readyState === 'loading') {
+
+            if (runAt === 'document-start') {
+               runRuleJs();
+            } else if (runAt === 'document-body') {
+               if (document.body) {
+                  runRuleJs();
+               } else {
+                  document.addEventListener('DOMContentLoaded', runRuleJs, {
+                     once: true,
+                  });
+               }
+            } else if (runAt === 'document-idle') {
+               if (document.readyState === 'complete') {
+                  setTimeout(runRuleJs, 0);
+               } else {
+                  window.addEventListener(
+                     'load',
+                     () => setTimeout(runRuleJs, 0),
+                     { once: true },
+                  );
+               }
+            } else if (document.readyState === 'loading') {
                document.addEventListener('DOMContentLoaded', runRuleJs, {
                   once: true,
                });
@@ -692,6 +1206,11 @@
                runRuleJs();
             }
          }
+      }
+
+      activePageScriptCount = matchedCount;
+      if (typeof syncShieldPopoverUIRef === 'function') {
+         syncShieldPopoverUIRef();
       }
 
       if (!combinedCss) {
@@ -5524,9 +6043,42 @@
          shieldSwitch.role = 'switch';
          shieldSwitch.className = 'fnx-pop-switch';
 
+         shieldToggleRow.appendChild(shieldToggleLabel);
+         shieldToggleRow.appendChild(shieldSwitch);
+         shieldBody.appendChild(shieldToggleRow);
+
+         // ScriptForge Userscript Engine row + registered GM_registerMenuCommand buttons
+         const sfToggleRow = document.createElement('div');
+         sfToggleRow.className = 'fnx-pop-row';
+         sfToggleRow.style.cssText =
+            'padding-top: 8px; border-top: 1px solid var(--fnx-border);';
+         const sfToggleMeta = document.createElement('div');
+         sfToggleMeta.style.cssText =
+            'min-width: 0; display: flex; flex-direction: column; gap: 1px;';
+         const sfToggleLabel = document.createElement('span');
+         sfToggleLabel.className = 'fnx-pop-label';
+         sfToggleLabel.textContent = 'ScriptForge userscripts';
+         const sfScriptCountSub = document.createElement('span');
+         sfScriptCountSub.className = 'fnx-pop-sub';
+         sfToggleMeta.appendChild(sfToggleLabel);
+         sfToggleMeta.appendChild(sfScriptCountSub);
+         const sfSwitch = document.createElement('button');
+         sfSwitch.type = 'button';
+         sfSwitch.role = 'switch';
+         sfSwitch.className = 'fnx-pop-switch';
+         sfToggleRow.appendChild(sfToggleMeta);
+         sfToggleRow.appendChild(sfSwitch);
+         shieldBody.appendChild(sfToggleRow);
+
+         const sfCommandsWrap = document.createElement('div');
+         sfCommandsWrap.style.cssText =
+            'display: none; flex-direction: column; gap: 5px; padding-top: 8px; border-top: 1px solid var(--fnx-border);';
+         shieldBody.appendChild(sfCommandsWrap);
+
          function syncShieldPopoverUI() {
             const internal = isInternalAny();
             const adOn = config.adblock !== false;
+            const sfOn = config.ext_userscript_engine !== false;
             shieldHostSub.textContent = internal
                ? 'System page · Exempt'
                : (window.location.hostname || '').replace(/^www\./, '') ||
@@ -5550,7 +6102,60 @@
                ? 'var(--fnx-muted)'
                : 'var(--fnx-fg)';
             if (internal) shieldCountNum.textContent = '0';
+
+            sfSwitch.disabled = internal;
+            sfSwitch.classList.toggle('on', !internal && sfOn);
+            sfSwitch.setAttribute(
+               'aria-checked',
+               !internal && sfOn ? 'true' : 'false',
+            );
+            sfSwitch.setAttribute(
+               'aria-disabled',
+               internal ? 'true' : 'false',
+            );
+            sfToggleLabel.style.color = internal
+               ? 'var(--fnx-muted)'
+               : 'var(--fnx-fg)';
+            sfScriptCountSub.textContent = internal
+               ? 'System page · Exempt'
+               : sfOn
+                 ? activePageScriptCount +
+                   (activePageScriptCount === 1
+                      ? ' script active'
+                      : ' scripts active')
+                 : 'Paused · ' + activePageScriptCount + ' matched';
+
+            sfCommandsWrap.textContent = '';
+            if (!internal && sfOn && scriptForgeMenuCommands.length > 0) {
+               sfCommandsWrap.style.display = 'flex';
+               const cmdHead = document.createElement('div');
+               cmdHead.className = 'fnx-pop-sub';
+               cmdHead.textContent = 'Script commands';
+               sfCommandsWrap.appendChild(cmdHead);
+               for (let i = 0; i < scriptForgeMenuCommands.length; i++) {
+                  const cmd = scriptForgeMenuCommands[i];
+                  const btn = document.createElement('button');
+                  btn.type = 'button';
+                  btn.className = 'fnx-pop-btn';
+                  btn.style.justifyContent = 'flex-start';
+                  btn.textContent = cmd.caption;
+                  btn.title = cmd.scriptName;
+                  btn.onclick = (e) => {
+                     e.stopPropagation();
+                     closeAllNavPopovers();
+                     try {
+                        cmd.onClick();
+                     } catch (err) {
+                        console.warn('[ScriptForge Menu Command Error]:', err);
+                     }
+                  };
+                  sfCommandsWrap.appendChild(btn);
+               }
+            } else {
+               sfCommandsWrap.style.display = 'none';
+            }
          }
+         syncShieldPopoverUIRef = syncShieldPopoverUI;
          syncShieldPopoverUI();
 
          shieldSwitch.onclick = (e) => {
@@ -5566,9 +6171,22 @@
                   : 'Adblock shield paused',
             );
          };
-         shieldToggleRow.appendChild(shieldToggleLabel);
-         shieldToggleRow.appendChild(shieldSwitch);
-         shieldBody.appendChild(shieldToggleRow);
+         sfSwitch.onclick = (e) => {
+            e.stopPropagation();
+            if (isInternalAny()) return;
+            config.ext_userscript_engine = config.ext_userscript_engine === false;
+            sendIpc({
+               type: 'PATCH_HUD_PREFS',
+               ext_userscript_engine: config.ext_userscript_engine,
+            });
+            applySiteRules();
+            syncShieldPopoverUI();
+            showHudToast(
+               config.ext_userscript_engine
+                  ? 'ScriptForge userscripts enabled'
+                  : 'ScriptForge userscripts paused',
+            );
+         };
          shieldPopoverEl.appendChild(shieldBody);
 
          const btnOpenAdbStudio = document.createElement('button');
@@ -8157,496 +8775,7 @@
             passive: true,
          });
 
-         function patchYoutubeDrawers() {
-            try {
-               const host = (window.location.hostname || '').toLowerCase();
-               if (!host.includes('youtube.com')) return true;
-               const drawers = document.querySelectorAll('tp-yt-app-drawer');
-               let patchedGuide = false;
-               for (let i = 0; i < drawers.length; i++) {
-                  const d = drawers[i];
-                  const sr = d && d.shadowRoot;
-                  if (!sr) continue;
-                  if (d.id === 'guide') patchedGuide = true;
-                  if (!sr.getElementById('__fnx_yt_drawer_fix__')) {
-                     const st = document.createElement('style');
-                     st.id = '__fnx_yt_drawer_fix__';
-                     st.textContent = `
-                                #contentContainer {
-                                    padding-top: 0 !important;
-                                    padding-bottom: 0 !important;
-                                    top: 0 !important;
-                                    bottom: 0 !important;
-                                    height: 100% !important;
-                                    max-height: 100% !important;
-                                }
-                            `;
-                     sr.appendChild(st);
-                  }
-               }
-               return patchedGuide;
-            } catch (_) {
-               return true;
-            }
-         }
-
-         let ytAdSkipperActive = false;
-         let ytStopTeardown = null;
-         function syncYouTubeAdSkipper() {
-            if (!config.ext_yt_ad_skipper) {
-               if (ytStopTeardown) {
-                  ytStopTeardown();
-                  ytStopTeardown = null;
-               }
-               ytAdSkipperActive = false;
-               return;
-            }
-            if (ytAdSkipperActive) return;
-            try {
-               const host = (window.location.hostname || '').toLowerCase();
-               if (!host.includes('youtube.com')) return;
-               ytAdSkipperActive = true;
-
-               if (!patchYoutubeDrawers()) {
-                  let dTries = 0;
-                  const drawerTimer = setInterval(() => {
-                     if (patchYoutubeDrawers() || ++dTries > 30)
-                        clearInterval(drawerTimer);
-                  }, 250);
-               }
-               document.addEventListener(
-                  'DOMContentLoaded',
-                  patchYoutubeDrawers,
-                  { once: true },
-               );
-               window.addEventListener('load', patchYoutubeDrawers, {
-                  once: true,
-               });
-               window.addEventListener(
-                  'yt-navigate-finish',
-                  () => setTimeout(patchYoutubeDrawers, 120),
-                  { passive: true },
-               );
-
-               let savedRate = 1.0;
-               let playerEl = null;
-               let adPollTimer = null;
-
-               const skipAds = () => {
-                  if (config.adblock === false) {
-                     if (adPollTimer) {
-                        clearInterval(adPollTimer);
-                        adPollTimer = null;
-                     }
-                     return;
-                  }
-                  if (!playerEl || !playerEl.isConnected) {
-                     playerEl = document.querySelector('.html5-video-player');
-                  }
-                  if (!playerEl) return;
-
-                  const isAd =
-                     playerEl.classList.contains('ad-showing') ||
-                     playerEl.classList.contains('ad-interrupting');
-                  const v = playerEl.querySelector('video');
-
-                  if (v) {
-                     if (isAd) {
-                        // Mute ad and fast-forward at 16x without seeking currentTime to avoid MSE pipeline crash/black screen
-                        v.muted = true;
-                        v.playbackRate = 16.0;
-                     } else {
-                        // Restore playback speed and respect the tab's mute state as soon as ad finishes
-                        if (v.playbackRate > 2.0) {
-                           v.playbackRate = savedRate || 1.0;
-                           v.muted = isTabMutedState;
-                        } else {
-                           savedRate = v.playbackRate;
-                        }
-                     }
-                  }
-
-                  if (isAd) {
-                     if (!adPollTimer) {
-                        adPollTimer = setInterval(skipAds, 250);
-                     }
-                     const skipBtn = playerEl.querySelector(
-                        'button.ytp-ad-skip-button-modern, button.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-container button',
-                     );
-                     if (skipBtn && typeof skipBtn.click === 'function') {
-                        try {
-                           skipBtn.click();
-                        } catch (_) {}
-                     }
-                     const overlayBtn = playerEl.querySelector(
-                        '.ytp-ad-overlay-close-button',
-                     );
-                     if (overlayBtn && typeof overlayBtn.click === 'function') {
-                        try {
-                           overlayBtn.click();
-                        } catch (_) {}
-                     }
-                  } else if (adPollTimer) {
-                     clearInterval(adPollTimer);
-                     adPollTimer = null;
-                  }
-               };
-
-               // Observe player class changes so idle playback incurs zero 250ms DOM polling.
-               let observedPlayer = null;
-               let playerObserver = null;
-               const attachPlayerObserver = () => {
-                  const p = document.querySelector('.html5-video-player');
-                  if (!p || p === observedPlayer) return false;
-                  if (playerObserver) {
-                     try {
-                        playerObserver.disconnect();
-                     } catch (_) {}
-                  }
-                  observedPlayer = p;
-                  playerEl = p;
-                  playerObserver = new MutationObserver(skipAds);
-                  playerObserver.observe(p, {
-                     attributes: true,
-                     attributeFilter: ['class'],
-                  });
-                  skipAds();
-                  return true;
-               };
-               if (!attachPlayerObserver()) {
-                  let tries = 0;
-                  const bootTimer = setInterval(() => {
-                     if (attachPlayerObserver() || ++tries > 40)
-                        clearInterval(bootTimer);
-                  }, 500);
-               }
-               const onYtNav = () => setTimeout(attachPlayerObserver, 200);
-               window.addEventListener('yt-navigate-finish', onYtNav, { passive: true });
-               window.addEventListener('popstate', onYtNav, { passive: true });
-               ytStopTeardown = () => {
-                  if (adPollTimer) {
-                     clearInterval(adPollTimer);
-                     adPollTimer = null;
-                  }
-                  if (playerObserver) {
-                     try {
-                        playerObserver.disconnect();
-                     } catch (_) {}
-                     playerObserver = null;
-                  }
-                  observedPlayer = null;
-                  window.removeEventListener('yt-navigate-finish', onYtNav);
-                  window.removeEventListener('popstate', onYtNav);
-               };
-            } catch (_) {}
-         }
-         syncYouTubeAdSkipper();
-
-         let ghHarmonizerActive = false;
-         let ghStopTeardown = null;
-         function syncGithubDrawerHarmonizer() {
-            if (!config.ext_gh_harmonizer) {
-               if (ghStopTeardown) {
-                  ghStopTeardown();
-                  ghStopTeardown = null;
-               }
-               ghHarmonizerActive = false;
-               return;
-            }
-            if (ghHarmonizerActive) return;
-            try {
-               const host = (window.location.hostname || '').toLowerCase();
-               if (host !== 'github.com' && !host.endsWith('.github.com')) return;
-               ghHarmonizerActive = true;
-
-               let ghRafPending = false;
-               const resetTopOffsets = () => {
-                  const patched = document.querySelectorAll('[data-fnx-gh-offset]');
-                  for (let i = 0; i < patched.length; i++) {
-                     const n = patched[i];
-                     n.removeAttribute('data-fnx-gh-offset');
-                     n.removeAttribute('data-fnx-gh-top');
-                     n.style.removeProperty('top');
-                     n.style.removeProperty('inset-block-start');
-                     n.style.removeProperty('bottom');
-                     n.style.removeProperty('inset-block-end');
-                     n.style.removeProperty('height');
-                     n.style.removeProperty('max-height');
-                     n.style.removeProperty('margin-top');
-                     n.style.removeProperty('margin-bottom');
-                     n.style.removeProperty('margin-block-start');
-                     n.style.removeProperty('margin-block-end');
-                     n.style.removeProperty('transform');
-                     n.style.removeProperty('align-self');
-                  }
-               };
-
-               const applyTopOffset = (node, topPx) => {
-                  const topVal = `${topPx}px`;
-                  const heightVal = `calc(100vh - ${topPx}px)`;
-                  node.setAttribute('data-fnx-gh-offset', '1');
-                  node.setAttribute('data-fnx-gh-top', String(topPx));
-                  node.style.setProperty('top', topVal, 'important');
-                  node.style.setProperty('inset-block-start', topVal, 'important');
-                  node.style.setProperty('bottom', '0px', 'important');
-                  node.style.setProperty('inset-block-end', '0px', 'important');
-                  node.style.setProperty('height', heightVal, 'important');
-                  node.style.setProperty('max-height', heightVal, 'important');
-                  node.style.setProperty('margin-top', '0px', 'important');
-                  node.style.setProperty('margin-bottom', '0px', 'important');
-                  node.style.setProperty('margin-block-start', '0px', 'important');
-                  node.style.setProperty('margin-block-end', '0px', 'important');
-               };
-
-               const patchDrawers = () => {
-                  ghRafPending = false;
-                  const deskTopVisible =
-                     styles.topbar.visible_on_desktop !== false &&
-                     !isFullscreen &&
-                     !isMobilePlatform();
-                  const tb =
-                     shadowRoot && shadowRoot.getElementById('__fynexo_topbar__');
-                  const tbRect = tb ? tb.getBoundingClientRect() : null;
-                  let topPx = 0;
-                  if (deskTopVisible && tbRect && tbRect.height > 1 && tbRect.bottom > 1) {
-                     topPx = Math.ceil(tbRect.bottom);
-                  } else if (deskTopVisible && document.body) {
-                     topPx = Math.round(document.body.getBoundingClientRect().top);
-                  }
-                  if (!Number.isFinite(topPx) || topPx <= 1) {
-                     resetTopOffsets();
-                     return;
-                  }
-
-                  if (
-                     document.body &&
-                     !document.documentElement.hasAttribute('data-fynexo-internal') &&
-                     document.body.getBoundingClientRect().top < topPx - 2
-                  ) {
-                     document.body.style.setProperty('position', 'fixed', 'important');
-                     document.body.style.setProperty('top', `${topPx}px`, 'important');
-                     document.body.style.setProperty('left', '0px', 'important');
-                     document.body.style.setProperty('right', '0px', 'important');
-                     document.body.style.setProperty('bottom', '0px', 'important');
-                  }
-
-                  const roots = [document];
-                  const customModalHosts = document.querySelectorAll(
-                     'modal-dialog, primer-dialog, anchored-position',
-                  );
-                  for (let m = 0; m < customModalHosts.length; m++) {
-                     if (customModalHosts[m] && customModalHosts[m].shadowRoot) {
-                        roots.push(customModalHosts[m].shadowRoot);
-                     }
-                  }
-
-                  const seeds = [];
-                  for (let r = 0; r < roots.length; r++) {
-                     const list = roots[r].querySelectorAll(
-                        'dialog, modal-dialog, [role="dialog"], [aria-modal="true"], [popover], .Overlay, .Overlay-backdrop, .Overlay-backdrop--side, [data-component="SidePanel"], [data-testid="global-navigation-modal"], aside.SidePanel, [class*="prc-Dialog-Backdrop"], [class*="prc-Dialog-Dialog"]',
-                     );
-                     for (let i = 0; i < list.length; i++) seeds.push(list[i]);
-                  }
-                  if (typeof document.elementsFromPoint === 'function') {
-                     const probeYs = [
-                        Math.min(window.innerHeight - 10, topPx + 4),
-                        Math.min(window.innerHeight - 10, topPx + 24),
-                     ];
-                     const probeXs = [28, 120, Math.max(40, window.innerWidth - 28)];
-                     for (let py = 0; py < probeYs.length; py++) {
-                        for (let px = 0; px < probeXs.length; px++) {
-                           const hit = document.elementsFromPoint(
-                              probeXs[px],
-                              probeYs[py],
-                           );
-                           for (let h = 0; h < hit.length; h++) {
-                              if (hit[h] && hit[h].id !== '__fynexo_host__') {
-                                 seeds.push(hit[h]);
-                              }
-                           }
-                        }
-                     }
-                  }
-
-                  const minH = window.innerHeight * 0.45;
-                  const seen = typeof Set === 'function' ? new Set() : null;
-                  for (let i = 0; i < seeds.length; i++) {
-                     let node = seeds[i];
-                     for (
-                        let depth = 0;
-                        depth < 30 &&
-                        node &&
-                        node !== document.body &&
-                        node !== document.documentElement;
-                        depth++
-                     ) {
-                        if (node.id === '__fynexo_host__') break;
-                        if (!seen || !seen.has(node)) {
-                           if (seen) seen.add(node);
-                           const cs = getComputedStyle(node);
-                           if (
-                              cs.position === 'fixed' ||
-                              cs.position === 'sticky' ||
-                              cs.position === 'absolute'
-                           ) {
-                              const rect = node.getBoundingClientRect();
-                              const prevTop = parseInt(
-                                 node.getAttribute('data-fnx-gh-top') || '',
-                                 10,
-                              );
-                              if (
-                                 rect.height >= minH &&
-                                 (rect.top < topPx - 2 ||
-                                    (Number.isFinite(prevTop) && prevTop !== topPx))
-                              ) {
-                                 applyTopOffset(node, topPx);
-                                 const after = node.getBoundingClientRect();
-                                 if (
-                                    after.top < topPx - 2 &&
-                                    cs.transform &&
-                                    cs.transform !== 'none' &&
-                                    typeof DOMMatrix === 'function'
-                                 ) {
-                                    try {
-                                       const mat = new DOMMatrix(cs.transform);
-                                       if (mat.f < -1) {
-                                          node.style.setProperty(
-                                             'transform',
-                                             `translateX(${mat.e}px)`,
-                                             'important',
-                                          );
-                                       }
-                                    } catch (_) {}
-                                 }
-                                 const afterTx = node.getBoundingClientRect();
-                                 if (afterTx.top < topPx - 2) {
-                                    const delta = Math.ceil(topPx - afterTx.top);
-                                    if (delta > 0 && delta <= topPx + 24) {
-                                       node.style.setProperty(
-                                          'margin-top',
-                                          `${delta}px`,
-                                          'important',
-                                       );
-                                    }
-                                 }
-                              }
-                           }
-                        }
-                        node =
-                           node.parentElement ||
-                           (node.getRootNode && node.getRootNode().host) ||
-                           null;
-                     }
-                  }
-
-                  // Final safety pass if an open dialog/drawer is still partially above topPx (e.g. centered flex child)
-                  for (let r = 0; r < roots.length; r++) {
-                     const dialogs = roots[r].querySelectorAll(
-                        'dialog[open], [role="dialog"], [aria-modal="true"], [data-testid="global-navigation-modal"], .Overlay--drawer',
-                     );
-                     for (let i = 0; i < dialogs.length; i++) {
-                        const d = dialogs[i];
-                        const rect = d.getBoundingClientRect();
-                        if (rect.height >= minH && rect.top < topPx - 2) {
-                           const cs = getComputedStyle(d);
-                           if (cs.position === 'static' || cs.position === 'relative') {
-                              const parent = d.parentElement;
-                              const pcs = parent ? getComputedStyle(parent) : null;
-                              if (pcs && (pcs.display === 'flex' || pcs.display === 'inline-flex' || pcs.display === 'grid')) {
-                                 d.style.setProperty('align-self', 'stretch', 'important');
-                              }
-                              const afterSelf = d.getBoundingClientRect();
-                              if (afterSelf.top < topPx - 2) {
-                                 const delta = Math.ceil(topPx - afterSelf.top);
-                                 if (delta > 0 && delta <= topPx + 24 && !d.hasAttribute('data-fnx-gh-offset')) {
-                                    d.setAttribute('data-fnx-gh-offset', '1');
-                                    d.style.setProperty('margin-top', `${delta}px`, 'important');
-                                 }
-                              }
-                           } else {
-                              applyTopOffset(d, topPx);
-                           }
-                        }
-                     }
-                  }
-               };
-
-               let ghSettleTimer = null;
-               const schedulePatch = () => {
-                  if (!ghRafPending) {
-                     ghRafPending = true;
-                     requestAnimationFrame(patchDrawers);
-                  }
-                  if (ghSettleTimer) clearTimeout(ghSettleTimer);
-                  ghSettleTimer = setTimeout(() => {
-                     ghSettleTimer = null;
-                     patchDrawers();
-                  }, 80);
-               };
-
-               document.addEventListener('click', schedulePatch, { passive: true, capture: true });
-               document.addEventListener('keydown', schedulePatch, { passive: true, capture: true });
-               window.addEventListener('turbo:load', schedulePatch, { passive: true });
-               window.addEventListener('resize', patchDrawers, { passive: true });
-
-               let ghObserver = null;
-               const attachObserver = () => {
-                  const target = document.documentElement || document.body;
-                  if (target && !ghObserver) {
-                     ghObserver = new MutationObserver((mutations) => {
-                        for (let i = 0; i < mutations.length; i++) {
-                           const t = mutations[i].target;
-                           if (
-                              t &&
-                              (t.id === '__fynexo_host__' ||
-                                 (t.closest && t.closest('#__fynexo_host__')) ||
-                                 (t.nodeType === 1 && t.hasAttribute('data-fnx-gh-offset')))
-                           ) {
-                              continue;
-                           }
-                           schedulePatch();
-                           break;
-                        }
-                     });
-                     ghObserver.observe(target, {
-                        childList: true,
-                        subtree: true,
-                        attributes: true,
-                        attributeFilter: ['open', 'hidden', 'aria-hidden', 'style', 'class'],
-                     });
-                  }
-               };
-               const onGhReady = () => {
-                  if (!ghHarmonizerActive) return;
-                  attachObserver();
-                  patchDrawers();
-               };
-               if (document.readyState === 'loading') {
-                  document.addEventListener('DOMContentLoaded', onGhReady, { once: true });
-               } else {
-                  attachObserver();
-                  patchDrawers();
-               }
-               ghStopTeardown = () => {
-                  if (ghSettleTimer) {
-                     clearTimeout(ghSettleTimer);
-                     ghSettleTimer = null;
-                  }
-                  if (ghObserver) {
-                     try {
-                        ghObserver.disconnect();
-                     } catch (_) {}
-                     ghObserver = null;
-                  }
-                  document.removeEventListener('click', schedulePatch, { capture: true });
-                  document.removeEventListener('keydown', schedulePatch, { capture: true });
-                  window.removeEventListener('turbo:load', schedulePatch);
-                  window.removeEventListener('resize', patchDrawers);
-                  resetTopOffsets();
-               };
-            } catch (_) {}
-         }
-         syncGithubDrawerHarmonizer();
+         __FNX_EXTENSIONS__;
 
          syncExtensionsRef = () => {
             if (typeof btnSidePanel !== 'undefined' && btnSidePanel) {
@@ -8671,6 +8800,9 @@
             }
             if (typeof syncMediaPopoverUI === 'function') {
                syncMediaPopoverUI();
+            }
+            if (typeof syncShieldPopoverUIRef === 'function') {
+               syncShieldPopoverUIRef();
             }
             syncYouTubeAdSkipper();
             syncGithubDrawerHarmonizer();

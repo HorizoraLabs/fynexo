@@ -5,6 +5,15 @@ use serde::Serialize;
 use crate::config::RuntimePayload;
 
 const PAGE_TEMPLATE: &str = include_str!("settings.html");
+const PAGE_CSS: &str = include_str!("settings.css");
+const PAGE_JS: &str = include_str!("settings.js");
+
+fn assemble_template() -> String {
+    PAGE_TEMPLATE
+        .replacen("__FNX_SETTINGS_CSS__", PAGE_CSS, 1)
+        .replacen("__FNX_SETTINGS_JS__", PAGE_JS, 1)
+        .replacen("__FNX_DEFAULTS__;", &crate::hud::defaults::defaults_script(), 1)
+}
 
 #[derive(Serialize)]
 struct BakedSupabaseConfig {
@@ -36,11 +45,14 @@ fn baked_parts() -> &'static (String, String) {
             },
         };
         let supa_json = crate::util::json_for_html_script(&supa);
-        let (prefix, suffix) =
-            crate::util::split_template_once(PAGE_TEMPLATE, "__FNX_BOOT_JSON__");
+        let assembled = assemble_template();
+        let (prefix, suffix) = match assembled.split_once("__FNX_BOOT_JSON__") {
+            Some((p, s)) => (p.to_string(), s.to_string()),
+            None => (assembled, String::new()),
+        };
         (
             prefix.replacen("__FNX_SUPABASE_JSON__", &supa_json, 1),
-            suffix.to_string(),
+            suffix,
         )
     })
 }
@@ -57,9 +69,12 @@ mod tests {
 
     #[test]
     fn settings_template_replaces_placeholder_cleanly() {
-        let html = PAGE_TEMPLATE
+        let html = assemble_template()
             .replacen("__FNX_SUPABASE_JSON__", "{}", 1)
             .replacen("__FNX_BOOT_JSON__", "{}", 1);
+        assert!(!html.contains("__FNX_SETTINGS_CSS__"));
+        assert!(!html.contains("__FNX_SETTINGS_JS__"));
+        assert!(!html.contains("__FNX_DEFAULTS__"));
         assert!(!html.contains("__FNX_SUPABASE_JSON__"));
         assert!(!html.contains("__FNX_BOOT_JSON__"));
         assert!(html.contains("const SUPABASE_CONFIG = {} || {};"));

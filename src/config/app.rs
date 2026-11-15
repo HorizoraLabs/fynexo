@@ -87,6 +87,10 @@ fn default_zoom_one() -> f64 {
     1.0
 }
 
+fn default_true() -> bool {
+    true
+}
+
 fn default_ua_mode() -> String {
     "default".to_string()
 }
@@ -128,6 +132,8 @@ pub struct AppConfig {
     pub ext_gh_harmonizer: bool,
     #[serde(default)]
     pub ext_media_booster: bool,
+    #[serde(default = "default_true")]
+    pub ext_userscript_engine: bool,
     pub search_engine: String,
     pub homepage: String,
     #[serde(default = "default_search_engines")]
@@ -154,6 +160,7 @@ impl Default for AppConfig {
             ext_yt_ad_skipper: false,
             ext_gh_harmonizer: false,
             ext_media_booster: false,
+            ext_userscript_engine: true,
             search_engine: "google".to_string(),
             homepage: "fynexo://newtab".to_string(),
             search_engines: default_search_engines(),

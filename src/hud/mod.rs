@@ -1,7 +1,5 @@
 pub mod defaults;
-pub mod icons;
 pub mod runtime;
-pub mod styles;
 
 use crate::config::{HudBootPayload, RuntimePayload};
 
@@ -9,6 +7,16 @@ pub fn generate_hud_script(payload: &RuntimePayload, tabs: Option<&crate::tabs::
     let slim_boot = HudBootPayload::from_runtime(payload, tabs);
     let initial_json = serde_json::to_string(&slim_boot).unwrap_or_else(|_| "{}".to_string());
     // Embed the per-process secrets (placeholders appear once, before any user data).
+    build_script(&initial_json)
+}
+
+pub fn generate_hud_script_from_state(
+    state: &crate::app::AppState,
+    tabs: Option<&crate::tabs::TabState>,
+) -> String {
+    let initial_json = state
+        .hud_json_with_tabs(tabs)
+        .unwrap_or_else(|_| "{}".to_string());
     build_script(&initial_json)
 }
 
@@ -39,6 +47,7 @@ mod tests {
             "__FNX_ICONS__",
             "__FNX_DEFAULTS__",
             "__FNX_BASE_CSS__",
+            "__FNX_EXTENSIONS__",
             "__FNX_INITIAL_JSON__",
             "__FNX_IPC_TOKEN__",
             "__FNX_BRIDGE_TOKEN__",

@@ -11,7 +11,7 @@
 ### 1. 极致低内存架构 (Ultra-Low Memory)
 - **Single-WebView 虚拟标签页**：无论打开多少个标签页，底层始终复用**单一 WebView 实例**与单一渲染进程（`--renderer-process-limit=1`），后台标签仅在 Rust 侧保存轻量元数据与阅读滚动深度（`scroll_y`）。
 - **按需精简注入 (`HudBootPayload`)**：外部网页仅注入**当前激活的单一主题色板**与**已启用的站点规则**；未激活的 `.json` 主题、禁用的站点规则和广告拦截词表对网页消耗 **0 字节** DOM / JS 内存。
-- **零常驻扩展引擎**：内置原生网络层广告拦截、站点级 CSS/JS 规则注入、纯 DOM 阅读模式与 `CSS.highlights` 页内查找，无需常驻扩展后台 Service Worker。
+- **零常驻扩展引擎**：内置原生网络层广告拦截、**ScriptForge** 用户脚本引擎（`// ==UserScript==` 与 `GM_*` 沙箱）、站点级 CSS/JS 规则注入、纯 DOM 阅读模式与 `CSS.highlights` 页内查找，无需常驻扩展后台 Service Worker。
 - **零轮询热重载 (Zero-Polling Hot Reload)**：不启动任何后台文件监听线程（0 常驻 CPU），仅在窗口重新获得焦点（`WindowEvent::Focused(true)`）时比对各 `.json` 文件修改时间戳并毫秒级热更新。
 - **Zero-FX 渲染过滤 & 最小化休眠**：剥离高开销的 `box-shadow`、`text-shadow` 与 `backdrop-filter` 高斯模糊合成层；窗口最小化时自动调用 `MemoryUsageLevel::Low` 释放物理内存。
 
@@ -25,7 +25,7 @@
 | **全局与搜索** | `fynexo_config.json` | 可视化增删 `{query}` 搜索引擎、`!Bang` 快捷指令、UA 切换（桌面/移动/自定义）、默认缩放步进器 | 聚焦自动热重载 |
 | **快捷网站** | `fynexo_shortcuts.json` | 可视化网站卡片增删管理（与历史记录物理隔离，分享不泄露隐私） | 导入合并 / 导出 / 重置 |
 | **广告与白名单** | `fynexo_adblock.json` | 可视化添加/移除自定义屏蔽域名（`custom_blocked_domains`）与放行白名单（`whitelisted_domains`） | 导入 / 导出 / 热重载 |
-| **站点 CSS/JS** | `fynexo_rules.json` | 类 Stylus / Userscript 规则面板：按域名通配符开关、新建、编辑、删除自定义 CSS 与 JS | 导入 / 导出 / 重置 / 热重载 |
+| **站点 CSS / ScriptForge** | `fynexo_rules.json` | 站点 CSS 与内置 **ScriptForge** 用户脚本引擎（支持 `// ==UserScript==`、`@match`/`@include`/`@run-at`、`GM_*`/`GM.*` API 与顶部 Shield 菜单命令） | `.user.js` / JSON 导入导出 / 重置 / 热重载 |
 | **组件与起始页** | `fynexo_styles.json` | 顶栏/标签/地址栏/底栏几何检查器 + 起始页标题/时钟/列数开关 + 右侧实时 JSON 编辑器 | 实时双栏联动 + 热重载 |
 | **键盘快捷键** | `fynexo_keybinds.json` | **点击录制（Click-to-Record）快捷键面板**：点击任意功能直接按下新组合键即可改键 | 导入 / 导出 / 重置 / 热重载 |
 
@@ -169,8 +169,16 @@ cargo build --release
 
 ### Android 移动端编译 APK
 ```powershell
-# 构建 64 位 ARM 手机架构 Release APK
+# 构建 64 位 ARM 手机架构 Release APK（推荐，体积更小、速度更快）
 cargo android apk build --release aarch64
+
+# 构建全架构通用 Release APK
+cargo android apk build --release
+
+# 构建 Debug APK / 运行到已连接手机或模拟器 / 打开 Android Studio
+cargo android apk build aarch64
+cargo android run
+cargo android open
 ```
 APK 产物位于 `gen/android/app/build/outputs/apk/universal/release/`。
 
@@ -180,21 +188,49 @@ APK 产物位于 `gen/android/app/build/outputs/apk/universal/release/`。
 
 ```text
 fynexo/
-├── src/
-│   ├── main.rs               # 桌面端进程入口
-│   ├── lib.rs                # 跨平台库入口与 Android JNI 绑定
-│   ├── app.rs                # Single-WebView 事件循环、全模块 IPC 中枢与零轮询聚焦热重载
-│   ├── config.rs             # 模块化 JSON 配置体系、整包导入导出与精简 HudBootPayload
-│   ├── hud.rs                # Shadow DOM 外壳、页内查找、阅读模式、智能暗色、全屏与站点规则引擎
-│   ├── pages.rs              # 内置页面 (fynexo://newtab 与全可视化 fynexo://settings)
-│   ├── tabs.rs               # 虚拟标签状态机、固定标签保护、关闭标签恢复栈与无痕模式控制
-│   └── adblock.rs            # O(1) 原生网络层广告拦截、自定义黑白名单与动态 UA 控制
-├── themes/                   # 模块化 JSON 主题目录 (dark / light / oled / nord / matrix + 自定义)
-├── fynexo_config.json        # 全局配置、搜索引擎、!Bang 指令、UA 与缩放设置
-├── fynexo_shortcuts.json     # 独立快捷网站与书签列表
-├── fynexo_styles.json        # UI 组件几何与起始页布局配置
-├── fynexo_rules.json         # 站点级自定义 CSS / JS 规则列表
-├── fynexo_adblock.json       # 自定义广告屏蔽域名与放行白名单
-├── fynexo_keybinds.json      # 桌面端自定义键盘快捷键映射
-└── gen/android/              # Android WebView / Kotlin 宿主工程
+├── build.rs                  # 编译期读取 .env / .env.local 注入 DATABASE_* 云端商店配置
+├── .env.example              # 环境变量模板（复制到 .env.local 填写）
+├── Cargo.toml                # Rust 依赖与 Release 体积/LTO 优化配置
+├── mobile.toml               # cargo-mobile2 Android 构建配置
+├── supabase/
+│   └── schema.sql            # Supabase 表结构、自动安全审计触发器与严格 RLS 策略
+└── src/
+    ├── main.rs               # 桌面端进程入口
+    ├── lib.rs                # 跨平台库入口与 Android JNI 绑定
+    ├── adblock.rs            # O(1) 原生网络层广告拦截与自定义黑白名单
+    ├── tabs.rs               # 虚拟标签状态机、固定标签保护与关闭恢复栈
+    ├── util.rs               # 原子写入、锁安全、JSON 安全转义与模板拼接工具
+    ├── app/                  # Single-WebView 事件循环、安全校验、IPC 中枢、标签池与窗口管理
+    │   ├── mod.rs
+    │   ├── events.rs
+    │   ├── ipc.rs
+    │   ├── memory.rs
+    │   ├── scheduler.rs
+    │   ├── security.rs
+    │   ├── state.rs
+    │   ├── tab_pool.rs
+    │   ├── url.rs
+    │   └── webview.rs
+    ├── config/               # 模块化 JSON 配置体系、主题管理与精简 Boot Payload
+    │   ├── mod.rs
+    │   ├── app.rs
+    │   ├── base.rs
+    │   ├── keybinds.rs
+    │   ├── payloads.rs
+    │   ├── rules.rs
+    │   ├── styles.rs
+    │   ├── themes.rs
+    │   └── userdata.rs
+    ├── hud/                  # 浏览器 HUD 外壳、纯 DOM 图标、样式与默认配置序列化
+    │   ├── mod.rs
+    │   ├── defaults.rs
+    │   ├── extensions.js
+    │   ├── icons.js
+    │   ├── runtime.js
+    │   ├── runtime.rs
+    │   └── styles.css
+    └── pages/                # 内置页面（fynexo://newtab 与 fynexo://settings，HTML/CSS/JS 分离）
+        ├── mod.rs
+        ├── newtab.rs / newtab.html / newtab.css / newtab.js
+        └── settings.rs / settings.html / settings.css / settings.js
 ```

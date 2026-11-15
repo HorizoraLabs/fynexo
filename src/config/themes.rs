@@ -277,27 +277,37 @@ impl ThemePreset {
 }
 
 pub fn themes_dir() -> PathBuf {
-    let dir = data_dir().join("themes");
-    let _ = fs::create_dir_all(&dir);
-    dir
+    static THEMES_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    THEMES_DIR
+        .get_or_init(|| {
+            let dir = data_dir().join("themes");
+            let _ = fs::create_dir_all(&dir);
+            dir
+        })
+        .clone()
 }
 
 pub fn themes_dir_display() -> String {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        let local = PathBuf::from("themes");
-        if local.is_dir() {
-            return fs::canonicalize(&local)
-                .unwrap_or(local)
+    static DISPLAY_CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DISPLAY_CACHE
+        .get_or_init(|| {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            {
+                let local = PathBuf::from("themes");
+                if local.is_dir() {
+                    return fs::canonicalize(&local)
+                        .unwrap_or(local)
+                        .to_string_lossy()
+                        .replace("\\\\?\\", "");
+                }
+            }
+            let p = themes_dir();
+            fs::canonicalize(&p)
+                .unwrap_or(p)
                 .to_string_lossy()
-                .replace("\\\\?\\", "");
-        }
-    }
-    let p = themes_dir();
-    fs::canonicalize(&p)
-        .unwrap_or(p)
-        .to_string_lossy()
-        .replace("\\\\?\\", "")
+                .replace("\\\\?\\", "")
+        })
+        .clone()
 }
 
 fn sync_local_themes_to_formal(formal_dir: &Path) {

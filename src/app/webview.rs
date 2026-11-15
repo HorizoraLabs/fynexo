@@ -40,19 +40,32 @@ pub fn build_tab_webview(
 ) -> Result<TabWebView, Box<dyn Error>> {
     let target_url = launch.url;
     let bound_tab_id = Arc::new(AtomicUsize::new(launch.tab_id));
-    let initial_payload = {
+    let initial_tabs = tab_manager.lock_safe().get_state();
+    #[cfg(target_os = "windows")]
+    let adblock_cfg;
+    let (incognito, resolved_ua, default_zoom, initial_script) = {
         let mut st = app_state.lock_safe();
         let _ = st.reload_if_changed();
-        st.payload()
+        #[cfg(target_os = "windows")]
+        {
+            adblock_cfg = st.adblock.clone();
+        }
+        let script = hud::generate_hud_script_from_state(&st, Some(&initial_tabs));
+        (
+            st.config.incognito,
+            st.config.resolved_user_agent(),
+            st.config.default_zoom,
+            script,
+        )
     };
 
     let mut builder = WebViewBuilder::new_with_web_context(web_context)
         .with_background_color((9, 9, 11, 255))
         .with_visible(launch.visible)
-        .with_incognito(initial_payload.config.incognito)
+        .with_incognito(incognito)
         .with_back_forward_navigation_gestures(true);
 
-    if let Some(ua) = initial_payload.config.resolved_user_agent() {
+    if let Some(ua) = resolved_ua {
         builder = builder.with_user_agent(&ua);
     }
 
@@ -254,8 +267,6 @@ pub fn build_tab_webview(
         }
     });
 
-    let initial_tabs = tab_manager.lock_safe().get_state();
-    let initial_script = hud::generate_hud_script(&initial_payload, Some(&initial_tabs));
     let initial_url = to_webview_url(target_url);
 
     let state_for_ipc = Arc::clone(app_state);
@@ -297,10 +308,10 @@ pub fn build_tab_webview(
     let webview = builder.build(window)?;
 
     #[cfg(target_os = "windows")]
-    adblock::attach_windows_adblock(&webview, &initial_payload.adblock);
+    adblock::attach_windows_adblock(&webview, &adblock_cfg);
 
-    if (initial_payload.config.default_zoom - 1.0).abs() > 0.01 {
-        let _ = webview.zoom(initial_payload.config.default_zoom);
+    if (default_zoom - 1.0).abs() > 0.01 {
+        let _ = webview.zoom(default_zoom);
     }
 
     Ok(TabWebView {

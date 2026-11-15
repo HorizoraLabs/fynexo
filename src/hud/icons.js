@@ -1,4 +1,3 @@
-pub const ICONS_SCRIPT: &str = r#"
     // Cached Pure-DOM SVG Factory (100% Trusted Types Immune + C++ cloneNode Speed)
     const iconCache = Object.create(null);
 
@@ -372,4 +371,3 @@ pub const ICONS_SCRIPT: &str = r#"
         iconCache[name] = svg;
         return svg.cloneNode(true);
     }
-"#;

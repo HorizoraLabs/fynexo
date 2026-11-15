@@ -934,12 +934,13 @@ pub fn handle_ipc_message(
                     }
                 }
                 type ConfigBoolSlot = (&'static str, fn(&mut AppConfig) -> &mut bool);
-                let ext_fields: [ConfigBoolSlot; 5] = [
+                let ext_fields: [ConfigBoolSlot; 6] = [
                     ("ext_side_panel", |c| &mut c.ext_side_panel),
                     ("ext_reader_mode", |c| &mut c.ext_reader_mode),
                     ("ext_yt_ad_skipper", |c| &mut c.ext_yt_ad_skipper),
                     ("ext_gh_harmonizer", |c| &mut c.ext_gh_harmonizer),
                     ("ext_media_booster", |c| &mut c.ext_media_booster),
+                    ("ext_userscript_engine", |c| &mut c.ext_userscript_engine),
                 ];
                 for (key, slot) in ext_fields {
                     if let Some(v) = val[key].as_bool() {

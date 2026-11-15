@@ -1,6 +1,7 @@
 pub mod events;
 pub mod ipc;
 pub mod memory;
+pub mod scheduler;
 pub mod security;
 pub mod state;
 pub mod tab_pool;
@@ -29,18 +30,26 @@ use crate::util::LockExt;
 
 #[cfg(target_os = "windows")]
 use self::memory::{force_empty_working_set, get_current_process_memory_mb};
+use self::scheduler::RevealScheduler;
 use self::tab_pool::TabPool;
 use self::url::to_webview_url;
 use self::webview::{build_tab_webview, TabLaunch};
 
 pub fn run() -> Result<(), Box<dyn Error>> {
     let app_state = Arc::new(Mutex::new(AppState::load()));
-    let initial_payload = app_state.lock_safe().payload();
+    let (homepage, restore_session, incognito) = {
+        let st = app_state.lock_safe();
+        (
+            st.config.homepage.clone(),
+            st.config.restore_session,
+            st.config.incognito,
+        )
+    };
 
     let tab_manager = Arc::new(Mutex::new(TabManager::load_or_new(
-        &initial_payload.config.homepage,
-        initial_payload.config.restore_session,
-        initial_payload.config.incognito,
+        &homepage,
+        restore_session,
+        incognito,
     )));
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
@@ -565,74 +574,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
     #[allow(unreachable_code)]
     Ok(())
-}
-
-type RevealEntry = (std::time::Instant, usize, u64);
-type RevealQueue = Arc<(Mutex<Vec<RevealEntry>>, std::sync::Condvar)>;
-
-struct RevealScheduler {
-    proxy: EventLoopProxy<UserEvent>,
-    queue: RevealQueue,
-}
-
-impl RevealScheduler {
-    fn new(proxy: EventLoopProxy<UserEvent>) -> Self {
-        let queue: RevealQueue = Arc::new((Mutex::new(Vec::new()), std::sync::Condvar::new()));
-        let worker_q = Arc::clone(&queue);
-        let worker_proxy = proxy.clone();
-        let _ = std::thread::Builder::new()
-            .name("fnx-reveal-timer".to_string())
-            .spawn(move || {
-                let (lock, cv) = &*worker_q;
-                loop {
-                    let due_events: Vec<(usize, u64)> = {
-                        let mut guard = lock.lock_safe();
-                        loop {
-                            let now = std::time::Instant::now();
-                            if let Some(earliest) = guard.iter().map(|(at, _, _)| *at).min() {
-                                if earliest <= now {
-                                    break;
-                                }
-                                let (g, _) = cv
-                                    .wait_timeout(guard, earliest.saturating_duration_since(now))
-                                    .unwrap_or_else(|p| p.into_inner());
-                                guard = g;
-                            } else {
-                                guard = cv.wait(guard).unwrap_or_else(|p| p.into_inner());
-                            }
-                        }
-                        let now = std::time::Instant::now();
-                        let mut fired = Vec::new();
-                        let mut i = 0;
-                        while i < guard.len() {
-                            if guard[i].0 <= now {
-                                let (_, id, gen) = guard.swap_remove(i);
-                                fired.push((id, gen));
-                            } else {
-                                i += 1;
-                            }
-                        }
-                        fired
-                    };
-                    for (id, gen) in due_events {
-                        let _ = worker_proxy.send_event(UserEvent::RevealPendingTab { id, gen });
-                    }
-                }
-            });
-        Self { proxy, queue }
-    }
-
-    fn proxy(&self) -> &EventLoopProxy<UserEvent> {
-        &self.proxy
-    }
-
-    fn schedule(&self, id: usize, gen: u64, delay: std::time::Duration) {
-        let (lock, cv) = &*self.queue;
-        let mut guard = lock.lock_safe();
-        guard.retain(|&(_, tid, _)| tid != id);
-        guard.push((std::time::Instant::now() + delay, id, gen));
-        cv.notify_one();
-    }
 }
 
 #[allow(clippy::too_many_arguments)]

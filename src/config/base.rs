@@ -301,21 +301,38 @@ pub(crate) fn synced_json_mtime(file_name: &str) -> Option<SystemTime> {
     }
 }
 
-pub(crate) fn display_path_preferring_local(file_name: &str) -> String {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        if let Some(local) = resolve_local_config(file_name) {
-            return fs::canonicalize(&local)
-                .unwrap_or(local)
-                .to_string_lossy()
-                .replace("\\\\?\\", "");
-        }
-    }
-    let p = resolve_formal_path(file_name);
-    fs::canonicalize(&p)
-        .unwrap_or(p)
+fn canonical_display_string(path: PathBuf) -> String {
+    fs::canonicalize(&path)
+        .unwrap_or(path)
         .to_string_lossy()
         .replace("\\\\?\\", "")
+}
+
+pub(crate) fn display_path_preferring_local(file_name: &str) -> String {
+    static DISPLAY_PATHS: OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+        OnceLock::new();
+    let cache =
+        DISPLAY_PATHS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    if let Some(existing) = cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(file_name)
+        .cloned()
+    {
+        return existing;
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let local_opt = resolve_local_config(file_name).map(canonical_display_string);
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let local_opt: Option<String> = None;
+
+    let resolved = local_opt.unwrap_or_else(|| canonical_display_string(resolve_formal_path(file_name)));
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(file_name.to_string(), resolved.clone());
+    resolved
 }
 
 #[cfg(test)]
