@@ -1,33 +1,40 @@
         __FNX_DEFAULTS__;
         const KEYBIND_DEFS = [
-            ['omnibox', 'Open omnibox & quick bar', 'Focus address bar from anywhere'],
-            ['new_tab', 'Open new tab', 'Launch a fresh Start Page tab'],
-            ['close_tab', 'Close active tab', 'Close current tab or return home'],
-            ['reopen_closed_tab', 'Reopen closed tab', 'Restore the most recently closed tab'],
-            ['next_tab', 'Cycle open tabs', 'Switch sequentially to the next tab'],
-            ['bookmark_page', 'Save / remove shortcut', 'Toggle active site in shortcuts.json'],
-            ['find_in_page', 'Find in page', 'Open HUD page text search'],
-            ['reader_mode', 'Toggle Reader mode', 'Extract clean distraction-free article'],
-            ['force_dark', 'Toggle Smart Force Dark', 'Invert bright sites while keeping media'],
-            ['fullscreen', 'Immersive fullscreen', 'Toggle borderless window fullscreen'],
-            ['preferences', 'Toggle Preferences', 'Jump to or leave Preferences'],
-            ['zoom_in', 'Zoom in', 'Increase page scale by 10%'],
-            ['zoom_out', 'Zoom out', 'Decrease page scale by 10%'],
-            ['zoom_reset', 'Reset zoom (100%)', 'Restore default 100% scale']
+            ['omnibox', 'Open omnibox & quick bar', 'Focus address bar from anywhere', '打开地址栏与快速搜索框', '在任意页面随时输入网址或搜索'],
+            ['new_tab', 'Open new tab', 'Launch a fresh Start Page tab', '新建标签页', '打开一个全新的起始页'],
+            ['close_tab', 'Close active tab', 'Close current tab or return home', '关闭当前标签页', '关闭正在浏览的网页'],
+            ['reopen_closed_tab', 'Reopen closed tab', 'Restore the most recently closed tab', '恢复刚关闭的标签页', '不小心关错网页时一键找回'],
+            ['next_tab', 'Cycle open tabs', 'Switch sequentially to the next tab', '切换到下一个标签页', '顺时针切换已打开的标签页'],
+            ['prev_tab', 'Previous open tab', 'Switch sequentially to the previous tab', '切换到上一个标签页', '逆时针切换已打开的标签页'],
+            ['reload', 'Reload current page', 'Refresh the active tab', '刷新当前网页', '重新加载正在看的网页'],
+            ['go_back', 'Navigate back', 'Step back in tab browsing history', '后退上一页', '返回刚才浏览的页面'],
+            ['go_forward', 'Navigate forward', 'Step forward in tab browsing history', '前进下一页', '前往之前回退的页面'],
+            ['toggle_side_panel', 'Toggle Side Panel', 'Open or close split web & notes drawer', '开关分屏侧边栏', '呼出或收起右侧小网页与便签'],
+            ['pin_tab', 'Pin / unpin active tab', 'Toggle compact pinned state on active tab', '固定 / 取消固定当前标签页', '固定常逛网站并防止误点关闭'],
+            ['mute_tab', 'Mute / unmute active tab', 'Silence or restore audio on active tab', '静音 / 取消静音当前标签页', '一键关闭或恢复网页里的声音'],
+            ['bookmark_page', 'Save / remove shortcut', 'Toggle active site in shortcuts.json', '收藏 / 取消收藏当前网站', '快速保存到常用网站栏'],
+            ['find_in_page', 'Find in page', 'Open HUD page text search', '页内查找文字', '在当前网页里搜索关键词'],
+            ['reader_mode', 'Toggle Reader mode', 'Extract clean distraction-free article', '开关纯净阅读模式', '过滤杂乱广告，专注阅读长文章'],
+            ['force_dark', 'Toggle Smart Force Dark', 'Invert bright sites while keeping media', '开关智能夜间深色', '把刺眼的白底网页转成护眼深色'],
+            ['fullscreen', 'Immersive fullscreen', 'Toggle borderless window fullscreen', '进入 / 退出全屏浏览', '隐藏系统边框沉浸浏览'],
+            ['preferences', 'Toggle Preferences', 'Jump to or leave Preferences', '打开偏好设置', '一键进入浏览器设置界面'],
+            ['zoom_in', 'Zoom in', 'Increase page scale by 10%', '放大网页文字与画面', '整体缩放比例 +10%'],
+            ['zoom_out', 'Zoom out', 'Decrease page scale by 10%', '缩小网页文字与画面', '整体缩放比例 -10%'],
+            ['zoom_reset', 'Reset zoom (100%)', 'Restore default 100% scale', '恢复默认缩放 (100%)', '重置回原始网页大小']
         ];
         const COLOR_TOKEN_DEFS = [
-            ['bg', 'Canvas bg'],
-            ['panel', 'Topbar / panel'],
-            ['surface', 'Input surface'],
-            ['elevated', 'Elevated row'],
-            ['border', 'Border'],
-            ['border_hover', 'Border hover'],
-            ['fg', 'Primary text'],
-            ['secondary', 'Secondary text'],
-            ['muted', 'Muted text'],
-            ['accent', 'Accent color'],
-            ['accent_bg', 'Accent tint'],
-            ['hover', 'Hover state']
+            ['bg', 'Canvas bg', '全局底色'],
+            ['panel', 'Topbar / panel', '顶栏与面板背景'],
+            ['surface', 'Input surface', '输入框底色'],
+            ['elevated', 'Elevated row', '悬停与高亮卡片'],
+            ['border', 'Border', '常规边框线'],
+            ['border_hover', 'Border hover', '悬停边框线'],
+            ['fg', 'Primary text', '主要文字颜色'],
+            ['secondary', 'Secondary text', '次要文字颜色'],
+            ['muted', 'Muted text', '弱化提示文字'],
+            ['accent', 'Accent color', '主题强调色'],
+            ['accent_bg', 'Accent tint', '强调浅底色'],
+            ['hover', 'Hover state', '按钮悬停色']
         ];
 
         // =========================================================================
@@ -44,6 +51,7 @@
             restore_session: true,
             force_dark: false,
             incognito: false,
+            language: 'zh',
             default_zoom: 1.0,
             user_agent_mode: 'default',
             custom_user_agent: '',
@@ -54,11 +62,16 @@
             ext_gh_harmonizer: false,
             ext_media_booster: false,
             ext_userscript_engine: true,
+            ext_mouse_gestures: true,
+            site_overrides: {},
             search_engine: 'google',
             homepage: 'fynexo://newtab',
             search_engines: DEFAULT_ENGINES,
             bangs: DEFAULT_BANGS
         }, boot.config || {});
+        function isZh() {
+            return String(config.language || 'zh').toLowerCase() !== 'en';
+        }
         let styles = boot.styles || {};
         let activeTheme = boot.active_theme || {};
         let themes = Array.isArray(boot.themes) ? boot.themes : [];
@@ -232,7 +245,8 @@
             styles.colors = styles.colors || {};
             const frag = document.createDocumentFragment();
 
-            COLOR_TOKEN_DEFS.forEach(([key, label]) => {
+            COLOR_TOKEN_DEFS.forEach(([key, enLabel, zhLabel]) => {
+                const label = isZh() ? (zhLabel || enLabel) : enLabel;
                 const curVal = styles.colors[key] || '#0B0B0E';
                 const box = document.createElement('div');
                 box.className = 'color-swatch-box';
@@ -1406,79 +1420,117 @@
 
         const BUILTIN_EXTENSION_GROUPS = [
             {
-                title: 'Workspace & Reading · 工作区与阅读',
+                title: 'Workspace & Reading',
+                titleZh: '工作区与阅读工具',
                 items: [
                     {
                         key: 'ext_side_panel',
                         name: 'Side Panel & Web Dock',
+                        nameZh: '分屏侧边栏 & 便签',
                         mem: 'WebView + Notes',
+                        memZh: '分屏网页',
                         desc: 'Split-screen side drawer iframe & scratchpad (Alt+S). Unmounted until enabled.',
+                        descZh: '按 Alt+S 在屏幕右侧分屏打开第二个网页或随手记便签，关闭时零内存占用。',
                         get: () => !!config.ext_side_panel,
                         set: (next) => { config.ext_side_panel = next; }
                     },
                     {
                         key: 'ext_reader_mode',
                         name: 'Reader Mode',
+                        nameZh: '纯净阅读模式',
                         mem: 'DOM Scanner',
+                        memZh: '文章精排',
                         desc: 'Automatic article extraction & clean reading view (Alt+R). Skips page scans when off.',
+                        descZh: '按 Alt+R 自动提取长文章正文、调大字号去广告，让你像看电子书一样安静阅读。',
                         get: () => !!config.ext_reader_mode,
                         set: (next) => { config.ext_reader_mode = next; }
+                    },
+                    {
+                        key: 'ext_mouse_gestures',
+                        name: 'Mouse Gestures (Right-Click Drag)',
+                        nameZh: '右键鼠标手势',
+                        mem: 'HUD Canvas',
+                        memZh: '效率手势',
+                        desc: 'Hold right mouse button & drag on desktop pages (← Back, → Forward, ↓→ Close tab, ↑↓ Reload).',
+                        descZh: '电脑端按住鼠标右键轻滑即可控制网页：← 后退、→ 前进、↓→ 关标签、↑↓ 刷新。',
+                        get: () => config.ext_mouse_gestures !== false,
+                        set: (next) => { config.ext_mouse_gestures = next; }
                     }
                 ]
             },
             {
-                title: 'Media & Site Enhancers · 媒体与站点增强',
+                title: 'Media & Site Enhancers',
+                titleZh: '视频增强与自定义脚本',
                 items: [
                     {
                         key: 'ext_userscript_engine',
                         name: 'ScriptForge · Userscript Engine',
+                        nameZh: 'ScriptForge · 内置用户脚本引擎',
                         mem: 'GM_* Sandbox',
+                        memZh: '类油猴引擎',
                         desc: 'Runs // ==UserScript== scripts (@match/@include/@run-at) with GM_* APIs & Shield menu commands.',
+                        descZh: '直接兼容 .user.js 用户脚本与 GM_* 扩展接口，可在右下角或顶部盾牌弹窗快速控制。',
                         get: () => config.ext_userscript_engine !== false,
                         set: (next) => { config.ext_userscript_engine = next; }
                     },
                     {
                         key: 'ext_yt_ad_skipper',
                         name: 'YouTube Ad Skipper',
+                        nameZh: 'YouTube 视频广告自动跳过',
                         mem: 'Observer + Timer',
+                        memZh: '自动跳过',
                         desc: 'Detects YouTube promo slots, clicks skip buttons, and hides ad overlays automatically.',
+                        descZh: '自动检测 YouTube 广告位并帮忙点击“跳过广告”按钮，同时隐藏播放条贴片。',
                         get: () => !!config.ext_yt_ad_skipper,
                         set: (next) => { config.ext_yt_ad_skipper = next; }
                     },
                     {
                         key: 'ext_gh_harmonizer',
                         name: 'GitHub Drawer Harmonizer',
+                        nameZh: 'GitHub 侧边栏高度适配',
                         mem: 'Subtree Observer',
+                        memZh: '界面自适应',
                         desc: 'Aligns GitHub sticky sidebars & modal drawers beneath Fynexo topbar height.',
+                        descZh: '让 GitHub 弹出的左侧导航抽屉自动避开 Fynexo 顶栏高度，防止顶部遮挡。',
                         get: () => !!config.ext_gh_harmonizer,
                         set: (next) => { config.ext_gh_harmonizer = next; }
                     },
                     {
                         key: 'ext_media_booster',
                         name: 'Media Volume Booster (300%)',
+                        nameZh: '网页音量超级放大 (最高 300%)',
                         mem: 'WebAudio DSP',
+                        memZh: '音量放大',
                         desc: 'Mounts WebAudio GainNode + DynamicsCompressor for >100% media amplification.',
+                        descZh: '在媒体控制弹窗中开启 100%~300% 声音增益，看小声视频或电影时听得更清楚。',
                         get: () => !!config.ext_media_booster,
                         set: (next) => { config.ext_media_booster = next; }
                     }
                 ]
             },
             {
-                title: 'Visual & Memory Pool · 视觉渲染与缓存池',
+                title: 'Visual & Memory Pool',
+                titleZh: '夜间视觉与内存后台保活',
                 items: [
                     {
                         key: 'force_dark',
                         name: 'Smart Force Dark',
+                        nameZh: '智能夜间深色模式',
                         mem: 'CSS Filter',
+                        memZh: '护眼夜间',
                         desc: 'Inverts bright webpages to dark while preserving images & video (Alt+Shift+D).',
+                        descZh: '把刺眼的白底网页自动转为深色背景，同时保留图片和视频原始色彩（快捷键 Alt+Shift+D）。',
                         get: () => !!config.force_dark,
                         set: (next) => { config.force_dark = next; }
                     },
                     {
                         key: 'tab_cache_smooth',
                         name: 'Multi-Tab Live Keep-Alive',
+                        nameZh: '多标签后台流畅保活',
                         mem: 'Smooth RAM Pool',
+                        memZh: '后台保活',
                         desc: 'Keeps up to 6 background tabs warm in memory instead of discarding idle WebViews.',
+                        descZh: '允许最多 6 个常用标签页留在后台保持运行（内存较充裕的电脑开启后切标签瞬间响应）。',
                         get: () => (config.tab_cache_mode || 'balanced').toLowerCase() === 'smooth',
                         set: (next) => { config.tab_cache_mode = next ? 'smooth' : 'balanced'; }
                     }
@@ -1491,16 +1543,20 @@
             if (!container) return;
             container.textContent = '';
 
+            const zh = isZh();
             const frag = document.createDocumentFragment();
 
             BUILTIN_EXTENSION_GROUPS.forEach((group) => {
                 const heading = document.createElement('div');
                 heading.className = 'set-group-title';
-                heading.textContent = group.title;
+                heading.textContent = zh ? (group.titleZh || group.title) : group.title;
                 frag.appendChild(heading);
 
                 group.items.forEach((item, idx) => {
                     const isOn = item.get();
+                    const itemName = zh ? (item.nameZh || item.name) : item.name;
+                    const itemMem = zh ? (item.memZh || item.mem) : item.mem;
+                    const itemDesc = zh ? (item.descZh || item.desc) : item.desc;
 
                     const row = document.createElement('div');
                     row.className = 'set-row';
@@ -1511,16 +1567,18 @@
 
                     const label = document.createElement('div');
                     label.className = 'set-label';
-                    label.textContent = item.name;
+                    label.textContent = itemName;
 
                     const tag = document.createElement('span');
                     tag.className = isOn ? 'ext-mem-tag on' : 'ext-mem-tag';
-                    tag.textContent = isOn ? `Active · ${item.mem}` : `Off · ${item.mem}`;
+                    tag.textContent = zh
+                        ? (isOn ? `已开启 · ${itemMem}` : `未开启 · ${itemMem}`)
+                        : (isOn ? `Active · ${itemMem}` : `Off · ${itemMem}`);
                     label.appendChild(tag);
 
                     const hint = document.createElement('div');
                     hint.className = 'set-hint';
-                    hint.textContent = item.desc;
+                    hint.textContent = itemDesc;
 
                     meta.appendChild(label);
                     meta.appendChild(hint);
@@ -1533,12 +1591,14 @@
                     sw.className = isOn ? 'fnx-switch on' : 'fnx-switch';
                     sw.setAttribute('role', 'switch');
                     sw.setAttribute('aria-checked', isOn ? 'true' : 'false');
-                    sw.setAttribute('aria-label', item.name);
+                    sw.setAttribute('aria-label', itemName);
                     sw.onclick = () => {
                         const next = !item.get();
                         item.set(next);
                         renderBuiltinExtensions();
-                        saveConfig(`${item.name}: ${next ? 'Enabled' : 'Disabled'}`);
+                        saveConfig(zh
+                            ? `${itemName}：${next ? '已开启' : '已关闭'}`
+                            : `${itemName}: ${next ? 'Enabled' : 'Disabled'}`);
                     };
 
                     ctrl.appendChild(sw);
@@ -1654,9 +1714,10 @@
         function renderKeybindsGrid() {
             const grid = document.getElementById('keybindsGrid');
             grid.textContent = '';
+            const zh = isZh();
             const frag = document.createDocumentFragment();
 
-            KEYBIND_DEFS.forEach(([actionKey, label, hint], idx) => {
+            KEYBIND_DEFS.forEach(([actionKey, enLabel, enHint, zhLabel, zhHint], idx) => {
                 const row = document.createElement('div');
                 row.className = 'set-row';
                 if (idx === KEYBIND_DEFS.length - 1) row.style.borderBottom = 'none';
@@ -1665,10 +1726,10 @@
                 meta.className = 'set-meta';
                 const lbl = document.createElement('div');
                 lbl.className = 'set-label';
-                lbl.textContent = label;
+                lbl.textContent = zh ? (zhLabel || enLabel) : enLabel;
                 const desc = document.createElement('div');
                 desc.className = 'set-hint';
-                desc.textContent = hint;
+                desc.textContent = zh ? (zhHint || enHint) : enHint;
                 meta.appendChild(lbl);
                 meta.appendChild(desc);
 
@@ -1678,8 +1739,10 @@
                 btn.type = 'button';
                 const isRec = recordingActionKey === actionKey;
                 btn.className = isRec ? 'kb-record-btn recording' : 'kb-record-btn';
-                btn.textContent = isRec ? 'Press keys… (Esc)' : (keybinds[actionKey] || DEFAULT_KEYBINDS[actionKey] || 'Unbound');
-                btn.title = 'Click to record a new shortcut';
+                btn.textContent = isRec
+                    ? (zh ? '请按下快捷键… (Esc 取消)' : 'Press keys… (Esc)')
+                    : (keybinds[actionKey] || DEFAULT_KEYBINDS[actionKey] || (zh ? '未绑定' : 'Unbound'));
+                btn.title = zh ? '点击后直接在键盘上按下新的组合键' : 'Click to record a new shortcut';
                 btn.onclick = () => {
                     recordingActionKey = actionKey;
                     window.__fynexo_recording_keybind__ = true;
@@ -1728,14 +1791,165 @@
             showToast(`Bound shortcut: ${combo}`);
         }, true);
 
+        const SECTION_I18N = {
+            'sec-appearance': {
+                navZh: '主题与配色',
+                navEn: 'Appearance',
+                titleZh: '主题与配色',
+                titleEn: 'Appearance',
+                descZh: '直接挑选一个喜欢的皮肤主题，或开启“自定义调色盘”自由调整颜色。',
+                descEn: 'Pick a built-in palette or import *.json themes.'
+            },
+            'sec-styles': {
+                navZh: '界面与起始页',
+                navEn: 'Component studio',
+                titleZh: '界面布局与新标签页样式',
+                titleEn: 'Component studio',
+                prefixZh: '可视化调整顶栏/侧边栏与新标签页外观，或在右侧直接编辑 ',
+                prefixEn: 'Tune chrome geometry visually or inspect raw '
+            },
+            'sec-general': {
+                navZh: '浏览与习惯',
+                navEn: 'Browsing & tabs',
+                titleZh: '浏览与基础习惯',
+                titleEn: 'Browsing & tabs',
+                descZh: '设置新标签页打开地址、网页默认大小、设备伪装，以及重启是否恢复网页。',
+                descEn: 'Homepage, User-Agent spoofing, page zoom, Zero-FX rendering, and session restore.'
+            },
+            'sec-search': {
+                navZh: '搜索与 !指令',
+                navEn: 'Search & !bangs',
+                titleZh: '搜索引擎与 !快捷指令',
+                titleEn: 'Search & !bangs',
+                descZh: '切换默认搜索引擎，或在地址栏用 !b 搜 B 站、!tr 翻译等快速搜索指令。',
+                descEn: 'Pick a default search engine or define custom !bang quick-search triggers.'
+            },
+            'sec-bookmarks': {
+                navZh: '常用网站',
+                navEn: 'Shortcuts',
+                titleZh: '常用网站快捷卡片',
+                titleEn: 'Shortcuts'
+            },
+            'sec-shortcuts': {
+                navZh: '键盘快捷键',
+                navEn: 'Keybinds',
+                titleZh: '键盘快捷键',
+                titleEn: 'Keybinds',
+                descZh: '点击右侧任意按键框，直接在键盘上按下新的组合键即可完成改键。',
+                descEn: 'Click any keycap on the right and press your combination to rebind in config/keybinds.json.'
+            },
+            'sec-rules': {
+                navZh: '广告拦截盾',
+                navEn: 'Adblock shield',
+                titleZh: '广告与追踪拦截盾',
+                titleEn: 'Adblock shield',
+                descZh: '自动过滤网页横幅广告与跟踪器；如个别网站显示异常可添加到放行名单。',
+                descEn: 'Core network ad & tracker interception synced to adblock.json (independent of Built-in Extensions).'
+            },
+            'sec-privacy': {
+                navZh: '隐私与备份',
+                navEn: 'Privacy & data',
+                titleZh: '隐私、清理与整包备份',
+                titleEn: 'Privacy & data',
+                descZh: '开启无痕模式、清理浏览历史与缓存，或一键导出所有个性化设置。',
+                descEn: 'Incognito mode, browsing history, cache/cookies cleanup, profile paths, and setup backup.'
+            },
+            'sec-extensions': {
+                navZh: '内建扩展与脚本',
+                navEn: '内建 Extension',
+                titleZh: '内建扩展与 ScriptForge 用户脚本',
+                titleEn: '内建 Extension',
+                descZh: '所有扩展按需开启（关闭时零内存占用），并内置用户脚本引擎与社区分享商店。',
+                descEn: 'Opt-in memory-heavy modules (off by default), custom scripts, & on-demand cloud store.'
+            }
+        };
+
+        const VISUAL_ROW_I18N = {
+            qsDeskTopToggle: ['显示桌面端顶部栏', 'Show desktop topbar', '控制电脑端页面最上方的浏览栏是否显示（关闭即进入无边框极简模式）。'],
+            qsTopbarLayout: ['顶栏 / 侧边栏布局方式', 'Header layout & shortcuts bar', '选双栏、单行紧凑或左侧竖排标签栏，并设置收藏网站栏何时显示。'],
+            qsTopbarHeight: ['顶栏与边栏尺寸', 'Topbar, titlebar & vertical sidebar dimensions', '依次设置导航条高度、顶部标签行高度与左侧竖排边栏宽度。'],
+            qsAddrMode: ['地址栏显示位置与宽度', 'Address bar style, alignment & width', '选择直接在顶部输入或居中弹窗搜索，支持靠左 / 居中 / 靠右对齐。'],
+            qsBtnCopyToggle: ['顶栏快捷图标开关', 'Toolbar buttons visibility', '不想让顶栏太挤时，可以随时隐藏复制网址、收藏星标、盾牌或下载图标。'],
+            qsTabHeight: ['标签页大小与圆角', 'Tab geometry (height · width · radius · gap)', '自定义标签卡片的高度、宽度、圆角弧度和标签之间的间隔。'],
+            qsTabDotToggle: ['网站图标与设置页宽屏模式', 'Domain monogram badge & workspace width', '开关标签上的网站小图标，以及是否让设置界面铺满较宽窗口。'],
+            qsMobilePos: ['手机端底栏停靠位置', 'Mobile dock position & height', '在手机上可将控制胶囊放在底部单手操作，或放到屏幕顶部。'],
+            qsNtTitle: ['起始页标题与快捷卡片列数', 'Hero title & grid columns', '保持默认“Fynexo”即显示极简大时钟；改成其他标题则会显示自定义欢迎语。'],
+            qsNtSub: ['起始页副标题', 'Hero subtitle', '显示在起始页主标题下方的小字说明。'],
+            qsNtClockToggle: ['起始页大时钟与小时制', 'Clock & 24-hour format', '控制是否在新标签页显示时间，以及切换 24 小时制或 12 小时制。'],
+            qsNtScToggle: ['起始页显示模块', 'Start page sections', '自由控制是否在新标签页展示“常用网站卡片”和“最近访问记录”。'],
+            qsNtWallpaper: ['起始页壁纸与背景遮罩', 'Start page wallpaper & overlay', '点下方色块一键换肤，也可以上传本地图片或调节背景暗度与模糊程度。']
+        };
+
+        function setPlainRowI18n(el, zhText, enText) {
+            if (!el) return;
+            if (!el.dataset.enText) el.dataset.enText = el.textContent;
+            el.textContent = isZh() ? zhText : (enText || el.dataset.enText);
+        }
+
+        function applySettingsLocalization() {
+            const zh = isZh();
+            const brandTitle = document.querySelector('.brand-title');
+            if (brandTitle) brandTitle.textContent = zh ? '偏好设置' : 'Preferences';
+
+            const langBtn = document.getElementById('btnSettingsLang');
+            if (langBtn) {
+                langBtn.textContent = zh ? '中文 · 切换 EN' : 'EN · 切换中文';
+            }
+
+            const navGroups = document.querySelectorAll('.nav-group-label');
+            const zhGroups = ['界面与外观', '日常浏览', '隐私与拦截'];
+            const enGroups = ['Interface', 'Browsing', 'Privacy & Shield'];
+            navGroups.forEach((g, idx) => {
+                if (zhGroups[idx]) g.textContent = zh ? zhGroups[idx] : enGroups[idx];
+            });
+
+            Object.keys(SECTION_I18N).forEach((secId) => {
+                const info = SECTION_I18N[secId];
+                const navBtn = document.querySelector(`.nav-link[data-sec="${secId}"] span:not(.nav-pill-count)`);
+                if (navBtn) navBtn.textContent = zh ? info.navZh : info.navEn;
+
+                const secEl = document.getElementById(secId);
+                if (!secEl) return;
+                const titleEl = secEl.querySelector('.sec-title');
+                if (titleEl) titleEl.textContent = zh ? info.titleZh : info.titleEn;
+
+                const descEl = secEl.querySelector('.sec-desc');
+                if (descEl) {
+                    if (secId === 'sec-styles' && descEl.firstChild && descEl.firstChild.nodeType === 3) {
+                        descEl.firstChild.textContent = zh ? info.prefixZh : info.prefixEn;
+                    } else if (info.descZh && info.descEn && descEl.id !== 'shortcutsHint') {
+                        descEl.textContent = zh ? info.descZh : info.descEn;
+                    }
+                }
+            });
+
+            const studioGroups = document.querySelectorAll('#pane-studio-visual .set-group-title');
+            const zhStudioGroups = ['桌面顶栏与工具按钮', '标签栏与手机端底栏', '新标签起始页 (fynexo://newtab)'];
+            const enStudioGroups = ['Desktop Topbar & Omnibox', 'Tabs & Mobile Dock', 'Start Page (fynexo://newtab)'];
+            studioGroups.forEach((el, idx) => {
+                if (zhStudioGroups[idx]) el.textContent = zh ? zhStudioGroups[idx] : enStudioGroups[idx];
+            });
+
+            Object.keys(VISUAL_ROW_I18N).forEach((ctrlId) => {
+                const ctrlEl = document.getElementById(ctrlId);
+                const row = ctrlEl && ctrlEl.closest('.set-row');
+                if (!row) return;
+                const [lblZh, lblEn, hintZh] = VISUAL_ROW_I18N[ctrlId];
+                setPlainRowI18n(row.querySelector('.set-label'), lblZh, lblEn);
+                setPlainRowI18n(row.querySelector('.set-hint'), hintZh, null);
+            });
+        }
+
         function syncFormControls() {
+            const zh = isZh();
             document.getElementById('themesDirLabel').textContent = themesDir;
             document.getElementById('stylesPathLabel').textContent = stylesPath;
             const pathDisplay = document.getElementById('stylesPathDisplay');
             if (pathDisplay) pathDisplay.textContent = stylesPath;
             document.getElementById('dataDirLabel').textContent = dataDir || stylesPath;
-            document.getElementById('shortcutsHint').textContent =
-                `${bookmarks.length} saved shortcut${bookmarks.length === 1 ? '' : 's'} synced to shortcuts.json.`;
+            document.getElementById('shortcutsHint').textContent = zh
+                ? `已同步 ${bookmarks.length} 个常用网站卡片（保存在 shortcuts.json）。`
+                : `${bookmarks.length} saved shortcut${bookmarks.length === 1 ? '' : 's'} synced to shortcuts.json.`;
 
             document.getElementById('inputHomepage').value = config.homepage || 'fynexo://newtab';
 
@@ -1757,23 +1971,35 @@
 
             const adOn = config.adblock !== false;
             setSwitchState('btnAdblockToggle', adOn);
-            document.getElementById('adblockHint').textContent = adOn
-                ? `Blocks 65+ built-in ad/telemetry domains plus custom rules (${blockedAds} blocked this session).`
-                : 'Network ad & tracker interception is currently paused.';
+            document.getElementById('adblockHint').textContent = zh
+                ? (adOn
+                    ? `自动拦截 65+ 常见广告/跟踪域名与自定义黑名单（本次浏览已拦截 ${blockedAds} 次）。`
+                    : '网络级广告与追踪拦截目前已暂停。')
+                : (adOn
+                    ? `Blocks 65+ built-in ad/telemetry domains plus custom rules (${blockedAds} blocked this session).`
+                    : 'Network ad & tracker interception is currently paused.');
 
             setSwitchState('btnRestoreToggle', config.restore_session !== false);
 
             document.getElementById('btnClearHistory').textContent = historyCount > 0
-                ? `Clear history (${historyCount})`
-                : 'Clear history';
+                ? (zh ? `清空历史记录 (${historyCount})` : `Clear history (${historyCount})`)
+                : (zh ? '清空历史记录' : 'Clear history');
 
             const tb = styles.topbar || {};
             setSwitchState('qsDeskTopToggle', tb.visible_on_desktop !== false);
-            document.getElementById('qsTopbarLayout').value = (tb.layout || 'deck').toLowerCase() === 'compact' ? 'compact' : 'deck';
+            const tbLayout = (tb.layout || 'deck').toLowerCase();
+            document.getElementById('qsTopbarLayout').value =
+                (tbLayout === 'compact' || tbLayout === 'vertical') ? tbLayout : 'deck';
             document.getElementById('qsBookmarksBar').value = ['always', 'newtab', 'hidden'].includes((tb.bookmarks_bar || '').toLowerCase()) ? tb.bookmarks_bar.toLowerCase() : 'always';
-            document.getElementById('qsTopbarHeight').value = tb.height || '38px';
+            document.getElementById('qsTopbarHeight').value = tb.height || '40px';
             const qsTitlebarInput = document.getElementById('qsTitlebarHeight');
-            if (qsTitlebarInput) qsTitlebarInput.value = tb.titlebar_height || '40px';
+            if (qsTitlebarInput) qsTitlebarInput.value = tb.titlebar_height || '42px';
+            const qsVertW = document.getElementById('qsVertWidth');
+            if (qsVertW) qsVertW.value = tb.vertical_width || '216px';
+            setSwitchState('qsBtnCopyToggle', tb.show_copy_btn !== false);
+            setSwitchState('qsBtnStarToggle', tb.show_star_btn !== false);
+            setSwitchState('qsBtnShieldToggle', tb.show_shield_btn !== false);
+            setSwitchState('qsBtnDlToggle', tb.show_downloads_btn !== false);
 
             if (styles.address_bar) {
                 document.getElementById('qsAddrMode').value = (styles.address_bar.mode || 'inline').toLowerCase() === 'modal' ? 'modal' : 'inline';
@@ -1804,12 +2030,21 @@
             setSwitchState('qsNt24hToggle', nt.use_24h_clock !== false);
             setSwitchState('qsNtScToggle', nt.show_shortcuts !== false);
             setSwitchState('qsNtHistToggle', nt.show_history !== false);
+            const qsNtWp = document.getElementById('qsNtWallpaper');
+            if (qsNtWp) qsNtWp.value = nt.background_image || '';
+            const qsNtDim = document.getElementById('qsNtDim');
+            if (qsNtDim) qsNtDim.value = String(nt.background_dim !== undefined ? nt.background_dim : 45);
+            const qsNtBlur = document.getElementById('qsNtBlur');
+            if (qsNtBlur) qsNtBlur.value = String(nt.background_blur || 0);
 
             const editor = document.getElementById('jsonEditor');
             if (document.activeElement !== editor) {
                 editor.value = JSON.stringify(styles, null, 2);
             }
-            setJsonStatus(false, 'Ready — edit JSON directly (Ctrl+S to apply).');
+            setJsonStatus(false, isZh()
+                ? '就绪 — 可直接在右侧修改 JSON（Ctrl+S 生效）。'
+                : 'Ready — edit JSON directly (Ctrl+S to apply).');
+            applySettingsLocalization();
         }
 
         function setJsonStatus(isError, msg) {
@@ -2206,7 +2441,12 @@
         document.getElementById('qsTopbarLayout').onchange = (e) => {
             styles.topbar = styles.topbar || {};
             styles.topbar.layout = e.target.value;
-            pushStyles(e.target.value === 'deck' ? 'Switched to 2-row layered deck' : 'Switched to single-row compact bar');
+            const msg = e.target.value === 'vertical'
+                ? 'Switched to left vertical sidebar'
+                : e.target.value === 'deck'
+                    ? 'Switched to 2-row layered deck'
+                    : 'Switched to single-row compact bar';
+            pushStyles(msg);
         };
         document.getElementById('qsBookmarksBar').onchange = (e) => {
             styles.topbar = styles.topbar || {};
@@ -2215,17 +2455,40 @@
         };
         document.getElementById('qsTopbarHeight').onchange = (e) => {
             styles.topbar = styles.topbar || {};
-            styles.topbar.height = e.target.value.trim() || '38px';
+            styles.topbar.height = e.target.value.trim() || '40px';
             pushStyles('Nav bar height updated');
         };
         const qsTitlebarInput = document.getElementById('qsTitlebarHeight');
         if (qsTitlebarInput) {
             qsTitlebarInput.onchange = (e) => {
                 styles.topbar = styles.topbar || {};
-                styles.topbar.titlebar_height = e.target.value.trim() || '40px';
+                styles.topbar.titlebar_height = e.target.value.trim() || '42px';
                 pushStyles('Titlebar height updated');
             };
         }
+        const qsVertWInput = document.getElementById('qsVertWidth');
+        if (qsVertWInput) {
+            qsVertWInput.onchange = (e) => {
+                styles.topbar = styles.topbar || {};
+                styles.topbar.vertical_width = e.target.value.trim() || '216px';
+                pushStyles('Vertical tab sidebar width updated');
+            };
+        }
+        [
+            ['qsBtnCopyToggle', 'show_copy_btn', 'Copy URL button'],
+            ['qsBtnStarToggle', 'show_star_btn', 'Bookmark button'],
+            ['qsBtnShieldToggle', 'show_shield_btn', 'Shield button'],
+            ['qsBtnDlToggle', 'show_downloads_btn', 'Downloads button']
+        ].forEach(([elId, field, label]) => {
+            const btn = document.getElementById(elId);
+            if (!btn) return;
+            btn.onclick = () => {
+                styles.topbar = styles.topbar || {};
+                const next = styles.topbar[field] === false;
+                styles.topbar[field] = next;
+                pushStyles(`${label} ${next ? 'shown' : 'hidden'}`);
+            };
+        });
         document.getElementById('qsAddrMode').onchange = (e) => {
             styles.address_bar = styles.address_bar || {};
             styles.address_bar.mode = e.target.value;
@@ -2323,6 +2586,123 @@
             styles.newtab.show_history = styles.newtab.show_history === false ? true : false;
             pushStyles('Start page history visibility updated');
         };
+        const qsNtWpEl = document.getElementById('qsNtWallpaper');
+        if (qsNtWpEl) {
+            qsNtWpEl.onchange = (e) => {
+                styles.newtab = styles.newtab || {};
+                styles.newtab.background_image = e.target.value.trim();
+                pushStyles(styles.newtab.background_image ? 'Start page wallpaper updated' : 'Start page wallpaper cleared');
+            };
+        }
+        const btnWpUp = document.getElementById('btnNtWallpaperUpload');
+        const inpWpFile = document.getElementById('fileNtWallpaper');
+        if (btnWpUp && inpWpFile) {
+            btnWpUp.onclick = () => inpWpFile.click();
+            inpWpFile.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                e.target.value = '';
+                if (!file) return;
+                if (file.size > 4 * 1024 * 1024) {
+                    showToast('Please choose an image under 4 MB');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => {
+                    styles.newtab = styles.newtab || {};
+                    styles.newtab.background_image = String(reader.result || '');
+                    pushStyles('Start page wallpaper uploaded');
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+        const btnWpClr = document.getElementById('btnNtWallpaperClear');
+        if (btnWpClr) {
+            btnWpClr.onclick = () => {
+                styles.newtab = styles.newtab || {};
+                styles.newtab.background_image = '';
+                pushStyles('Start page wallpaper cleared');
+            };
+        }
+        const qsNtDimEl = document.getElementById('qsNtDim');
+        if (qsNtDimEl) {
+            qsNtDimEl.onchange = (e) => {
+                styles.newtab = styles.newtab || {};
+                const n = Math.max(0, Math.min(90, Number(e.target.value) || 0));
+                styles.newtab.background_dim = Math.round(n);
+                pushStyles(`Wallpaper dim set to ${styles.newtab.background_dim}%`);
+            };
+        }
+        const qsNtBlurEl = document.getElementById('qsNtBlur');
+        if (qsNtBlurEl) {
+            qsNtBlurEl.onchange = (e) => {
+                styles.newtab = styles.newtab || {};
+                const n = Math.max(0, Math.min(24, Number(e.target.value) || 0));
+                styles.newtab.background_blur = Math.round(n);
+                pushStyles(`Wallpaper blur set to ${styles.newtab.background_blur}px`);
+            };
+        }
+
+        const btnSettingsLangEl = document.getElementById('btnSettingsLang');
+        if (btnSettingsLangEl) {
+            btnSettingsLangEl.onclick = () => {
+                config.language = isZh() ? 'en' : 'zh';
+                renderAllSections();
+                saveConfig(isZh() ? '已切换为简体中文界面' : 'Switched interface to English');
+            };
+        }
+
+        const UI_STYLE_PRESETS = {
+            compact: {
+                msgZh: '已切换为「极简紧凑」布局',
+                msgEn: 'Applied Compact UI preset',
+                topbar: { layout: 'compact', height: '38px', titlebar_height: '40px' },
+                tabs: { height: '28px', width: '184px', border_radius: '7px', gap: '4px' },
+                address_bar: { border_radius: '8px', height: '28px' }
+            },
+            deck: {
+                msgZh: '已切换为「经典双栏」布局',
+                msgEn: 'Applied Deck UI preset',
+                topbar: { layout: 'deck', height: '40px', titlebar_height: '42px' },
+                tabs: { height: '30px', width: '204px', border_radius: '8px', gap: '4px' },
+                address_bar: { border_radius: '8px', height: '29px' }
+            },
+            pill: {
+                msgZh: '已切换为「大圆角胶囊」风格',
+                msgEn: 'Applied Pill UI preset',
+                topbar: { layout: 'deck', height: '42px', titlebar_height: '44px' },
+                tabs: { height: '32px', width: '210px', border_radius: '999px', gap: '6px' },
+                address_bar: { border_radius: '999px', height: '30px' }
+            },
+            vertical: {
+                msgZh: '已切换为「左侧竖排标签栏」风格',
+                msgEn: 'Applied Vertical Sidebar preset',
+                topbar: { layout: 'vertical', vertical_width: '216px', height: '40px', titlebar_height: '42px' },
+                tabs: { height: '32px', width: '204px', border_radius: '8px', gap: '4px' },
+                address_bar: { border_radius: '8px', height: '29px' }
+            }
+        };
+
+        document.querySelectorAll('[data-ui-preset]').forEach((btn) => {
+            btn.onclick = () => {
+                const key = btn.dataset.uiPreset;
+                const p = UI_STYLE_PRESETS[key];
+                if (!p) return;
+                styles.topbar = Object.assign({}, styles.topbar || {}, p.topbar);
+                styles.tabs = Object.assign({}, styles.tabs || {}, p.tabs);
+                styles.address_bar = Object.assign({}, styles.address_bar || {}, p.address_bar);
+                pushStyles(isZh() ? p.msgZh : p.msgEn);
+            };
+        });
+
+        document.querySelectorAll('[data-wp]').forEach((btn) => {
+            btn.onclick = () => {
+                styles.newtab = styles.newtab || {};
+                styles.newtab.background_image = btn.dataset.wp || '';
+                pushStyles(styles.newtab.background_image
+                    ? (isZh() ? `已切换壁纸：${btn.textContent}` : `Applied wallpaper: ${btn.textContent}`)
+                    : (isZh() ? '已恢复默认无壁纸' : 'Cleared Start page wallpaper'));
+            };
+        });
 
         const jsonEditorEl = document.getElementById('jsonEditor');
         let validateTimer = null;

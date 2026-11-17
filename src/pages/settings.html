@@ -13,11 +13,12 @@ __FNX_SETTINGS_CSS__
     <div id="__fynexo_settings_app__">
         <aside class="sidebar">
             <div class="sidebar-top">
-                <div class="brand-header">
+                <div class="brand-header" style="display: flex; align-items: center; gap: 8px;">
                     <div class="brand-identity">
                         <span class="brand-glyph" aria-hidden="true">✦</span>
                         <span class="brand-title">Preferences</span>
                     </div>
+                    <button type="button" class="action-btn compact" id="btnSettingsLang" title="切换界面语言 / Switch UI language" style="margin-left: auto;">中文 · EN</button>
                 </div>
 
                 <nav class="nav-list" id="sidebarNav" aria-label="Settings sections">
@@ -567,6 +568,18 @@ __FNX_SETTINGS_CSS__
                         <div class="set-group-title">Desktop Topbar &amp; Omnibox</div>
                         <div class="set-row">
                             <div class="set-meta">
+                                <div class="set-label">One-Click UI Style · 一键界面风格预设</div>
+                                <div class="set-hint">不懂像素参数也没关系，点一下即可套用整套界面比例与圆角风格。</div>
+                            </div>
+                            <div class="set-ctrl">
+                                <button type="button" class="action-btn compact" data-ui-preset="compact">极简紧凑 (Compact)</button>
+                                <button type="button" class="action-btn compact" data-ui-preset="deck">经典双栏 (Deck)</button>
+                                <button type="button" class="action-btn compact" data-ui-preset="pill">大圆角胶囊 (Pill)</button>
+                                <button type="button" class="action-btn compact" data-ui-preset="vertical">左侧竖排边栏 (Sidebar)</button>
+                            </div>
+                        </div>
+                        <div class="set-row">
+                            <div class="set-meta">
                                 <div class="set-label">Show desktop topbar</div>
                                 <div class="set-hint"><code>topbar.visible_on_desktop</code></div>
                             </div>
@@ -580,9 +593,10 @@ __FNX_SETTINGS_CSS__
                                 <div class="set-hint"><code>topbar.layout</code> · <code>topbar.bookmarks_bar</code></div>
                             </div>
                             <div class="set-ctrl">
-                                <select id="qsTopbarLayout" class="select-input" style="width: 148px;">
+                                <select id="qsTopbarLayout" class="select-input" style="width: 176px;">
                                     <option value="deck">Layered deck (2-row)</option>
                                     <option value="compact">Compact (1-row)</option>
+                                    <option value="vertical">Vertical sidebar (left)</option>
                                 </select>
                                 <select id="qsBookmarksBar" class="select-input" style="width: 138px;">
                                     <option value="always">Always show</option>
@@ -593,12 +607,13 @@ __FNX_SETTINGS_CSS__
                         </div>
                         <div class="set-row">
                             <div class="set-meta">
-                                <div class="set-label">Topbar &amp; titlebar height</div>
-                                <div class="set-hint"><code>topbar.height</code> · <code>topbar.titlebar_height</code></div>
+                                <div class="set-label">Topbar, titlebar &amp; vertical sidebar dimensions</div>
+                                <div class="set-hint"><code>topbar.height</code> · <code>titlebar_height</code> · <code>vertical_width</code></div>
                             </div>
                             <div class="set-ctrl">
-                                <input type="text" id="qsTopbarHeight" class="text-input mono" placeholder="38px" style="width: 84px;" title="Nav bar height">
-                                <input type="text" id="qsTitlebarHeight" class="text-input mono" placeholder="40px" style="width: 84px;" title="Tab deck height">
+                                <input type="text" id="qsTopbarHeight" class="text-input mono" placeholder="40px" style="width: 78px;" title="Nav bar height">
+                                <input type="text" id="qsTitlebarHeight" class="text-input mono" placeholder="42px" style="width: 78px;" title="Tab deck height">
+                                <input type="text" id="qsVertWidth" class="text-input mono" placeholder="216px" style="width: 78px;" title="Left vertical tab bar width">
                             </div>
                         </div>
                         <div class="set-row">
@@ -617,6 +632,22 @@ __FNX_SETTINGS_CSS__
                                     <option value="left">Left</option>
                                 </select>
                                 <input type="text" id="qsAddrWidth" class="text-input mono" placeholder="340px" style="width: 82px;">
+                            </div>
+                        </div>
+                        <div class="set-row">
+                            <div class="set-meta">
+                                <div class="set-label">Toolbar buttons visibility</div>
+                                <div class="set-hint"><code>topbar.show_copy_btn</code> · <code>show_star_btn</code> · <code>show_shield_btn</code> · <code>show_downloads_btn</code></div>
+                            </div>
+                            <div class="set-ctrl">
+                                <span class="switch-status">Copy</span>
+                                <button type="button" id="qsBtnCopyToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Copy URL button"></button>
+                                <span class="switch-status" style="margin-left: 6px;">Star</span>
+                                <button type="button" id="qsBtnStarToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Bookmark button"></button>
+                                <span class="switch-status" style="margin-left: 6px;">Shield</span>
+                                <button type="button" id="qsBtnShieldToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Shield button"></button>
+                                <span class="switch-status" style="margin-left: 6px;">Downloads</span>
+                                <button type="button" id="qsBtnDlToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Downloads button"></button>
                             </div>
                         </div>
 
@@ -698,7 +729,7 @@ __FNX_SETTINGS_CSS__
                                 <button type="button" id="qsNt24hToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="24h clock"></button>
                             </div>
                         </div>
-                        <div class="set-row" style="border-bottom: none;">
+                        <div class="set-row">
                             <div class="set-meta">
                                 <div class="set-label">Start page sections</div>
                                 <div class="set-hint"><code>newtab.show_shortcuts</code> · <code>newtab.show_history</code></div>
@@ -708,6 +739,34 @@ __FNX_SETTINGS_CSS__
                                 <button type="button" id="qsNtScToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show shortcuts"></button>
                                 <span class="switch-status" style="margin-left: 8px;">History</span>
                                 <button type="button" id="qsNtHistToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show history"></button>
+                            </div>
+                        </div>
+                        <div class="set-row" style="border-bottom: none;">
+                            <div class="set-meta">
+                                <div class="set-label">Start page wallpaper &amp; overlay</div>
+                                <div class="set-hint"><code>newtab.background_image</code> (URL, local image, or CSS gradient) · <code>background_dim</code> · <code>background_blur</code></div>
+                            </div>
+                            <div class="set-ctrl set-ctrl-col" style="max-width: 380px;">
+                                <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
+                                    <input type="text" id="qsNtWallpaper" class="text-input mono" placeholder="https://... or linear-gradient(...)" style="flex: 1;">
+                                    <input type="file" id="fileNtWallpaper" accept="image/*" style="display: none;">
+                                    <button type="button" class="action-btn compact" id="btnNtWallpaperUpload">Upload</button>
+                                    <button type="button" class="action-btn compact" id="btnNtWallpaperClear">Clear</button>
+                                </div>
+                                <div class="preset-row" style="justify-content: flex-start; width: 100%;">
+                                    <button type="button" class="preset-chip" data-wp="">默认无壁纸</button>
+                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #311042 100%)">深空极光</button>
+                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #082f49 0%, #0f172a 55%, #022c22 100%)">静谧深海</button>
+                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #2e1065 0%, #4c1d95 45%, #831843 100%)">暮光紫霞</button>
+                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #052e16 0%, #14532d 50%, #0f172a 100%)">森系暗绿</button>
+                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #431407 0%, #7c2d12 48%, #3b0764 100%)">暖阳落日</button>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px; width: 100%; font-size: 11.5px; color: var(--fnx-muted);">
+                                    <span>Dim %</span>
+                                    <input type="number" id="qsNtDim" class="text-input mono" min="0" max="90" step="5" value="45" style="width: 68px;">
+                                    <span style="margin-left: 6px;">Blur px</span>
+                                    <input type="number" id="qsNtBlur" class="text-input mono" min="0" max="24" step="1" value="0" style="width: 68px;">
+                                </div>
                             </div>
                         </div>
                     </div>

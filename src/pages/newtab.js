@@ -11,6 +11,7 @@
             restore_session: true,
             force_dark: false,
             incognito: false,
+            language: 'zh',
             tab_cache_mode: 'balanced',
             ext_side_panel: false,
             ext_reader_mode: false,
@@ -22,6 +23,9 @@
             search_engines: DEFAULT_ENGINES,
             bangs: DEFAULT_BANGS
         }, boot.config || {});
+        function isZh() {
+            return String(config.language || 'zh').toLowerCase() !== 'en';
+        }
         let styles = boot.styles || {};
         let activeTheme = boot.active_theme || {};
         let bookmarks = Array.isArray(boot.bookmarks) ? boot.bookmarks : [];
@@ -260,7 +264,7 @@
             const clockEl = document.getElementById('ntClock');
             const dateSub = document.getElementById('ntDateSub');
             const d = new Date();
-            const longDate = d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+            const longDate = d.toLocaleDateString(isZh() ? 'zh-CN' : 'en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
             if (nt.show_clock === false) {
                 clockWrap.style.display = 'none';
@@ -356,6 +360,28 @@
             const customCssEl = document.getElementById('__fynexo_newtab_custom_css__');
             if (customCssEl) customCssEl.textContent = nt.custom_css || '';
 
+            const rawBg = String(nt.background_image || '').trim();
+            if (rawBg) {
+                const isCssFn = /^(?:url|linear-gradient|radial-gradient|conic-gradient|repeating-linear-gradient|repeating-radial-gradient)\s*\(/i.test(rawBg);
+                const safeCssBg = isCssFn
+                    ? rawBg
+                    : (/^(?:https?:\/\/|data:image\/)/i.test(rawBg) ? `url("${rawBg.replace(/"/g, '\\"')}")` : '');
+                if (safeCssBg) {
+                    const dimPct = nt.background_dim !== undefined ? Number(nt.background_dim) : 45;
+                    const dimVal = Math.max(0, Math.min(90, Number.isFinite(dimPct) ? dimPct : 45)) / 100;
+                    const blurVal = Math.max(0, Math.min(24, Number(nt.background_blur) || 0));
+                    root.style.setProperty('--nt-wallpaper-img', safeCssBg);
+                    root.style.setProperty('--nt-wallpaper-dim', String(dimVal));
+                    root.style.setProperty('--nt-wallpaper-blur', `${blurVal}px`);
+                    root.classList.add('has-wallpaper');
+                } else {
+                    root.classList.remove('has-wallpaper');
+                }
+            } else {
+                root.classList.remove('has-wallpaper');
+            }
+
+            const zh = isZh();
             const engObj = currentEngineObj();
             const engName = (engObj && engObj.name) || 'Google';
             const engBtn = document.getElementById('ntEngineBtn');
@@ -365,24 +391,86 @@
                 const chev = createSvgEl('svg', { width: 10, height: 10, viewBox: '0 0 16 16', fill: 'none', class: 'nt-engine-chevron' });
                 chev.appendChild(createSvgEl('path', { d: 'M4.5 6.5L8 10l3.5-3.5', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
                 engBtn.appendChild(chev);
-                engBtn.title = `Search engine: ${engName} (click to choose)`;
-                engBtn.setAttribute('aria-label', `Search engine: ${engName}`);
+                engBtn.title = zh ? `当前搜索引擎：${engName}（点击切换）` : `Search engine: ${engName} (click to choose)`;
+                engBtn.setAttribute('aria-label', engBtn.title);
                 if (typeof engineMenuEl !== 'undefined' && engineMenuEl && engineMenuEl.classList.contains('open')) {
                     renderEngineMenu();
                 }
             }
-            document.getElementById('ntSearchInput').placeholder = `Search ${engName}, !gh, or enter URL...`;
+            document.getElementById('ntSearchInput').placeholder = zh
+                ? `在 ${engName} 中搜索，点下方 !快捷指令，或直接输入网址...`
+                : `Search ${engName}, !gh, or enter URL...`;
 
             const adOn = config.adblock !== false;
             document.getElementById('ntShieldDot').classList.toggle('off', !adOn);
-            document.getElementById('ntShieldText').textContent = adOn
-                ? (blockedAds > 0 ? `Adblock · ${blockedAds}` : 'Adblock active')
-                : 'Adblock paused';
+            document.getElementById('ntShieldText').textContent = zh
+                ? (adOn ? (blockedAds > 0 ? `已拦截 · ${blockedAds}` : '广告拦截已开启') : '广告拦截已暂停')
+                : (adOn ? (blockedAds > 0 ? `Adblock · ${blockedAds}` : 'Adblock active') : 'Adblock paused');
 
             const incogBtn = document.getElementById('btnIncogPill');
             const incogTxt = document.getElementById('ntIncogText');
             incogBtn.classList.toggle('active', !!config.incognito);
-            incogTxt.textContent = config.incognito ? 'Private: Active' : 'Private: Off';
+            incogTxt.textContent = zh
+                ? (config.incognito ? '无痕: 开启' : '无痕: 关闭')
+                : (config.incognito ? 'Private: Active' : 'Private: Off');
+
+            const langBtn = document.getElementById('btnLangPill');
+            if (langBtn) {
+                langBtn.textContent = zh ? '中文' : 'EN';
+                langBtn.title = zh ? 'Switch interface to English' : '切换界面为简体中文';
+            }
+            const prefsBtn = document.getElementById('btnPrefsPill');
+            if (prefsBtn) {
+                prefsBtn.title = zh ? '打开浏览器设置' : 'Open browser preferences';
+            }
+            const scLbl = document.getElementById('ntShortcutsLabel');
+            if (scLbl) scLbl.textContent = zh ? '常用网站' : 'Shortcuts';
+            const btnToggleAdd = document.getElementById('btnToggleAddBm');
+            if (btnToggleAdd) btnToggleAdd.textContent = zh ? '+ 添加网站' : '+ Add';
+            const inpAddTitle = document.getElementById('addBmTitle');
+            if (inpAddTitle) inpAddTitle.placeholder = zh ? '名称（可选）' : 'Name (optional)';
+            const inpAddUrl = document.getElementById('addBmUrl');
+            if (inpAddUrl) inpAddUrl.placeholder = zh ? '网址（例如 github.com）' : 'URL (e.g. github.com)';
+            const btnSaveBmEl = document.getElementById('btnSaveBm');
+            if (btnSaveBmEl) btnSaveBmEl.textContent = zh ? '保存' : 'Save';
+            const histLbl = document.getElementById('ntHistLabel');
+            if (histLbl) histLbl.textContent = zh ? '最近访问' : 'Recent';
+            const btnClearH = document.getElementById('btnClearHist');
+            if (btnClearH) btnClearH.textContent = zh ? '清空' : 'Clear';
+
+            const bangBar = document.getElementById('ntBangBar');
+            if (bangBar) {
+                bangBar.textContent = '';
+                const quickBangs = zh
+                    ? [
+                        ['!b', '!b 搜B站'],
+                        ['!gh', '!gh GitHub'],
+                        ['!yt', '!yt YouTube'],
+                        ['!tr', '!tr 翻译'],
+                        ['!w', '!w 维基百科']
+                    ]
+                    : [
+                        ['!b', '!b Bilibili'],
+                        ['!gh', '!gh GitHub'],
+                        ['!yt', '!yt YouTube'],
+                        ['!tr', '!tr Translate'],
+                        ['!w', '!w Wikipedia']
+                    ];
+                quickBangs.forEach(([trig, label]) => {
+                    const chip = document.createElement('button');
+                    chip.type = 'button';
+                    chip.className = 'nt-bang-chip';
+                    chip.textContent = label;
+                    chip.onclick = () => {
+                        const inp = document.getElementById('ntSearchInput');
+                        if (!inp) return;
+                        inp.value = `${trig} `;
+                        if (typeof renderSuggestions === 'function') renderSuggestions();
+                        inp.focus();
+                    };
+                    bangBar.appendChild(chip);
+                });
+            }
 
             updateClock();
         }
@@ -396,7 +484,7 @@
                 const emptyBtn = document.createElement('button');
                 emptyBtn.type = 'button';
                 emptyBtn.className = 'bm-card bm-card--empty';
-                emptyBtn.textContent = '+ Add a shortcut';
+                emptyBtn.textContent = isZh() ? '+ 添加常用网站' : '+ Add a shortcut';
                 emptyBtn.onclick = () => {
                     document.getElementById('addBmBar').classList.add('open');
                     document.getElementById('addBmUrl').focus();
@@ -856,6 +944,21 @@
             applySurface();
             sendIpc({ type: 'SAVE_CONFIG', config: config });
         };
+
+        const btnLangPill = document.getElementById('btnLangPill');
+        if (btnLangPill) {
+            btnLangPill.onclick = () => {
+                config.language = isZh() ? 'en' : 'zh';
+                applySurface();
+                renderBookmarks();
+                renderHistory();
+                sendIpc({ type: 'PATCH_HUD_PREFS', language: config.language });
+            };
+        }
+        const btnPrefsPill = document.getElementById('btnPrefsPill');
+        if (btnPrefsPill) {
+            btnPrefsPill.onclick = () => sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings' });
+        }
 
         const addBar = document.getElementById('addBmBar');
         const addTitle = document.getElementById('addBmTitle');

@@ -23,6 +23,8 @@ __FNX_NEWTAB_CSS__
                         <span class="nt-dot" id="ntShieldDot"></span>
                         <span id="ntShieldText">Adblock active</span>
                     </button>
+                    <button type="button" class="nt-pill" id="btnLangPill" title="切换语言 / Switch language">中文</button>
+                    <button type="button" class="nt-pill" id="btnPrefsPill" title="偏好设置 / Preferences">⚙</button>
                 </div>
             </header>
 
@@ -49,6 +51,7 @@ __FNX_NEWTAB_CSS__
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M12.5 4.2v3.6a1.5 1.5 0 0 1-1.5 1.5H4.2M6.8 6.7L4.2 9.3l2.6 2.6" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
                     </div>
+                    <div class="nt-bang-bar" id="ntBangBar"></div>
                     <div class="nt-engine-menu" id="ntEngineMenu" role="listbox" aria-label="Search engines"></div>
                     <div class="nt-suggest" id="ntSuggestList"></div>
                 </div>
@@ -56,7 +59,7 @@ __FNX_NEWTAB_CSS__
 
             <section class="nt-section" id="shortcutsSection">
                 <div class="nt-sec-head">
-                    <span class="nt-sec-label">Shortcuts</span>
+                    <span class="nt-sec-label" id="ntShortcutsLabel">Shortcuts</span>
                     <button type="button" class="nt-mini-btn" id="btnToggleAddBm">+ Add</button>
                 </div>
 
@@ -71,7 +74,7 @@ __FNX_NEWTAB_CSS__
 
             <section class="nt-section" id="histSection" style="display: none;">
                 <div class="nt-sec-head">
-                    <span class="nt-sec-label">Recent</span>
+                    <span class="nt-sec-label" id="ntHistLabel">Recent</span>
                     <button type="button" class="nt-mini-btn" id="btnClearHist">Clear</button>
                 </div>
                 <div class="hist-list" id="histList"></div>

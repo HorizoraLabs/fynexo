@@ -43,7 +43,32 @@
             touch-action: manipulation;
         }
 
+        html.has-wallpaper body::before {
+            content: '';
+            position: fixed;
+            inset: -16px;
+            background-image: var(--nt-wallpaper-img, none);
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            filter: blur(var(--nt-wallpaper-blur, 0px));
+            transform: scale(1.03);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        html.has-wallpaper body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, var(--nt-wallpaper-dim, 0.45));
+            z-index: 0;
+            pointer-events: none;
+        }
+
         #__fynexo_newtab_app__ {
+            position: relative;
+            z-index: 1;
             width: 100%;
             min-height: 100vh;
             padding-top: calc(var(--fnx-host-top-offset, 0px) + 18px);
@@ -396,6 +421,31 @@
         .nt-search-box:focus-within .nt-go-btn,
         .nt-search-box.has-value .nt-go-btn {
             display: flex;
+        }
+
+        .nt-bang-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+        .nt-bang-chip {
+            border: 1px solid var(--nt-hairline);
+            background: color-mix(in srgb, var(--nt-surface) 84%, transparent);
+            color: var(--nt-dim);
+            font-size: 11.5px;
+            font-weight: 450;
+            padding: 3px 10px;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+        }
+        .nt-bang-chip:hover {
+            background: var(--nt-elevated);
+            border-color: var(--nt-hairline-hover);
+            color: var(--nt-fg);
         }
 
         /* Command palette dropdown */

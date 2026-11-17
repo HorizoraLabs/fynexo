@@ -7,6 +7,28 @@ use super::base::{
     display_path_preferring_local, synced_json_mtime, synced_json_path, synced_json_save,
 };
 
+fn default_kb_prev_tab() -> String {
+    "Ctrl+Shift+Tab".to_string()
+}
+fn default_kb_reload() -> String {
+    "Ctrl+R".to_string()
+}
+fn default_kb_go_back() -> String {
+    "Alt+ArrowLeft".to_string()
+}
+fn default_kb_go_forward() -> String {
+    "Alt+ArrowRight".to_string()
+}
+fn default_kb_toggle_side_panel() -> String {
+    "Alt+S".to_string()
+}
+fn default_kb_pin_tab() -> String {
+    "Alt+P".to_string()
+}
+fn default_kb_mute_tab() -> String {
+    "Alt+M".to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct KeybindsConfig {
@@ -15,6 +37,20 @@ pub struct KeybindsConfig {
     pub close_tab: String,
     pub reopen_closed_tab: String,
     pub next_tab: String,
+    #[serde(default = "default_kb_prev_tab")]
+    pub prev_tab: String,
+    #[serde(default = "default_kb_reload")]
+    pub reload: String,
+    #[serde(default = "default_kb_go_back")]
+    pub go_back: String,
+    #[serde(default = "default_kb_go_forward")]
+    pub go_forward: String,
+    #[serde(default = "default_kb_toggle_side_panel")]
+    pub toggle_side_panel: String,
+    #[serde(default = "default_kb_pin_tab")]
+    pub pin_tab: String,
+    #[serde(default = "default_kb_mute_tab")]
+    pub mute_tab: String,
     pub bookmark_page: String,
     pub find_in_page: String,
     pub reader_mode: String,
@@ -34,6 +70,13 @@ impl Default for KeybindsConfig {
             close_tab: "Ctrl+W".to_string(),
             reopen_closed_tab: "Ctrl+Shift+T".to_string(),
             next_tab: "Ctrl+Tab".to_string(),
+            prev_tab: default_kb_prev_tab(),
+            reload: default_kb_reload(),
+            go_back: default_kb_go_back(),
+            go_forward: default_kb_go_forward(),
+            toggle_side_panel: default_kb_toggle_side_panel(),
+            pin_tab: default_kb_pin_tab(),
+            mute_tab: default_kb_mute_tab(),
             bookmark_page: "Ctrl+D".to_string(),
             find_in_page: "Ctrl+F".to_string(),
             reader_mode: "Alt+R".to_string(),

@@ -99,6 +99,19 @@ fn default_tab_cache_mode() -> String {
     "balanced".to_string()
 }
 
+fn default_language() -> String {
+    "zh".to_string()
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct SiteOverride {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<f64>,
+    #[serde(default)]
+    pub dark_mode: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TabCacheLimits {
     pub max_cached_normal: usize,
@@ -114,6 +127,8 @@ pub struct AppConfig {
     pub restore_session: bool,
     pub force_dark: bool,
     pub incognito: bool,
+    #[serde(default = "default_language")]
+    pub language: String,
     #[serde(default = "default_zoom_one")]
     pub default_zoom: f64,
     #[serde(default = "default_ua_mode")]
@@ -134,6 +149,10 @@ pub struct AppConfig {
     pub ext_media_booster: bool,
     #[serde(default = "default_true")]
     pub ext_userscript_engine: bool,
+    #[serde(default = "default_true")]
+    pub ext_mouse_gestures: bool,
+    #[serde(default)]
+    pub site_overrides: std::collections::BTreeMap<String, SiteOverride>,
     pub search_engine: String,
     pub homepage: String,
     #[serde(default = "default_search_engines")]
@@ -151,6 +170,7 @@ impl Default for AppConfig {
             restore_session: true,
             force_dark: false,
             incognito: false,
+            language: default_language(),
             default_zoom: 1.0,
             user_agent_mode: "default".to_string(),
             custom_user_agent: String::new(),
@@ -161,6 +181,8 @@ impl Default for AppConfig {
             ext_gh_harmonizer: false,
             ext_media_booster: false,
             ext_userscript_engine: true,
+            ext_mouse_gestures: true,
+            site_overrides: std::collections::BTreeMap::new(),
             search_engine: "google".to_string(),
             homepage: "fynexo://newtab".to_string(),
             search_engines: default_search_engines(),

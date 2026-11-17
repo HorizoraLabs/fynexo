@@ -488,3 +488,271 @@
             } catch (_) {}
          }
          syncGithubDrawerHarmonizer();
+
+         // Built-in Mouse Gestures Extension (Right-Click Drag)
+         let mouseGesturesActive = false;
+         let gestureStopTeardown = null;
+         function syncMouseGestures() {
+            const wantActive =
+               !isMobilePlatform() && config.ext_mouse_gestures !== false;
+            if (!wantActive) {
+               if (gestureStopTeardown) {
+                  gestureStopTeardown();
+                  gestureStopTeardown = null;
+               }
+               mouseGesturesActive = false;
+               return;
+            }
+            if (mouseGesturesActive) return;
+            mouseGesturesActive = true;
+
+            const ARROWS = { L: '←', R: '→', U: '↑', D: '↓' };
+            const GESTURE_MAP = {
+               L: {
+                  label: 'Back',
+                  run: () => requestHistoryNav('back'),
+               },
+               R: {
+                  label: 'Forward',
+                  run: () => requestHistoryNav('forward'),
+               },
+               U: {
+                  label: 'Scroll to top',
+                  run: () => {
+                     try {
+                        if (document.body) {
+                           document.body.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                        if (document.documentElement) {
+                           document.documentElement.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                     } catch (_) {
+                        if (document.body) document.body.scrollTop = 0;
+                        window.scrollTo(0, 0);
+                     }
+                  },
+               },
+               D: {
+                  label: 'Scroll to bottom',
+                  run: () => {
+                     const targetY = Math.max(
+                        document.body ? document.body.scrollHeight : 0,
+                        document.documentElement
+                           ? document.documentElement.scrollHeight
+                           : 0,
+                     );
+                     try {
+                        if (document.body) {
+                           document.body.scrollTo({ top: targetY, behavior: 'smooth' });
+                        }
+                        if (document.documentElement) {
+                           document.documentElement.scrollTo({ top: targetY, behavior: 'smooth' });
+                        }
+                        window.scrollTo({ top: targetY, behavior: 'smooth' });
+                     } catch (_) {
+                        if (document.body) document.body.scrollTop = targetY;
+                        window.scrollTo(0, targetY);
+                     }
+                  },
+               },
+               DR: {
+                  label: 'Close tab',
+                  run: () => {
+                     if (tabState.active_id) {
+                        sendIpc({ type: 'CLOSE_TAB', id: tabState.active_id });
+                     }
+                  },
+               },
+               DL: {
+                  label: 'Reopen closed tab',
+                  run: () => {
+                     triggerProgress();
+                     sendIpc({ type: 'REOPEN_CLOSED_TAB' });
+                  },
+               },
+               UD: {
+                  label: 'Reload page',
+                  run: () => {
+                     triggerProgress();
+                     sendIpc({ type: 'RELOAD' });
+                  },
+               },
+               UR: {
+                  label: 'Next tab',
+                  run: () => {
+                     if (tabState.tabs && tabState.tabs.length > 1) {
+                        const idx = tabState.tabs.findIndex(
+                           (t) => t.id === tabState.active_id,
+                        );
+                        const nextIdx = (idx + 1) % tabState.tabs.length;
+                        flushScrollSync();
+                        triggerProgress();
+                        sendIpc({ type: 'SWITCH_TAB', id: tabState.tabs[nextIdx].id });
+                     }
+                  },
+               },
+               UL: {
+                  label: 'Previous tab',
+                  run: () => {
+                     if (tabState.tabs && tabState.tabs.length > 1) {
+                        const idx = tabState.tabs.findIndex(
+                           (t) => t.id === tabState.active_id,
+                        );
+                        const prevIdx =
+                           (idx - 1 + tabState.tabs.length) %
+                           tabState.tabs.length;
+                        flushScrollSync();
+                        triggerProgress();
+                        sendIpc({ type: 'SWITCH_TAB', id: tabState.tabs[prevIdx].id });
+                     }
+                  },
+               },
+            };
+
+            let tracking = false;
+            let lastX = 0;
+            let lastY = 0;
+            let path = '';
+            let suppressCtxUntil = 0;
+            let hudEl = null;
+            let arrowSpan = null;
+            let labelSpan = null;
+
+            function ensureHudEl() {
+               if (!shadowRoot) return null;
+               if (hudEl && hudEl.isConnected) return hudEl;
+               hudEl = shadowRoot.getElementById('__fynexo_gesture_hud__');
+               if (!hudEl) {
+                  hudEl = document.createElement('div');
+                  hudEl.id = '__fynexo_gesture_hud__';
+                  hudEl.style.cssText =
+                     'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 2147483647; display: none; flex-direction: column; align-items: center; gap: 4px; padding: 12px 18px; border-radius: 12px; background: var(--fnx-panel); border: 1px solid var(--fnx-border-hover); color: var(--fnx-fg); min-width: 124px; text-align: center;';
+                  arrowSpan = document.createElement('div');
+                  arrowSpan.style.cssText =
+                     'font-size: 20px; font-weight: 700; letter-spacing: 0.14em; color: var(--fnx-accent); line-height: 1.2;';
+                  labelSpan = document.createElement('div');
+                  labelSpan.style.cssText =
+                     'font-size: 12px; font-weight: 500; color: var(--fnx-secondary);';
+                  hudEl.appendChild(arrowSpan);
+                  hudEl.appendChild(labelSpan);
+                  (shadowRoot.getElementById('__fynexo_shell__') || shadowRoot).appendChild(hudEl);
+               }
+               return hudEl;
+            }
+
+            function hideHud() {
+               if (hudEl) hudEl.style.display = 'none';
+            }
+
+            function updateHud() {
+               if (!path) {
+                  hideHud();
+                  return;
+               }
+               const el = ensureHudEl();
+               if (!el) return;
+               let arrows = '';
+               for (let i = 0; i < path.length; i++) {
+                  arrows += ARROWS[path[i]] || '';
+               }
+               const match = GESTURE_MAP[path];
+               arrowSpan.textContent = arrows;
+               labelSpan.textContent = match ? match.label : 'Cancel';
+               el.style.display = 'flex';
+            }
+
+            const THRESHOLD = 18;
+
+            const onMouseDown = (e) => {
+               if (e.button !== 2 || e.shiftKey || isMobilePlatform()) return;
+               if (isEventInsideHud(e)) return;
+               tracking = true;
+               lastX = e.clientX;
+               lastY = e.clientY;
+               path = '';
+            };
+
+            const onMouseMove = (e) => {
+               if (!tracking) return;
+               if ((e.buttons & 2) === 0) {
+                  tracking = false;
+                  path = '';
+                  hideHud();
+                  return;
+               }
+               const dx = e.clientX - lastX;
+               const dy = e.clientY - lastY;
+               const absX = Math.abs(dx);
+               const absY = Math.abs(dy);
+               if (absX < THRESHOLD && absY < THRESHOLD) return;
+
+               const dir =
+                  absX >= absY
+                     ? dx > 0
+                        ? 'R'
+                        : 'L'
+                     : dy > 0
+                       ? 'D'
+                       : 'U';
+               lastX = e.clientX;
+               lastY = e.clientY;
+               if (path.length === 0 || (path.length < 2 && path[path.length - 1] !== dir)) {
+                  path += dir;
+                  updateHud();
+               } else if (path.length > 0 && path[path.length - 1] === dir) {
+                  updateHud();
+               }
+            };
+
+            const onMouseUp = (e) => {
+               if (!tracking || e.button !== 2) return;
+               tracking = false;
+               const drawn = path;
+               path = '';
+               hideHud();
+               if (drawn) {
+                  suppressCtxUntil = Date.now() + 450;
+                  const match = GESTURE_MAP[drawn];
+                  if (match && typeof match.run === 'function') {
+                     try {
+                        match.run();
+                     } catch (_) {}
+                  }
+               }
+            };
+
+            const onContextMenu = (e) => {
+               if (suppressCtxUntil && Date.now() <= suppressCtxUntil) {
+                  suppressCtxUntil = 0;
+                  e.preventDefault();
+                  e.stopPropagation();
+               }
+            };
+
+            const onBlur = () => {
+               tracking = false;
+               path = '';
+               hideHud();
+            };
+
+            window.addEventListener('mousedown', onMouseDown, { capture: true, passive: true });
+            window.addEventListener('mousemove', onMouseMove, { capture: true, passive: true });
+            window.addEventListener('mouseup', onMouseUp, { capture: true, passive: true });
+            window.addEventListener('contextmenu', onContextMenu, { capture: true });
+            window.addEventListener('blur', onBlur, { passive: true });
+
+            gestureStopTeardown = () => {
+               tracking = false;
+               path = '';
+               hideHud();
+               if (hudEl && hudEl.isConnected) hudEl.remove();
+               hudEl = null;
+               window.removeEventListener('mousedown', onMouseDown, { capture: true });
+               window.removeEventListener('mousemove', onMouseMove, { capture: true });
+               window.removeEventListener('mouseup', onMouseUp, { capture: true });
+               window.removeEventListener('contextmenu', onContextMenu, { capture: true });
+               window.removeEventListener('blur', onBlur);
+            };
+         }
+         syncMouseGestures();

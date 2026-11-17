@@ -110,6 +110,7 @@
          restore_session: true,
          force_dark: false,
          incognito: false,
+         language: 'zh',
          default_zoom: 1.0,
          user_agent_mode: 'default',
          custom_user_agent: '',
@@ -120,6 +121,8 @@
          ext_gh_harmonizer: false,
          ext_media_booster: false,
          ext_userscript_engine: true,
+         ext_mouse_gestures: true,
+         site_overrides: {},
          search_engine: 'google',
          homepage: 'fynexo://newtab',
          search_engines: DEFAULT_ENGINES,
@@ -127,6 +130,9 @@
       },
       bootPayload.config || {},
    );
+   function isZh() {
+      return String(config.language || 'zh').toLowerCase() !== 'en';
+   }
    let styles = mergeStyles(bootPayload.styles);
    let activeTheme = Object.assign(
       {},
@@ -597,7 +603,7 @@
 
    function computeDesktopTopHeight() {
       const tb = styles.topbar || {};
-      const isDeck = (tb.layout || 'deck').toLowerCase() !== 'compact';
+      const isDeck = (tb.layout || 'deck').toLowerCase() === 'deck';
       const navH = tb.height || '40px';
       const titlebarH = tb.titlebar_height || '42px';
       const bmShown = isBookmarksBarShown();
@@ -607,6 +613,22 @@
             : `calc(${titlebarH} + ${navH} + 1px)`;
       }
       return bmShown ? `calc(${navH} + 29px)` : `calc(${navH} + 1px)`;
+   }
+
+   function resolveSiteOverrideKey() {
+      if (isInternalAny()) return '';
+      return String(window.location.hostname || '')
+         .trim()
+         .toLowerCase();
+   }
+
+   function getCurrentSiteOverride() {
+      const host = resolveSiteOverrideKey();
+      if (!host || !config.site_overrides || typeof config.site_overrides !== 'object') {
+         return null;
+      }
+      const ov = config.site_overrides[host];
+      return ov && typeof ov === 'object' ? ov : null;
    }
 
    function isPageAlreadyDark() {
@@ -1273,9 +1295,36 @@
 
       const perfCss = '';
 
+      const isInt = isInternalAny();
+      const siteOv = isInt ? null : getCurrentSiteOverride();
+      try {
+         if (document.documentElement) {
+            const zVal =
+               siteOv &&
+               typeof siteOv.zoom === 'number' &&
+               siteOv.zoom >= 0.5 &&
+               siteOv.zoom <= 2.5
+                  ? String(siteOv.zoom)
+                  : '';
+            if (document.documentElement.style.zoom !== zVal) {
+               document.documentElement.style.zoom = zVal;
+            }
+         }
+      } catch (_) {}
+
+      const siteDm =
+         siteOv && siteOv.dark_mode
+            ? String(siteOv.dark_mode).toLowerCase()
+            : 'auto';
       const isDarkAlready = isPageAlreadyDark();
+      const wantForceDark =
+         siteDm === 'on'
+            ? true
+            : siteDm === 'off'
+              ? false
+              : !!config.force_dark;
       const forceDarkCss =
-         config.force_dark && !isInternalAny() && !isDarkAlready
+         wantForceDark && !isInt && (siteDm === 'on' || !isDarkAlready)
             ? `
             html:not([data-fynexo-internal]) {
                 background-color: #111113 !important;
@@ -1324,11 +1373,15 @@
             : '';
 
       const isMob = isMobilePlatform();
+      const layoutMode = (styles.topbar.layout || 'deck').toLowerCase();
+      const isVert = layoutMode === 'vertical';
+      const vertW = isVert ? styles.topbar.vertical_width || '216px' : '0px';
       const deskOffsetCss =
          deskTopVisible && !isMob
             ? `
             :root {
                 --fnx-host-top-offset: ${topH};
+                --fnx-host-left-offset: ${vertW};
             }
             ::-webkit-scrollbar {
                 width: 10px !important;
@@ -1364,7 +1417,7 @@
             html:not([data-fynexo-internal]) > body {
                 position: fixed !important;
                 top: ${topH} !important;
-                left: 0 !important;
+                left: ${isVert ? vertW : '0'} !important;
                 right: 0 !important;
                 bottom: 0 !important;
                 overflow-y: auto !important;
@@ -1386,15 +1439,16 @@
                 height: 100vh !important;
                 max-height: 100vh !important;
                 --fnx-host-top-offset: 0px !important;
+                --fnx-host-left-offset: 0px !important;
             }
             html[data-fynexo-internal] > body {
                 position: fixed !important;
                 top: ${topH} !important;
-                left: 0 !important;
+                left: ${isVert ? vertW : '0'} !important;
                 right: 0 !important;
                 bottom: 0 !important;
-                width: 100% !important;
-                max-width: 100% !important;
+                width: ${isVert ? `calc(100% - ${vertW})` : '100%'} !important;
+                max-width: ${isVert ? `calc(100% - ${vertW})` : '100%'} !important;
                 height: calc(100vh - ${topH}) !important;
                 max-height: calc(100vh - ${topH}) !important;
                 overflow-y: auto !important;
@@ -1498,7 +1552,7 @@
             }
         `
             : `
-            :root { --fnx-host-top-offset: 0px; }
+            :root { --fnx-host-top-offset: 0px; --fnx-host-left-offset: 0px; }
         `;
 
       let mobPaddingRules = '';
@@ -1558,7 +1612,10 @@
       const mb = styles.mobile_bar;
       const td = styles.tab_drawer;
 
-      const isDeck = (tb.layout || 'deck').toLowerCase() !== 'compact';
+      const layoutMode = (tb.layout || 'deck').toLowerCase();
+      const isDeck = layoutMode === 'deck';
+      const isVert = layoutMode === 'vertical' && !isMobilePlatform();
+      const vertW = tb.vertical_width || '216px';
       const bmShown = isBookmarksBarShown();
       const mobIsTop = (mb.position || 'bottom').toLowerCase() === 'top';
       const showDeskTop =
@@ -1593,11 +1650,72 @@
             }
 
             #__fynexo_tab_row__ {
+                ${
+                   isVert
+                      ? `
+                position: fixed;
+                top: ${liveTopOffset};
+                left: 0;
+                bottom: 0;
+                width: ${vertW};
+                height: calc(100vh - ${liveTopOffset});
+                display: flex;
+                flex-direction: column;
+                align-items: stretch;
+                justify-content: flex-start;
+                padding: 8px 6px;
+                background: var(--fnx-bg);
+                border-right: 1px solid var(--fnx-border);
+                border-bottom: none;
+                z-index: 2147483645;
+                box-sizing: border-box;
+                `
+                      : `
                 display: ${isDeck ? 'flex' : 'none'};
                 height: ${tb.titlebar_height || '42px'};
                 padding: 0 0 0 12px;
                 background: var(--fnx-bg);
                 border-bottom: 1px solid rgba(128, 128, 128, 0.14);
+                `
+                }
+            }
+
+            ${
+               isVert
+                  ? `
+            #__fynexo_tabs_deck_cluster__ {
+                flex-direction: column !important;
+                align-items: stretch !important;
+                width: 100% !important;
+                height: 100% !important;
+                gap: 4px !important;
+            }
+            #__fynexo_tabs_container__ {
+                flex-direction: column !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
+                max-height: calc(100% - 38px) !important;
+                flex: 0 1 auto !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                align-items: stretch !important;
+            }
+            #__fynexo_btn_newtab__ {
+                width: 100% !important;
+                height: 30px !important;
+                margin: 2px 0 0 !important;
+                border-radius: 8px !important;
+                border: 1px dashed var(--fnx-border) !important;
+            }
+            .fnx-tab-item:not(.pinned) {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                flex: 0 0 ${ts.height || '32px'} !important;
+            }
+            `
+                  : ''
             }
 
             #__fynexo_win_controls__ {
@@ -1606,9 +1724,14 @@
 
             #__fynexo_nav_row__ {
                 height: ${tb.height || '40px'};
-                padding: 0 ${isDeck ? tb.padding_x || '8px' : '0'} 0 ${isDeck ? '16px' : '0'};
+                padding: 0 ${isDeck ? tb.padding_x || '8px' : '0'} 0 ${isDeck ? '16px' : isVert ? tb.padding_x || '8px' : '0'};
                 background: ${tb.background || 'var(--fnx-panel)'};
             }
+
+            ${tb.show_copy_btn === false ? '#__fynexo_desk_copy__ { display: none !important; }' : ''}
+            ${tb.show_star_btn === false ? '#__fynexo_desk_star__ { display: none !important; }' : ''}
+            ${tb.show_shield_btn === false ? '#__fynexo_btn_shield__ { display: none !important; }' : ''}
+            ${tb.show_downloads_btn === false ? '#__fynexo_btn_downloads__ { display: none !important; }' : ''}
 
             #__fynexo_bm_row__ {
                 display: ${bmShown ? 'flex' : 'none'};
@@ -1823,10 +1946,20 @@
          centerZone &&
          rightZone
       ) {
-         if (isDeck) {
+         if (isDeck || isVert) {
             if (tabsDeckCluster.parentNode !== tabRow) {
-               tabRow.insertBefore(tabsDeckCluster, winControls);
+               if (winControls.parentNode === tabRow) {
+                  tabRow.insertBefore(tabsDeckCluster, winControls);
+               } else {
+                  tabRow.appendChild(tabsDeckCluster);
+               }
             }
+         } else {
+            if (tabsDeckCluster.parentNode !== centerZone) {
+               centerZone.insertBefore(tabsDeckCluster, centerZone.firstChild);
+            }
+         }
+         if (isDeck) {
             if (winControls.parentNode !== tabRow) {
                tabRow.appendChild(winControls);
             }
@@ -1834,13 +1967,10 @@
                centerZone.appendChild(addrSlot);
             }
          } else {
-            if (tabsDeckCluster.parentNode !== centerZone) {
-               centerZone.insertBefore(tabsDeckCluster, centerZone.firstChild);
-            }
             if (winControls.parentNode !== rightZone) {
                rightZone.appendChild(winControls);
             }
-            const pos = (ab.position || 'right').toLowerCase();
+            const pos = (ab.position || (isVert ? 'center' : 'right')).toLowerCase();
             const targetParent =
                pos === 'left'
                   ? leftZone
@@ -1930,6 +2060,7 @@
       applySiteRules();
       applyShadowStyles();
       renderTabs(false);
+      if (isDrawerOpen) renderDrawerCards();
       renderBookmarksBar();
       updateAddressLabels();
       if (typeof syncExtensionsRef === 'function') syncExtensionsRef();
@@ -2645,13 +2776,30 @@
 
    function renderDrawerCards() {
       if (!shadowRoot) return;
+      const zh = isZh();
+      const drawerTitleEl = shadowRoot.getElementById('__fynexo_drawer_title__');
+      if (drawerTitleEl) drawerTitleEl.textContent = zh ? '打开的标签页' : 'Open tabs';
+      const drawerPrefsTxtEl = shadowRoot.getElementById('__fynexo_drawer_prefs_txt__');
+      if (drawerPrefsTxtEl) drawerPrefsTxtEl.textContent = zh ? '设置' : 'Settings';
+      const drawerNewTxtEl = shadowRoot.getElementById('__fynexo_drawer_new_txt__');
+      if (drawerNewTxtEl) drawerNewTxtEl.textContent = zh ? '新建标签' : 'New tab';
+      const drawerDoneEl = shadowRoot.getElementById('__fynexo_drawer_done__');
+      if (drawerDoneEl) drawerDoneEl.textContent = zh ? '完成' : 'Done';
+      const drawerCountEl = shadowRoot.getElementById('__fynexo_drawer_count__');
+      if (drawerCountEl) {
+         drawerCountEl.textContent = zh
+            ? `${tabState.tabs.length} 个标签`
+            : `${tabState.tabs.length} ${tabState.tabs.length === 1 ? 'tab' : 'tabs'}`;
+      }
       const reopenBtn = shadowRoot.getElementById('__fynexo_drawer_reopen__');
       if (reopenBtn) {
          const cc = Number(tabState.closed_count) || 0;
          reopenBtn.style.display = cc > 0 ? 'inline-flex' : 'none';
          const reopenTxt = reopenBtn.querySelector('.fnx-drawer-reopen-txt');
          if (reopenTxt) {
-            reopenTxt.textContent = cc > 1 ? `Reopen (${cc})` : 'Reopen';
+            reopenTxt.textContent = zh
+               ? (cc > 1 ? `恢复 (${cc})` : '恢复关闭')
+               : (cc > 1 ? `Reopen (${cc})` : 'Reopen');
          }
       }
 
@@ -3378,7 +3526,9 @@
 
       const drawerCount = shadowRoot.getElementById('__fynexo_drawer_count__');
       if (drawerCount) {
-         drawerCount.textContent = `${tabState.tabs.length} ${tabState.tabs.length === 1 ? 'tab' : 'tabs'}`;
+         drawerCount.textContent = isZh()
+            ? `${tabState.tabs.length} 个标签`
+            : `${tabState.tabs.length} ${tabState.tabs.length === 1 ? 'tab' : 'tabs'}`;
       }
 
       const isDesktopBarShown =
@@ -4745,6 +4895,9 @@
             'display: flex; overflow-x: auto; flex: 0 1 auto; max-width: calc(100% - 64px); height: 100%; scrollbar-width: none;';
 
          const handleTabsWheel = (e) => {
+            if ((styles.topbar.layout || 'deck').toLowerCase() === 'vertical') {
+               return;
+            }
             const delta =
                Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
             if (delta !== 0) {
@@ -4797,6 +4950,9 @@
             t === tabsContainer ||
             t === dragRegion;
          tabRow.onmousedown = (e) => {
+            if ((styles.topbar.layout || 'deck').toLowerCase() === 'vertical') {
+               return;
+            }
             if (e.button === 0 && isDragTarget(e.target)) {
                if (e.detail === 2) {
                   triggerMaximize();
@@ -5220,7 +5376,8 @@
          mainMenuEl.className = 'fnx-nav-popover';
          mainMenuEl.style.width = '238px';
 
-         function addMenuItem(iconName, label, shortcut, onClick) {
+         const menuI18nEntries = [];
+         function addMenuItem(iconName, label, shortcut, onClick, zhLabel) {
             const item = document.createElement('div');
             item.className = 'fnx-menu-item';
             const leftWrap = document.createElement('div');
@@ -5236,6 +5393,8 @@
             labelSpan.textContent = label;
             leftWrap.appendChild(labelSpan);
             item.appendChild(leftWrap);
+            item.__fnxLabelSpan = labelSpan;
+            menuI18nEntries.push([labelSpan, label, zhLabel || label]);
             if (shortcut) {
                const scSpan = document.createElement('span');
                scSpan.className = 'fnx-menu-kbd';
@@ -5265,12 +5424,19 @@
             () => {
                togglePreferences();
             },
+            '偏好设置',
          );
 
          // Task Manager / Resource Monitor
-         addMenuItem('cpu', 'Resource Monitor', '', () => {
-            openTaskMgrPopover();
-         });
+         addMenuItem(
+            'cpu',
+            'Resource Monitor',
+            '',
+            () => {
+               openTaskMgrPopover();
+            },
+            '内存与资源监视',
+         );
 
          // Mobile-only quick popover launchers (desktop exposes these directly on topbar)
          const mobShieldItem = addMenuItem(
@@ -5280,6 +5446,7 @@
             () => {
                toggleShieldPopover();
             },
+            '广告拦截与脚本',
          );
          mobShieldItem.classList.add('fnx-mobile-only-row');
          const mobShieldStatus = document.createElement('span');
@@ -5287,18 +5454,30 @@
          mobShieldStatus.style.fontSize = '11px';
          mobShieldItem.appendChild(mobShieldStatus);
 
-         const mobMediaItem = addMenuItem('media', 'Media Control', '', () => {
-            toggleMediaPopover();
-         });
+         const mobMediaItem = addMenuItem(
+            'media',
+            'Media Control',
+            '',
+            () => {
+               toggleMediaPopover();
+            },
+            '音量与媒体控制',
+         );
          mobMediaItem.classList.add('fnx-mobile-only-row');
          const mobMediaStatus = document.createElement('span');
          mobMediaStatus.className = 'fnx-pop-sub';
          mobMediaStatus.style.fontSize = '11px';
          mobMediaItem.appendChild(mobMediaStatus);
 
-         const mobDownloadsItem = addMenuItem('download', 'Downloads', '', () => {
-            toggleDownloadsPopover();
-         });
+         const mobDownloadsItem = addMenuItem(
+            'download',
+            'Downloads',
+            '',
+            () => {
+               toggleDownloadsPopover();
+            },
+            '下载列表',
+         );
          mobDownloadsItem.classList.add('fnx-mobile-only-row');
 
          const mobSidePanelItem = addMenuItem(
@@ -5308,6 +5487,7 @@
             () => {
                toggleSidePanel();
             },
+            '分屏侧边栏',
          );
          mobSidePanelItem.classList.add('fnx-mobile-only-row');
          mobSidePanelItem.style.display = config.ext_side_panel ? '' : 'none';
@@ -5332,20 +5512,29 @@
             : 'fnx-pop-switch';
          darkItem.appendChild(darkSwitch);
          function syncMainMenuUI() {
+            const zh = isZh();
+            for (let i = 0; i < menuI18nEntries.length; i++) {
+               const [span, enTxt, zhTxt] = menuI18nEntries[i];
+               span.textContent = zh ? zhTxt : enTxt;
+            }
+            darkLabel.textContent = zh ? '智能夜间深色' : 'Smart Force Dark';
+            zoomLabel.textContent = zh ? '网页缩放' : 'Zoom';
             darkSwitch.classList.toggle('on', !!config.force_dark);
             zoomValSpan.textContent =
                Math.round((Number(config.default_zoom) || 1.0) * 100) + '%';
             const internal = isInternalAny();
             mobShieldStatus.textContent = internal
-               ? 'Exempt'
+               ? (zh ? '无需拦截' : 'Exempt')
                : config.adblock !== false
-                 ? 'Active'
-                 : 'Paused';
+                 ? (zh ? '已开启' : 'Active')
+                 : (zh ? '已暂停' : 'Paused');
             if (currentMediaEl) {
                mobMediaItem.style.removeProperty('display');
                const playing =
                   !currentMediaEl.paused && !currentMediaEl.ended;
-               mobMediaStatus.textContent = playing ? 'Playing' : 'Paused';
+               mobMediaStatus.textContent = playing
+                  ? (zh ? '播放中' : 'Playing')
+                  : (zh ? '已暂停' : 'Paused');
             } else {
                mobMediaItem.style.display = 'none';
             }
@@ -5358,12 +5547,16 @@
             syncBookmarkButtons();
             syncMainMenuUI();
             if (config.force_dark && isPageAlreadyDark()) {
-               showHudToast('Smart Dark: Page is already dark (skipped)');
+               showHudToast(
+                  isZh()
+                     ? '智能深色：当前网页已是深色背景（已自动跳过）'
+                     : 'Smart Dark: Page is already dark (skipped)',
+               );
             } else {
                showHudToast(
-                  config.force_dark
-                     ? 'Smart Force Dark enabled'
-                     : 'Smart Force Dark off',
+                  isZh()
+                     ? (config.force_dark ? '已开启智能夜间深色' : '已关闭智能夜间深色')
+                     : (config.force_dark ? 'Smart Force Dark enabled' : 'Smart Force Dark off'),
                );
             }
          };
@@ -5372,15 +5565,27 @@
          addMenuSep();
 
          // New Tab
-         addMenuItem('plus', 'New tab', keybinds.new_tab || 'Ctrl+T', () => {
-            triggerProgress();
-            sendIpc({ type: 'NEW_TAB' });
-         });
+         addMenuItem(
+            'plus',
+            'New tab',
+            keybinds.new_tab || 'Ctrl+T',
+            () => {
+               triggerProgress();
+               sendIpc({ type: 'NEW_TAB' });
+            },
+            '新建标签页',
+         );
 
          // History Drawer
-         addMenuItem('history', 'History drawer', '', () => {
-            if (openHistoryDrawerRef) openHistoryDrawerRef();
-         });
+         addMenuItem(
+            'history',
+            'History drawer',
+            '',
+            () => {
+               if (openHistoryDrawerRef) openHistoryDrawerRef();
+            },
+            '浏览历史记录',
+         );
 
          // Shortcuts Bar (Desktop Topbar)
          const shortcutsMenuItem = addMenuItem(
@@ -5397,11 +5602,12 @@
                   bookmarks_bar: styles.topbar.bookmarks_bar,
                });
                showHudToast(
-                  styles.topbar.bookmarks_bar === 'hidden'
-                     ? 'Shortcuts bar hidden'
-                     : 'Shortcuts bar visible',
+                  isZh()
+                     ? (styles.topbar.bookmarks_bar === 'hidden' ? '已隐藏常用网站栏' : '已显示常用网站栏')
+                     : (styles.topbar.bookmarks_bar === 'hidden' ? 'Shortcuts bar hidden' : 'Shortcuts bar visible'),
                );
             },
+            '显示 / 隐藏书签栏',
          );
          shortcutsMenuItem.classList.add('fnx-desktop-only-row');
 
@@ -5495,6 +5701,7 @@
             () => {
                if (!isInternalSettings()) openFindBar();
             },
+            '页内查找文字',
          );
 
          // Reader Mode
@@ -5505,6 +5712,7 @@
             () => {
                toggleReaderMode();
             },
+            '纯净阅读模式',
          );
          readerMenuItem.style.display = config.ext_reader_mode ? '' : 'none';
 
@@ -5516,6 +5724,7 @@
             () => {
                sendIpc({ type: 'OPEN_DOWNLOADS_DIR' });
             },
+            '打开下载文件夹',
          );
          downloadsDirMenuItem.classList.add('fnx-desktop-only-row');
 
@@ -6098,19 +6307,158 @@
             'display: none; flex-direction: column; gap: 5px; padding-top: 8px; border-top: 1px solid var(--fnx-border);';
          shieldBody.appendChild(sfCommandsWrap);
 
+         // Per-Site Overrides (Dark Mode + Zoom)
+         const siteOvSection = document.createElement('div');
+         siteOvSection.style.cssText =
+            'display: none; flex-direction: column; gap: 7px; padding-top: 8px; border-top: 1px solid var(--fnx-border);';
+
+         function applySiteOverridePatch(patch) {
+            const host = resolveSiteOverrideKey();
+            if (!host) return;
+            config.site_overrides = config.site_overrides || {};
+            const cur = Object.assign(
+               { dark_mode: '' },
+               config.site_overrides[host] || {},
+            );
+            if (Object.prototype.hasOwnProperty.call(patch, 'dark_mode')) {
+               cur.dark_mode =
+                  patch.dark_mode === 'auto'
+                     ? ''
+                     : String(patch.dark_mode || '');
+            }
+            if (Object.prototype.hasOwnProperty.call(patch, 'zoom')) {
+               if (patch.zoom === null || patch.zoom === undefined) {
+                  delete cur.zoom;
+               } else {
+                  cur.zoom = Math.max(
+                     0.5,
+                     Math.min(2.5, Math.round(Number(patch.zoom) * 100) / 100),
+                  );
+               }
+            }
+            if (
+               (cur.zoom === undefined || cur.zoom === null) &&
+               (!cur.dark_mode || cur.dark_mode === 'auto')
+            ) {
+               delete config.site_overrides[host];
+            } else {
+               config.site_overrides[host] = cur;
+            }
+            applyPageRules();
+            syncShieldPopoverUI();
+            sendIpc({
+               type: 'PATCH_HUD_PREFS',
+               site_override: Object.assign({ domain: host }, patch),
+            });
+         }
+
+         const dmRow = document.createElement('div');
+         dmRow.className = 'fnx-pop-row';
+         const dmLabel = document.createElement('span');
+         dmLabel.className = 'fnx-pop-label';
+         dmLabel.textContent = 'Site dark';
+         const dmSeg = document.createElement('div');
+         dmSeg.className = 'fnx-pop-seg';
+         dmSeg.style.gridTemplateColumns = 'repeat(3, 1fr)';
+         const dmBtns = ['auto', 'on', 'off'].map((mode) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'fnx-pop-seg-btn';
+            b.dataset.dm = mode;
+            b.textContent =
+               mode === 'on' ? 'On' : mode === 'off' ? 'Off' : 'Auto';
+            b.onclick = (e) => {
+               e.stopPropagation();
+               applySiteOverridePatch({ dark_mode: mode });
+            };
+            dmSeg.appendChild(b);
+            return b;
+         });
+         dmRow.appendChild(dmLabel);
+         dmRow.appendChild(dmSeg);
+         siteOvSection.appendChild(dmRow);
+
+         const zmRow = document.createElement('div');
+         zmRow.className = 'fnx-pop-row';
+         const zmLabel = document.createElement('span');
+         zmLabel.className = 'fnx-pop-label';
+         zmLabel.textContent = 'Site zoom';
+         const zmSeg = document.createElement('div');
+         zmSeg.className = 'fnx-pop-seg';
+         zmSeg.style.gridTemplateColumns = '28px 46px 28px';
+         const btnSiteZoomOut = document.createElement('button');
+         btnSiteZoomOut.type = 'button';
+         btnSiteZoomOut.className = 'fnx-pop-seg-btn';
+         btnSiteZoomOut.textContent = '-';
+         btnSiteZoomOut.title = 'Decrease zoom for this site';
+         btnSiteZoomOut.onclick = (e) => {
+            e.stopPropagation();
+            const ov = getCurrentSiteOverride();
+            const base =
+               ov && typeof ov.zoom === 'number'
+                  ? ov.zoom
+                  : Number(config.default_zoom) || 1.0;
+            const next = Math.max(0.5, Number((base - 0.1).toFixed(1)));
+            applySiteOverridePatch({ zoom: next });
+         };
+         const btnSiteZoomReset = document.createElement('button');
+         btnSiteZoomReset.type = 'button';
+         btnSiteZoomReset.className = 'fnx-pop-seg-btn';
+         btnSiteZoomReset.textContent = 'Auto';
+         btnSiteZoomReset.title = 'Reset per-site zoom to global default';
+         btnSiteZoomReset.onclick = (e) => {
+            e.stopPropagation();
+            applySiteOverridePatch({ zoom: null });
+         };
+         const btnSiteZoomIn = document.createElement('button');
+         btnSiteZoomIn.type = 'button';
+         btnSiteZoomIn.className = 'fnx-pop-seg-btn';
+         btnSiteZoomIn.textContent = '+';
+         btnSiteZoomIn.title = 'Increase zoom for this site';
+         btnSiteZoomIn.onclick = (e) => {
+            e.stopPropagation();
+            const ov = getCurrentSiteOverride();
+            const base =
+               ov && typeof ov.zoom === 'number'
+                  ? ov.zoom
+                  : Number(config.default_zoom) || 1.0;
+            const next = Math.min(2.5, Number((base + 0.1).toFixed(1)));
+            applySiteOverridePatch({ zoom: next });
+         };
+         zmSeg.appendChild(btnSiteZoomOut);
+         zmSeg.appendChild(btnSiteZoomReset);
+         zmSeg.appendChild(btnSiteZoomIn);
+         zmRow.appendChild(zmLabel);
+         zmRow.appendChild(zmSeg);
+         siteOvSection.appendChild(zmRow);
+
+         shieldBody.appendChild(siteOvSection);
+
          function syncShieldPopoverUI() {
+            const zh = isZh();
             const internal = isInternalAny();
             const adOn = config.adblock !== false;
             const sfOn = config.ext_userscript_engine !== false;
+            shieldHTxt.textContent = zh ? '隐私拦截与脚本' : 'Adblock Shield';
+            shieldCountDesc.textContent = zh ? '当前页面已拦截广告' : 'Blocked elements';
+            shieldToggleLabel.textContent = zh ? '启用广告拦截' : 'Protection enabled';
+            sfToggleLabel.textContent = zh ? 'ScriptForge 用户脚本' : 'ScriptForge userscripts';
+            dmLabel.textContent = zh ? '本页夜间' : 'Site dark';
+            zmLabel.textContent = zh ? '本页缩放' : 'Site zoom';
+            const manageSpan = shieldPopoverEl.querySelector('.fnx-pop-footer-row > span');
+            if (manageSpan) {
+               manageSpan.textContent = zh ? '管理规则与白名单' : 'Manage rules & whitelist';
+            }
+
             shieldHostSub.textContent = internal
-               ? 'System page · Exempt'
+               ? (zh ? '系统页面 · 无需拦截' : 'System page · Exempt')
                : (window.location.hostname || '').replace(/^www\./, '') ||
-                 'this page';
+                 (zh ? '当前页面' : 'this page');
             shieldStatusMeta.textContent = internal
-               ? 'Exempt'
+               ? (zh ? '已豁免' : 'Exempt')
                : adOn
-                 ? '65+ domain rules'
-                 : 'Paused';
+                 ? (zh ? '65+ 拦截规则' : '65+ domain rules')
+                 : (zh ? '已暂停' : 'Paused');
             shieldSwitch.disabled = internal;
             shieldSwitch.classList.toggle('on', !internal && adOn);
             shieldSwitch.setAttribute(
@@ -6140,20 +6488,52 @@
                ? 'var(--fnx-muted)'
                : 'var(--fnx-fg)';
             sfScriptCountSub.textContent = internal
-               ? 'System page · Exempt'
+               ? (zh ? '系统页面 · 无需运行' : 'System page · Exempt')
                : sfOn
-                 ? activePageScriptCount +
-                   (activePageScriptCount === 1
-                      ? ' script active'
-                      : ' scripts active')
-                 : 'Paused · ' + activePageScriptCount + ' matched';
+                 ? (zh
+                    ? activePageScriptCount + ' 个脚本运行中'
+                    : activePageScriptCount +
+                      (activePageScriptCount === 1
+                         ? ' script active'
+                         : ' scripts active'))
+                 : (zh
+                    ? '已暂停 · 匹配 ' + activePageScriptCount + ' 个'
+                    : 'Paused · ' + activePageScriptCount + ' matched');
+
+            const siteHost = resolveSiteOverrideKey();
+            if (internal || !siteHost) {
+               siteOvSection.style.display = 'none';
+            } else {
+               siteOvSection.style.display = 'flex';
+               const ov = getCurrentSiteOverride();
+               const curDm =
+                  ov && ov.dark_mode
+                     ? String(ov.dark_mode).toLowerCase()
+                     : 'auto';
+               for (let j = 0; j < dmBtns.length; j++) {
+                  const m = dmBtns[j].dataset.dm;
+                  dmBtns[j].textContent = zh
+                     ? (m === 'on' ? '开启' : m === 'off' ? '关闭' : '自动')
+                     : (m === 'on' ? 'On' : m === 'off' ? 'Off' : 'Auto');
+                  dmBtns[j].classList.toggle('active', m === curDm);
+               }
+               const hasZoom =
+                  ov &&
+                  typeof ov.zoom === 'number' &&
+                  ov.zoom >= 0.5 &&
+                  ov.zoom <= 2.5;
+               btnSiteZoomReset.textContent = hasZoom
+                  ? Math.round(ov.zoom * 100) + '%'
+                  : (zh ? '自动' : 'Auto');
+               btnSiteZoomReset.classList.toggle('active', !hasZoom);
+            }
 
             sfCommandsWrap.textContent = '';
             if (!internal && sfOn && scriptForgeMenuCommands.length > 0) {
                sfCommandsWrap.style.display = 'flex';
                const cmdHead = document.createElement('div');
                cmdHead.className = 'fnx-pop-sub';
-               cmdHead.textContent = 'Script commands';
+               cmdHead.textContent = zh ? '脚本菜单命令' : 'Script commands';
                sfCommandsWrap.appendChild(cmdHead);
                for (let i = 0; i < scriptForgeMenuCommands.length; i++) {
                   const cmd = scriptForgeMenuCommands[i];
@@ -7012,6 +7392,7 @@
          drawerHeader.style.cssText =
             'display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; margin-bottom: 8px; gap: 8px;';
          const drawerTitle = document.createElement('span');
+         drawerTitle.id = '__fynexo_drawer_title__';
          drawerTitle.style.cssText =
             'font-weight: 600; font-size: 15px; letter-spacing: -0.015em; color: var(--fnx-fg);';
          drawerTitle.textContent = 'Open tabs';
@@ -7043,6 +7424,7 @@
          btnDrawerPrefs.setAttribute('aria-label', 'Preferences');
          btnDrawerPrefs.appendChild(createIcon('settings'));
          const drawerPrefsTxt = document.createElement('span');
+         drawerPrefsTxt.id = '__fynexo_drawer_prefs_txt__';
          drawerPrefsTxt.textContent = 'Settings';
          btnDrawerPrefs.appendChild(drawerPrefsTxt);
          btnDrawerPrefs.onclick = () => {
@@ -7094,7 +7476,10 @@
          btnDrawerNew.style.cssText =
             'flex: 1; height: 38px; padding: 0 14px; font-size: 13.5px; font-weight: 500; background: var(--fnx-accent); border: none; color: #ffffff; border-radius: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;';
          btnDrawerNew.appendChild(createIcon('plus'));
-         btnDrawerNew.appendChild(document.createTextNode('New tab'));
+         const drawerNewTxt = document.createElement('span');
+         drawerNewTxt.id = '__fynexo_drawer_new_txt__';
+         drawerNewTxt.textContent = 'New tab';
+         btnDrawerNew.appendChild(drawerNewTxt);
          btnDrawerNew.onclick = () => {
             closeMobileDrawer();
             flushScrollSync();
@@ -7103,6 +7488,7 @@
          };
 
          const btnDrawerDone = document.createElement('button');
+         btnDrawerDone.id = '__fynexo_drawer_done__';
          btnDrawerDone.textContent = 'Done';
          btnDrawerDone.style.cssText =
             'height: 38px; padding: 0 15px; font-size: 13px; font-weight: 500; background: var(--fnx-surface); border: 1px solid var(--fnx-border); color: var(--fnx-fg); border-radius: 9px; cursor: pointer; flex-shrink: 0;';
@@ -8278,6 +8664,28 @@
                   }
                   return;
                }
+               const cycleRelativeTab = (step) => {
+                  if (tabState.tabs.length > 1) {
+                     const curIdx = tabState.tabs.findIndex(
+                        (t) => t.id === tabState.active_id,
+                     );
+                     const nextIdx =
+                        (curIdx + step + tabState.tabs.length) %
+                        tabState.tabs.length;
+                     flushScrollSync();
+                     triggerProgress();
+                     sendIpc({
+                        type: 'SWITCH_TAB',
+                        id: tabState.tabs[nextIdx].id,
+                     });
+                  }
+               };
+               if (matchesKeybind(e, keybinds.prev_tab)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  cycleRelativeTab(-1);
+                  return;
+               }
                if (
                   matchesKeybind(e, keybinds.next_tab) ||
                   (String(keybinds.next_tab || '').toLowerCase() ===
@@ -8288,21 +8696,47 @@
                ) {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (tabState.tabs.length > 1) {
-                     const curIdx = tabState.tabs.findIndex(
-                        (t) => t.id === tabState.active_id,
-                     );
-                     const nextIdx =
-                        (curIdx +
-                           (e.shiftKey ? -1 : 1) +
-                           tabState.tabs.length) %
-                        tabState.tabs.length;
-                     flushScrollSync();
-                     triggerProgress();
-                     sendIpc({
-                        type: 'SWITCH_TAB',
-                        id: tabState.tabs[nextIdx].id,
-                     });
+                  cycleRelativeTab(e.shiftKey ? -1 : 1);
+                  return;
+               }
+               if (matchesKeybind(e, keybinds.reload)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  triggerProgress();
+                  sendIpc({ type: 'RELOAD' });
+                  return;
+               }
+               if (matchesKeybind(e, keybinds.go_back)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  requestHistoryNav('back');
+                  return;
+               }
+               if (matchesKeybind(e, keybinds.go_forward)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  requestHistoryNav('forward');
+                  return;
+               }
+               if (matchesKeybind(e, keybinds.toggle_side_panel)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (typeof toggleSidePanel === 'function') toggleSidePanel();
+                  return;
+               }
+               if (matchesKeybind(e, keybinds.pin_tab)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (tabState.active_id) {
+                     sendIpc({ type: 'TOGGLE_PIN_TAB', id: tabState.active_id });
+                  }
+                  return;
+               }
+               if (matchesKeybind(e, keybinds.mute_tab)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (tabState.active_id) {
+                     sendIpc({ type: 'TOGGLE_MUTE_TAB', id: tabState.active_id });
                   }
                   return;
                }
@@ -8421,30 +8855,6 @@
                      copyCurrentUrl();
                      return;
                   }
-               }
-               if (
-                  e.altKey &&
-                  !e.ctrlKey &&
-                  !e.metaKey &&
-                  !e.shiftKey &&
-                  (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
-               ) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  requestHistoryNav(
-                     e.key === 'ArrowRight' ? 'forward' : 'back',
-                  );
-                  return;
-               }
-               if (
-                  e.altKey &&
-                  !e.ctrlKey &&
-                  (e.key || '').toLowerCase() === 's'
-               ) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (typeof toggleSidePanel === 'function') toggleSidePanel();
-                  return;
                }
                if (e.key === 'Escape') {
                   if (isPromptOpenRef && isPromptOpenRef()) {
@@ -8960,6 +9370,9 @@
             }
             syncYouTubeAdSkipper();
             syncGithubDrawerHarmonizer();
+            if (typeof syncMouseGestures === 'function') {
+               syncMouseGestures();
+            }
          };
 
          window.addEventListener(

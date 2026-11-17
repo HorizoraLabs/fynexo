@@ -61,6 +61,18 @@ fn default_titlebar_height() -> String {
     "42px".to_string()
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_vertical_width() -> String {
+    "216px".to_string()
+}
+
+fn default_nt_bg_dim() -> u8 {
+    45
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct TopbarStyles {
@@ -73,6 +85,16 @@ pub struct TopbarStyles {
     pub height: String,
     #[serde(default = "default_titlebar_height")]
     pub titlebar_height: String,
+    #[serde(default = "default_vertical_width")]
+    pub vertical_width: String,
+    #[serde(default = "default_true")]
+    pub show_copy_btn: bool,
+    #[serde(default = "default_true")]
+    pub show_star_btn: bool,
+    #[serde(default = "default_true")]
+    pub show_shield_btn: bool,
+    #[serde(default = "default_true")]
+    pub show_downloads_btn: bool,
     pub padding_x: String,
     pub background: String,
     pub border_bottom: String,
@@ -90,6 +112,11 @@ impl Default for TopbarStyles {
             bookmarks_bar: "always".to_string(),
             height: "40px".to_string(),
             titlebar_height: "42px".to_string(),
+            vertical_width: "216px".to_string(),
+            show_copy_btn: true,
+            show_star_btn: true,
+            show_shield_btn: true,
+            show_downloads_btn: true,
             padding_x: "8px".to_string(),
             background: "var(--fnx-panel)".to_string(),
             border_bottom: "1px solid var(--fnx-border)".to_string(),
@@ -282,6 +309,12 @@ pub struct NewtabStyles {
     /// `0` = responsive auto-fit grid; `2..=6` = fixed column count on desktop
     pub shortcuts_columns: u8,
     pub show_history: bool,
+    #[serde(default)]
+    pub background_image: String,
+    #[serde(default = "default_nt_bg_dim")]
+    pub background_dim: u8,
+    #[serde(default)]
+    pub background_blur: u8,
     pub custom_css: String,
 }
 
@@ -295,6 +328,9 @@ impl Default for NewtabStyles {
             show_shortcuts: true,
             shortcuts_columns: 0,
             show_history: true,
+            background_image: String::new(),
+            background_dim: default_nt_bg_dim(),
+            background_blur: 0,
             custom_css: String::new(),
         }
     }

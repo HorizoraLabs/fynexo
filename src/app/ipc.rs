@@ -933,14 +933,26 @@ pub fn handle_ipc_message(
                         config_dirty = true;
                     }
                 }
+                if let Some(raw_lang) = val["language"].as_str() {
+                    let norm_lang = if raw_lang.trim().eq_ignore_ascii_case("en") {
+                        "en"
+                    } else {
+                        "zh"
+                    };
+                    if locked.config.language != norm_lang {
+                        locked.config.language = norm_lang.to_string();
+                        config_dirty = true;
+                    }
+                }
                 type ConfigBoolSlot = (&'static str, fn(&mut AppConfig) -> &mut bool);
-                let ext_fields: [ConfigBoolSlot; 6] = [
+                let ext_fields: [ConfigBoolSlot; 7] = [
                     ("ext_side_panel", |c| &mut c.ext_side_panel),
                     ("ext_reader_mode", |c| &mut c.ext_reader_mode),
                     ("ext_yt_ad_skipper", |c| &mut c.ext_yt_ad_skipper),
                     ("ext_gh_harmonizer", |c| &mut c.ext_gh_harmonizer),
                     ("ext_media_booster", |c| &mut c.ext_media_booster),
                     ("ext_userscript_engine", |c| &mut c.ext_userscript_engine),
+                    ("ext_mouse_gestures", |c| &mut c.ext_mouse_gestures),
                 ];
                 for (key, slot) in ext_fields {
                     if let Some(v) = val[key].as_bool() {
@@ -948,6 +960,53 @@ pub fn handle_ipc_message(
                         if *target != v {
                             *target = v;
                             config_dirty = true;
+                        }
+                    }
+                }
+                if let Some(ov_obj) = val.get("site_override").and_then(|v| v.as_object()) {
+                    if let Some(raw_dom) = ov_obj.get("domain").and_then(|v| v.as_str()) {
+                        let domain = raw_dom.trim().to_ascii_lowercase();
+                        if !domain.is_empty() {
+                            let mut entry = locked
+                                .config
+                                .site_overrides
+                                .get(&domain)
+                                .cloned()
+                                .unwrap_or_default();
+                            if let Some(zoom_val) = ov_obj.get("zoom") {
+                                if zoom_val.is_null() {
+                                    entry.zoom = None;
+                                } else if let Some(z) = zoom_val.as_f64() {
+                                    if z <= 0.0 || !z.is_finite() {
+                                        entry.zoom = None;
+                                    } else {
+                                        entry.zoom =
+                                            Some((z.clamp(0.5, 2.5) * 100.0).round() / 100.0);
+                                    }
+                                }
+                            }
+                            if let Some(dm) = ov_obj.get("dark_mode").and_then(|v| v.as_str()) {
+                                let norm_dm = match dm.trim().to_ascii_lowercase().as_str() {
+                                    "on" => "on",
+                                    "off" => "off",
+                                    _ => "auto",
+                                };
+                                entry.dark_mode = if norm_dm == "auto" {
+                                    String::new()
+                                } else {
+                                    norm_dm.to_string()
+                                };
+                            }
+                            let empty_dark =
+                                entry.dark_mode.is_empty() || entry.dark_mode == "auto";
+                            if entry.zoom.is_none() && empty_dark {
+                                if locked.config.site_overrides.remove(&domain).is_some() {
+                                    config_dirty = true;
+                                }
+                            } else if locked.config.site_overrides.get(&domain) != Some(&entry) {
+                                locked.config.site_overrides.insert(domain, entry);
+                                config_dirty = true;
+                            }
                         }
                     }
                 }
