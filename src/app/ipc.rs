@@ -909,6 +909,7 @@ pub fn handle_ipc_message(
         Some("PATCH_HUD_PREFS") => {
             let mut config_dirty = false;
             let mut styles_dirty = false;
+            let mut rules_dirty = false;
             let mut next_incognito: Option<bool> = None;
 
             {
@@ -1039,6 +1040,81 @@ pub fn handle_ipc_message(
                         }
                     }
                 }
+                let picked_rule_id = |dom: &str| -> String {
+                    let slug: String = dom
+                        .chars()
+                        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+                        .collect();
+                    format!("picked-{}", slug)
+                };
+                if let Some(rule_obj) = val.get("append_site_css_rule").and_then(|v| v.as_object()) {
+                    let domain = rule_obj
+                        .get("domain")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim()
+                        .to_ascii_lowercase()
+                        .trim_start_matches("www.")
+                        .to_string();
+                    let selector = rule_obj
+                        .get("selector")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
+                    let valid_selector = !selector.is_empty()
+                        && selector.len() <= 512
+                        && !selector.contains('{')
+                        && !selector.contains('}')
+                        && !selector.contains(';')
+                        && !selector.contains('\r')
+                        && !selector.contains('\n');
+                    if !domain.is_empty() && valid_selector {
+                        let css_line = format!("{} {{ display: none !important; }}", selector);
+                        let rule_id = picked_rule_id(&domain);
+                        if let Some(existing) =
+                            locked.site_rules.iter_mut().find(|r| r.id == rule_id)
+                        {
+                            if !existing.enabled {
+                                existing.enabled = true;
+                                rules_dirty = true;
+                            }
+                            if !existing.css.contains(&css_line) {
+                                existing.css = if existing.css.trim().is_empty() {
+                                    css_line
+                                } else {
+                                    format!("{}\n{}", existing.css.trim_end(), css_line)
+                                };
+                                rules_dirty = true;
+                            }
+                        } else {
+                            locked.site_rules.push(SiteRule {
+                                id: rule_id,
+                                name: format!("Picked hidden elements ({})", domain),
+                                domain,
+                                enabled: true,
+                                version: None,
+                                css: css_line,
+                                js: String::new(),
+                            });
+                            rules_dirty = true;
+                        }
+                    }
+                }
+                if let Some(raw_dom) = val["clear_picked_site_rules"].as_str() {
+                    let domain = raw_dom
+                        .trim()
+                        .to_ascii_lowercase()
+                        .trim_start_matches("www.")
+                        .to_string();
+                    if !domain.is_empty() {
+                        let rule_id = picked_rule_id(&domain);
+                        let before_len = locked.site_rules.len();
+                        locked.site_rules.retain(|r| r.id != rule_id);
+                        if locked.site_rules.len() != before_len {
+                            rules_dirty = true;
+                        }
+                    }
+                }
                 if config_dirty {
                     locked.config.save();
                     locked.config_mtime = AppConfig::mtime();
@@ -1047,12 +1123,16 @@ pub fn handle_ipc_message(
                     locked.styles.save();
                     locked.styles_mtime = ComponentStyles::mtime();
                 }
+                if rules_dirty {
+                    SiteRulesStore::save(&locked.site_rules);
+                    locked.rules_mtime = SiteRulesStore::mtime();
+                }
             }
 
             if let Some(incog) = next_incognito {
                 tab_manager.lock_safe().set_incognito(incog);
             }
-            if config_dirty || styles_dirty {
+            if config_dirty || styles_dirty || rules_dirty {
                 let _ = proxy.send_event(UserEvent::SyncConfig);
             }
         }

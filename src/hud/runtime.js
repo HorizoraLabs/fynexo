@@ -6432,7 +6432,369 @@
          zmRow.appendChild(zmSeg);
          siteOvSection.appendChild(zmRow);
 
+         // Visual Element Picker ("点哪藏哪") controls inside siteOvSection
+         const pickerRow = document.createElement('div');
+         pickerRow.style.cssText =
+            'display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px;';
+         const btnPickElement = document.createElement('button');
+         btnPickElement.type = 'button';
+         btnPickElement.className = 'fnx-pop-btn';
+         btnPickElement.style.cssText = 'flex: 1; width: auto; min-width: 0; font-weight: 600;';
+         btnPickElement.textContent = '🎯 Pick element to hide';
+
+         const btnResetPickedElements = document.createElement('button');
+         btnResetPickedElements.type = 'button';
+         btnResetPickedElements.className = 'fnx-pop-btn';
+         btnResetPickedElements.style.cssText =
+            'width: auto; flex-shrink: 0; padding: 0 10px; display: none;';
+         btnResetPickedElements.textContent = 'Restore';
+
+         pickerRow.appendChild(btnPickElement);
+         pickerRow.appendChild(btnResetPickedElements);
+         siteOvSection.appendChild(pickerRow);
+
          shieldBody.appendChild(siteOvSection);
+
+         function pickedRuleIdForHost(rawHost) {
+            const dom = String(rawHost || '')
+               .trim()
+               .toLowerCase()
+               .replace(/^www\./, '');
+            if (!dom) return '';
+            return 'picked-' + dom.replace(/[^a-z0-9-]/g, '-');
+         }
+
+         function escCssIdent(raw) {
+            if (window.CSS && typeof window.CSS.escape === 'function') {
+               return window.CSS.escape(String(raw || ''));
+            }
+            return String(raw || '').replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+         }
+
+         function buildSingleElemPart(el) {
+            if (!el || el.nodeType !== 1) return '';
+            const tag = String(el.tagName || 'div').toLowerCase();
+            if (tag === 'html' || tag === 'body') return tag;
+            if (
+               el.id &&
+               /^[a-zA-Z][a-zA-Z0-9_-]{1,56}$/.test(el.id) &&
+               !/\d{5,}/.test(el.id)
+            ) {
+               const idSel = '#' + escCssIdent(el.id);
+               try {
+                  if (document.querySelectorAll(idSel).length === 1) {
+                     return idSel;
+                  }
+               } catch (_) {}
+            }
+            const cleanClasses = [];
+            if (el.classList) {
+               for (let i = 0; i < el.classList.length && cleanClasses.length < 2; i++) {
+                  const cls = String(el.classList[i] || '').trim();
+                  if (/^[a-zA-Z_-][a-zA-Z0-9_-]{1,36}$/.test(cls)) {
+                     cleanClasses.push('.' + escCssIdent(cls));
+                  }
+               }
+            }
+            let part = tag + cleanClasses.join('');
+            const parent = el.parentElement;
+            if (parent && parent.children) {
+               let sameTagCount = 0;
+               let myTagIndex = 0;
+               for (let i = 0; i < parent.children.length; i++) {
+                  const sib = parent.children[i];
+                  if (sib && sib.tagName === el.tagName) {
+                     sameTagCount += 1;
+                     if (sib === el) myTagIndex = sameTagCount;
+                  }
+               }
+               if (sameTagCount > 1 && myTagIndex > 0) {
+                  let matchesMore = true;
+                  try {
+                     matchesMore =
+                        cleanClasses.length === 0 ||
+                        parent.querySelectorAll(':scope > ' + part).length > 1;
+                  } catch (_) {}
+                  if (matchesMore) {
+                     part += ':nth-of-type(' + myTagIndex + ')';
+                  }
+               }
+            }
+            return part;
+         }
+
+         function buildUniqueCssSelector(el) {
+            if (!el || el.nodeType !== 1) return '';
+            const parts = [];
+            let cur = el;
+            for (let depth = 0; depth < 3 && cur && cur.nodeType === 1; depth++) {
+               const t = String(cur.tagName || '').toLowerCase();
+               if (t === 'html' || t === 'body') break;
+               const p = buildSingleElemPart(cur);
+               if (!p) break;
+               parts.unshift(p);
+               if (p.charAt(0) === '#') break;
+               const candidate = parts.join(' > ');
+               try {
+                  if (document.querySelectorAll(candidate).length <= 2) {
+                     break;
+                  }
+               } catch (_) {
+                  break;
+               }
+               cur = cur.parentElement;
+            }
+            return parts.join(' > ').slice(0, 480);
+         }
+
+         let pickerActive = false;
+         let pickerHighlightBox = null;
+         let pickerBanner = null;
+         let pickerBannerText = null;
+         let pickerBannerTag = null;
+         let pickerCancelBtn = null;
+         let lastPickerTarget = null;
+
+         function ensurePickerUi() {
+            if (!pickerHighlightBox) {
+               pickerHighlightBox = document.createElement('div');
+               pickerHighlightBox.id = '__fynexo_picker_box__';
+               pickerHighlightBox.style.cssText =
+                  'position: fixed; pointer-events: none; z-index: 2147483645; border: 2px dashed var(--fnx-accent, #38bdf8); background: rgba(56, 189, 248, 0.16); border-radius: 5px; box-sizing: border-box; transition: left 0.04s ease-out, top 0.04s ease-out, width 0.04s ease-out, height 0.04s ease-out; display: none;';
+               shell.appendChild(pickerHighlightBox);
+            }
+            if (!pickerBanner) {
+               pickerBanner = document.createElement('div');
+               pickerBanner.id = '__fynexo_picker_banner__';
+               pickerBanner.style.cssText =
+                  'position: fixed; left: 50%; transform: translateX(-50%); z-index: 2147483646; display: none; align-items: center; gap: 10px; max-width: calc(100vw - 24px); padding: 8px 14px; border-radius: 999px; background: var(--fnx-bg, #141417); color: var(--fnx-fg, #f4f4f6); border: 1px solid var(--fnx-accent, #38bdf8); box-shadow: 0 12px 32px rgba(0,0,0,0.48); font: 600 12px/1.3 system-ui, sans-serif; pointer-events: auto;';
+               pickerBannerText = document.createElement('span');
+               pickerBannerText.style.cssText =
+                  'white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+               pickerBannerTag = document.createElement('span');
+               pickerBannerTag.style.cssText =
+                  'font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--fnx-accent, #38bdf8); background: rgba(56, 189, 248, 0.12); padding: 2px 7px; border-radius: 999px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: none;';
+               pickerCancelBtn = document.createElement('button');
+               pickerCancelBtn.type = 'button';
+               pickerCancelBtn.style.cssText =
+                  'border: 1px solid var(--fnx-border, rgba(255,255,255,0.18)); background: var(--fnx-surface, rgba(255,255,255,0.08)); color: var(--fnx-fg, #f4f4f6); border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0;';
+               pickerCancelBtn.onclick = (ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  stopVisualElementPicker();
+               };
+               pickerBanner.appendChild(pickerBannerText);
+               pickerBanner.appendChild(pickerBannerTag);
+               pickerBanner.appendChild(pickerCancelBtn);
+               shell.appendChild(pickerBanner);
+            }
+         }
+
+         function isHudOwnTarget(t) {
+            if (!t) return false;
+            return t === host || (typeof host.contains === 'function' && host.contains(t));
+         }
+
+         function onPickerHover(e) {
+            if (!pickerActive || !pickerHighlightBox) return;
+            const rawTarget = e.target;
+            if (isHudOwnTarget(rawTarget)) {
+               pickerHighlightBox.style.display = 'none';
+               return;
+            }
+            const el =
+               rawTarget && rawTarget.nodeType === 1
+                  ? rawTarget
+                  : document.elementFromPoint(e.clientX || 0, e.clientY || 0);
+            if (
+               !el ||
+               el.nodeType !== 1 ||
+               el === document.documentElement ||
+               el === document.body ||
+               isHudOwnTarget(el)
+            ) {
+               pickerHighlightBox.style.display = 'none';
+               return;
+            }
+            const rect = el.getBoundingClientRect();
+            if (!rect || rect.width < 4 || rect.height < 4) {
+               pickerHighlightBox.style.display = 'none';
+               return;
+            }
+            lastPickerTarget = el;
+            pickerHighlightBox.style.left = Math.max(0, rect.left) + 'px';
+            pickerHighlightBox.style.top = Math.max(0, rect.top) + 'px';
+            pickerHighlightBox.style.width = rect.width + 'px';
+            pickerHighlightBox.style.height = rect.height + 'px';
+            pickerHighlightBox.style.display = 'block';
+            if (pickerBannerTag) {
+               const previewTag =
+                  el.tagName.toLowerCase() +
+                  (el.id
+                     ? '#' + String(el.id).slice(0, 18)
+                     : el.classList && el.classList[0]
+                       ? '.' + String(el.classList[0]).slice(0, 18)
+                       : '');
+               pickerBannerTag.textContent = previewTag;
+               pickerBannerTag.style.display = 'inline-block';
+            }
+         }
+
+         function onPickerIntercept(e) {
+            if (!pickerActive) return;
+            if (isHudOwnTarget(e.target)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof e.stopImmediatePropagation === 'function') {
+               e.stopImmediatePropagation();
+            }
+         }
+
+         function onPickerClick(e) {
+            if (!pickerActive) return;
+            if (isHudOwnTarget(e.target)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof e.stopImmediatePropagation === 'function') {
+               e.stopImmediatePropagation();
+            }
+            let el =
+               e.target && e.target.nodeType === 1
+                  ? e.target
+                  : document.elementFromPoint(e.clientX || 0, e.clientY || 0);
+            if (
+               !el ||
+               el.nodeType !== 1 ||
+               el === document.documentElement ||
+               el === document.body ||
+               isHudOwnTarget(el)
+            ) {
+               el = lastPickerTarget;
+            }
+            if (
+               !el ||
+               el.nodeType !== 1 ||
+               el === document.documentElement ||
+               el === document.body
+            ) {
+               stopVisualElementPicker();
+               return;
+            }
+            const selector = buildUniqueCssSelector(el);
+            const domain = resolveSiteOverrideKey();
+            if (
+               !selector ||
+               !domain ||
+               selector.length > 512 ||
+               /[{};\r\n]/.test(selector)
+            ) {
+               showHudToast(
+                  isZh() ? '无法生成该元素的稳定规则' : 'Could not build selector for this element',
+               );
+               stopVisualElementPicker();
+               return;
+            }
+            const cssLine = selector + ' { display: none !important; }';
+            const ruleId = pickedRuleIdForHost(domain);
+            const cleanDom = String(domain).replace(/^www\./, '');
+            let existing = enabledRules.find((r) => r && r.id === ruleId);
+            if (!existing) {
+               existing = {
+                  id: ruleId,
+                  name: 'Picked hidden elements (' + cleanDom + ')',
+                  domain: cleanDom,
+                  enabled: true,
+                  css: cssLine,
+                  js: '',
+               };
+               enabledRules.push(existing);
+            } else {
+               existing.enabled = true;
+               if (!String(existing.css || '').includes(cssLine)) {
+                  existing.css =
+                     existing.css && existing.css.trim()
+                        ? existing.css.trimEnd() + '\n' + cssLine
+                        : cssLine;
+               }
+            }
+            applySiteRules();
+            syncShieldPopoverUI();
+            sendIpc({
+               type: 'PATCH_HUD_PREFS',
+               append_site_css_rule: { domain: domain, selector: selector },
+            });
+            showHudToast(
+               (isZh() ? '已永久隐藏区块：' : 'Hidden & saved rule: ') + selector,
+            );
+            stopVisualElementPicker();
+         }
+
+         function onPickerKeydown(e) {
+            if (!pickerActive) return;
+            if (e.key === 'Escape') {
+               e.preventDefault();
+               e.stopPropagation();
+               stopVisualElementPicker();
+            }
+         }
+
+         function stopVisualElementPicker() {
+            if (!pickerActive) return;
+            pickerActive = false;
+            lastPickerTarget = null;
+            window.removeEventListener('mousemove', onPickerHover, true);
+            window.removeEventListener('mouseover', onPickerHover, true);
+            window.removeEventListener('mousedown', onPickerIntercept, true);
+            window.removeEventListener('click', onPickerClick, true);
+            window.removeEventListener('keydown', onPickerKeydown, true);
+            if (pickerHighlightBox) pickerHighlightBox.style.display = 'none';
+            if (pickerBanner) pickerBanner.style.display = 'none';
+            if (pickerBannerTag) pickerBannerTag.style.display = 'none';
+         }
+
+         function startVisualElementPicker() {
+            if (isInternalAny()) return;
+            closeAllNavPopovers();
+            ensurePickerUi();
+            const zh = isZh();
+            pickerBanner.style.top = isMobilePlatform() ? '16px' : '56px';
+            pickerBannerText.textContent = zh
+               ? '🎯 移动或点击要隐藏的页面区块 · 按 Esc 退出'
+               : '🎯 Click any page element to hide it · Press Esc to exit';
+            pickerCancelBtn.textContent = zh ? '退出' : 'Cancel';
+            pickerBannerTag.style.display = 'none';
+            pickerBanner.style.display = 'flex';
+            pickerHighlightBox.style.display = 'none';
+            if (!pickerActive) {
+               pickerActive = true;
+               window.addEventListener('mousemove', onPickerHover, true);
+               window.addEventListener('mouseover', onPickerHover, true);
+               window.addEventListener('mousedown', onPickerIntercept, true);
+               window.addEventListener('click', onPickerClick, true);
+               window.addEventListener('keydown', onPickerKeydown, true);
+            }
+         }
+
+         btnPickElement.onclick = (e) => {
+            e.stopPropagation();
+            startVisualElementPicker();
+         };
+         btnResetPickedElements.onclick = (e) => {
+            e.stopPropagation();
+            const hostDom = resolveSiteOverrideKey();
+            if (!hostDom) return;
+            const ruleId = pickedRuleIdForHost(hostDom);
+            enabledRules = enabledRules.filter((r) => !r || r.id !== ruleId);
+            applySiteRules();
+            sendIpc({
+               type: 'PATCH_HUD_PREFS',
+               clear_picked_site_rules: hostDom,
+            });
+            syncShieldPopoverUI();
+            showHudToast(
+               isZh() ? '已恢复本页点选隐藏的元素' : 'Restored picked elements on this site',
+            );
+         };
 
          function syncShieldPopoverUI() {
             const zh = isZh();
@@ -6526,6 +6888,27 @@
                   ? Math.round(ov.zoom * 100) + '%'
                   : (zh ? '自动' : 'Auto');
                btnSiteZoomReset.classList.toggle('active', !hasZoom);
+               const pickedId = pickedRuleIdForHost(siteHost);
+               const hasPickedRule = Boolean(
+                  pickedId &&
+                     enabledRules.some(
+                        (r) =>
+                           r &&
+                           r.enabled &&
+                           r.id === pickedId &&
+                           String(r.css || '').trim(),
+                     ),
+               );
+               btnPickElement.textContent = zh
+                  ? '🎯 点选隐藏页面元素'
+                  : '🎯 Pick element to hide';
+               btnResetPickedElements.textContent = zh ? '恢复已藏' : 'Restore';
+               btnResetPickedElements.title = zh
+                  ? '恢复本页所有点选隐藏的元素'
+                  : 'Restore picked hidden elements on this site';
+               btnResetPickedElements.style.display = hasPickedRule
+                  ? 'inline-flex'
+                  : 'none';
             }
 
             sfCommandsWrap.textContent = '';

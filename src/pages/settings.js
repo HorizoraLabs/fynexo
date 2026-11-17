@@ -1880,6 +1880,200 @@
             qsNtWallpaper: ['起始页壁纸与背景遮罩', 'Start page wallpaper & overlay', '点下方色块一键换肤，也可以上传本地图片或调节背景暗度与模糊程度。']
         };
 
+        const NO_CODE_BLOCKS = {
+            unblock_copy: {
+                chipZh: '🔓 解除禁止复制与右键',
+                chipEn: '🔓 Unblock Copy & Right-Click',
+                nameZh: '解除禁止复制与右键',
+                nameEn: 'Unblock Copy & Right-Click',
+                css: [
+                    '/* Unblock text selection & copy */',
+                    '*, *::before, *::after {',
+                    '  -webkit-user-select: text !important;',
+                    '  user-select: text !important;',
+                    '}'
+                ].join('\n'),
+                jsBody: [
+                    '(function () {',
+                    "  'use strict';",
+                    "  const events = ['copy', 'cut', 'selectstart', 'contextmenu'];",
+                    '  events.forEach((evt) => {',
+                    '    document.addEventListener(evt, (e) => e.stopPropagation(), true);',
+                    '  });',
+                    '})();'
+                ].join('\n')
+            },
+            links_newtab: {
+                chipZh: '🔗 外链强制新标签打开',
+                chipEn: '🔗 Open External Links in New Tab',
+                nameZh: '外链强制新标签页打开',
+                nameEn: 'Open External Links in New Tab',
+                css: '',
+                jsBody: [
+                    '(function () {',
+                    "  'use strict';",
+                    '  const retarget = () => {',
+                    "    document.querySelectorAll('a[href]').forEach((a) => {",
+                    "      if (!/^https?:/i.test(a.href)) return;",
+                    '      try {',
+                    '        const u = new URL(a.href);',
+                    '        if (u.origin !== window.location.origin) {',
+                    "          a.target = '_blank';",
+                    "          a.rel = 'noopener noreferrer';",
+                    '        }',
+                    '      } catch (_) {}',
+                    '    });',
+                    '  };',
+                    '  retarget();',
+                    '  new MutationObserver(retarget).observe(document.documentElement, { childList: true, subtree: true });',
+                    '})();'
+                ].join('\n')
+            },
+            clean_font: {
+                chipZh: '📖 舒适阅读字体与行距',
+                chipEn: '📖 Clean Reading Typography',
+                nameZh: '舒适阅读排版增强',
+                nameEn: 'Clean Reading Typography',
+                css: [
+                    '/* Clean comfortable reading line-height */',
+                    'article, main, p, li {',
+                    '  line-height: 1.75 !important;',
+                    '  letter-spacing: 0.01em !important;',
+                    '}'
+                ].join('\n'),
+                jsBody: ''
+            },
+            scroll_top_btn: {
+                chipZh: '⬆️ 悬浮回到顶部按钮',
+                chipEn: '⬆️ Floating Back-to-Top Button',
+                nameZh: '悬浮一键回到顶部',
+                nameEn: 'Floating Back-to-Top Button',
+                css: '',
+                jsBody: [
+                    '(function () {',
+                    "  'use strict';",
+                    "  if (document.getElementById('sf-scroll-top-btn')) return;",
+                    "  const btn = document.createElement('button');",
+                    "  btn.id = 'sf-scroll-top-btn';",
+                    "  btn.type = 'button';",
+                    "  btn.textContent = '↑';",
+                    "  btn.title = 'Back to top';",
+                    '  btn.style.cssText =',
+                    "    'position:fixed;right:20px;bottom:76px;z-index:2147483000;width:38px;height:38px;' +",
+                    "    'border-radius:999px;border:1px solid rgba(255,255,255,0.2);background:rgba(20,20,24,0.82);' +",
+                    "    'color:#fff;font-size:16px;font-weight:700;cursor:pointer;display:none;box-shadow:0 6px 18px rgba(0,0,0,0.3);';",
+                    "  btn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });",
+                    "  const sync = () => { btn.style.display = window.scrollY > 360 ? 'block' : 'none'; };",
+                    "  window.addEventListener('scroll', sync, { passive: true });",
+                    '  (document.body || document.documentElement).appendChild(btn);',
+                    "  if (typeof GM_registerMenuCommand === 'function') {",
+                    "    GM_registerMenuCommand('Back to top', () => window.scrollTo({ top: 0, behavior: 'smooth' }));",
+                    '  }',
+                    '  sync();',
+                    '})();'
+                ].join('\n'),
+                grants: ['GM_registerMenuCommand']
+            },
+            hide_popups: {
+                chipZh: '🧹 屏蔽常见悬浮弹窗遮罩',
+                chipEn: '🧹 Hide Sticky Popups & App Banners',
+                nameZh: '屏蔽悬浮弹窗与 App 引导横幅',
+                nameEn: 'Hide Sticky Popups & App Banners',
+                css: [
+                    '/* Hide common floating App download / login overlay banners */',
+                    '[class*="open-in-app"], [class*="app-banner"], [class*="download-banner"],',
+                    '[class*="login-modal"], [id*="app-banner"], [id*="openApp"] {',
+                    '  display: none !important;',
+                    '}',
+                    'html, body { overflow: auto !important; }'
+                ].join('\n'),
+                jsBody: ''
+            },
+            auto_click_skip: {
+                chipZh: '⚡ 自动点击跳过/展开按钮',
+                chipEn: '⚡ Auto-Expand / Skip Prompts',
+                nameZh: '自动展开全文与跳过弹窗',
+                nameEn: 'Auto-Expand / Skip Prompts',
+                css: '',
+                jsBody: [
+                    '(function () {',
+                    "  'use strict';",
+                    '  const labelRe = /^(?:展开全文|阅读全文|查看全部|跳过|跳过广告|关闭广告|Read more|Show more|Skip ad)$/i;',
+                    '  const scan = () => {',
+                    "    document.querySelectorAll('button, a, [role=\"button\"]').forEach((el) => {",
+                    "      if (el.getAttribute('data-sf-clicked')) return;",
+                    "      const txt = (el.textContent || '').trim();",
+                    '      if (labelRe.test(txt)) {',
+                    "        el.setAttribute('data-sf-clicked', '1');",
+                    '        el.click();',
+                    '      }',
+                    '    });',
+                    '  };',
+                    '  scan();',
+                    '  new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });',
+                    '})();'
+                ].join('\n')
+            }
+        };
+
+        function buildUserscriptHeader(nm, domRaw, grants) {
+            const cleanHost = String(domRaw || '*').replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim();
+            const matchPat = (!cleanHost || cleanHost === '*') ? '*://*/*' : `*://${cleanHost}/*`;
+            const lines = [
+                '// ==UserScript==',
+                `// @name         ${nm || 'My ScriptForge Script'}`,
+                '// @version      1.0.0',
+                '// @description  Custom page enhancement powered by Fynexo ScriptForge',
+                '// @author       You',
+                `// @match        ${matchPat}`,
+                '// @run-at       document-end'
+            ];
+            (grants || []).forEach((g) => {
+                lines.push(`// @grant        ${g}`);
+            });
+            lines.push('// ==/UserScript==');
+            return lines.join('\n');
+        }
+
+        function applyNoCodeBlockToInputs(blockKey, opts) {
+            const block = NO_CODE_BLOCKS[blockKey];
+            if (!block || !opts) return;
+            const zh = isZh();
+            if (opts.nameInput && !opts.nameInput.value.trim()) {
+                opts.nameInput.value = zh ? block.nameZh : block.nameEn;
+            }
+            if (opts.domainInput && !opts.domainInput.value.trim()) {
+                opts.domainInput.value = '*';
+            }
+            if (block.css && opts.cssInput) {
+                const curCss = opts.cssInput.value || '';
+                if (!curCss.includes(block.css.trim())) {
+                    opts.cssInput.value = curCss.trim()
+                        ? `${curCss.trimEnd()}\n\n${block.css}`
+                        : block.css;
+                }
+            }
+            if (block.jsBody && opts.jsInput) {
+                const curJs = opts.jsInput.value || '';
+                if (!curJs.includes(block.jsBody.trim())) {
+                    if (/\/\/\s*==UserScript==/.test(curJs)) {
+                        opts.jsInput.value = `${curJs.trimEnd()}\n\n${block.jsBody}\n`;
+                    } else {
+                        const header = buildUserscriptHeader(
+                            opts.nameInput ? opts.nameInput.value.trim() : (zh ? block.nameZh : block.nameEn),
+                            opts.domainInput ? opts.domainInput.value.trim() : '*',
+                            block.grants
+                        );
+                        opts.jsInput.value = curJs.trim()
+                            ? `${header}\n\n${curJs.trimEnd()}\n\n${block.jsBody}\n`
+                            : `${header}\n\n${block.jsBody}\n`;
+                    }
+                }
+            }
+            if (typeof opts.onChanged === 'function') opts.onChanged();
+            showToast(zh ? `已填入积木：${block.nameZh}` : `Added block: ${block.nameEn}`);
+        }
+
         function setPlainRowI18n(el, zhText, enText) {
             if (!el) return;
             if (!el.dataset.enText) el.dataset.enText = el.textContent;
@@ -1937,6 +2131,24 @@
                 const [lblZh, lblEn, hintZh] = VISUAL_ROW_I18N[ctrlId];
                 setPlainRowI18n(row.querySelector('.set-label'), lblZh, lblEn);
                 setPlainRowI18n(row.querySelector('.set-hint'), hintZh, null);
+            });
+
+            setPlainRowI18n(document.getElementById('lblRuleNoCode'), '零代码积木工坊（点击一键填入）', 'No-code building blocks (click to add)');
+            setPlainRowI18n(document.getElementById('tagRuleNoCode'), '零代码', 'Zero-code');
+            setPlainRowI18n(document.getElementById('lblPubNoCode'), '零代码积木工坊（点击一键填入）', 'No-code building blocks (click to add)');
+            setPlainRowI18n(document.getElementById('tagPubNoCode'), '零代码', 'Zero-code');
+            setPlainRowI18n(document.getElementById('lblRuleCss'), '自定义页面样式 (CSS)', 'Custom CSS');
+            setPlainRowI18n(document.getElementById('lblRuleJs'), '用户脚本 / JS（ScriptForge）', 'Userscript / Custom JS (ScriptForge)');
+            setPlainRowI18n(document.getElementById('btnSaveRule'), '保存扩展', 'Save extension');
+            setPlainRowI18n(document.getElementById('btnInsertUserscriptTpl'), '插入 GM_* 油猴模板', 'Insert GM_* template');
+            setPlainRowI18n(document.getElementById('btnCancelRule'), '取消', 'Cancel');
+            setPlainRowI18n(document.getElementById('btnNewRule'), '+ 新建扩展', '+ Add Extension');
+            setPlainRowI18n(document.getElementById('btnImportUserscript'), '+ 导入 .user.js', '+ Import .user.js');
+
+            document.querySelectorAll('#ruleNoCodeBar [data-nocode], #pubNoCodeBar [data-pub-nocode]').forEach((chip) => {
+                const key = chip.dataset.nocode || chip.dataset.pubNocode;
+                const b = key && NO_CODE_BLOCKS[key];
+                if (b) chip.textContent = zh ? b.chipZh : b.chipEn;
             });
         }
 
@@ -2340,23 +2552,12 @@
                 if (!jsEl) return;
                 const existing = jsEl.value;
                 if (/\/\/\s*==UserScript==/.test(existing)) {
-                    showToast('Userscript header already present');
+                    showToast(isZh() ? '脚本中已包含油猴头部' : 'Userscript header already present');
                     return;
                 }
                 const nm = document.getElementById('ruleNameInput')?.value.trim() || 'My ScriptForge Script';
                 const domRaw = document.getElementById('ruleDomainInput')?.value.trim() || '*';
-                const cleanHost = domRaw.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim();
-                const matchPat = (!cleanHost || cleanHost === '*') ? '*://*/*' : `*://${cleanHost}/*`;
-                const header = [
-                    '// ==UserScript==',
-                    `// @name         ${nm}`,
-                    '// @version      1.0.0',
-                    '// @description  Custom page enhancement powered by Fynexo ScriptForge',
-                    '// @author       You',
-                    `// @match        ${matchPat}`,
-                    '// @run-at       document-end',
-                    '// ==/UserScript=='
-                ].join('\n');
+                const header = buildUserscriptHeader(nm, domRaw, ['GM_addStyle', 'GM_getValue', 'GM_setValue', 'GM_registerMenuCommand', 'GM_notification']);
 
                 if (existing.trim()) {
                     jsEl.value = `${header}\n\n${existing}`;
@@ -2384,6 +2585,28 @@
                 jsEl.focus();
             };
         }
+
+        document.querySelectorAll('#ruleNoCodeBar [data-nocode]').forEach((chip) => {
+            chip.onclick = () => {
+                applyNoCodeBlockToInputs(chip.dataset.nocode, {
+                    nameInput: document.getElementById('ruleNameInput'),
+                    domainInput: document.getElementById('ruleDomainInput'),
+                    cssInput: document.getElementById('ruleCssInput'),
+                    jsInput: document.getElementById('ruleJsInput')
+                });
+            };
+        });
+        document.querySelectorAll('#pubNoCodeBar [data-pub-nocode]').forEach((chip) => {
+            chip.onclick = () => {
+                applyNoCodeBlockToInputs(chip.dataset.pubNocode, {
+                    nameInput: document.getElementById('pubExtName'),
+                    domainInput: document.getElementById('pubExtDomain'),
+                    cssInput: document.getElementById('pubExtCss'),
+                    jsInput: document.getElementById('pubExtJs'),
+                    onChanged: updatePublishAuditPreview
+                });
+            };
+        });
 
         const ruleJsEl = document.getElementById('ruleJsInput');
         if (ruleJsEl) {

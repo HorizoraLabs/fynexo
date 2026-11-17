@@ -415,11 +415,22 @@ __FNX_SETTINGS_CSS__
                                     </div>
                                 </div>
                                 <div class="field-box">
-                                    <label class="field-label" for="ruleCssInput"><span>Custom CSS</span><span class="field-tag">Injected &lt;style&gt;</span></label>
+                                    <label class="field-label"><span id="lblRuleNoCode">No-code building blocks (click to add)</span><span class="field-tag" id="tagRuleNoCode">Zero-code</span></label>
+                                    <div class="preset-chips" id="ruleNoCodeBar" style="margin-top: 2px;">
+                                        <button type="button" class="preset-chip" data-nocode="unblock_copy">🔓 Unblock Copy &amp; Right-Click</button>
+                                        <button type="button" class="preset-chip" data-nocode="links_newtab">🔗 Open External Links in New Tab</button>
+                                        <button type="button" class="preset-chip" data-nocode="clean_font">📖 Clean Reading Typography</button>
+                                        <button type="button" class="preset-chip" data-nocode="scroll_top_btn">⬆️ Floating Back-to-Top Button</button>
+                                        <button type="button" class="preset-chip" data-nocode="hide_popups">🧹 Hide Sticky Popups &amp; App Banners</button>
+                                        <button type="button" class="preset-chip" data-nocode="auto_click_skip">⚡ Auto-Expand / Skip Prompts</button>
+                                    </div>
+                                </div>
+                                <div class="field-box">
+                                    <label class="field-label" for="ruleCssInput"><span id="lblRuleCss">Custom CSS</span><span class="field-tag">Injected &lt;style&gt;</span></label>
                                     <textarea id="ruleCssInput" class="code-area" spellcheck="false" placeholder=".sidebar-ad, .popup-banner { display: none !important; }"></textarea>
                                 </div>
                                 <div class="field-box">
-                                    <label class="field-label" for="ruleJsInput"><span>Userscript / Custom JS (ScriptForge)</span><span class="field-tag">// ==UserScript== · GM_* API</span></label>
+                                    <label class="field-label" for="ruleJsInput"><span id="lblRuleJs">Userscript / Custom JS (ScriptForge)</span><span class="field-tag">// ==UserScript== · GM_* API</span></label>
                                     <textarea id="ruleJsInput" class="code-area" spellcheck="false" placeholder="// ==UserScript==&#10;// @name         My Script&#10;// @match        https://example.com/*&#10;// ==/UserScript=="></textarea>
                                 </div>
                                 <div class="sec-actions">
@@ -503,6 +514,17 @@ __FNX_SETTINGS_CSS__
                             <div class="field-box">
                                 <label class="field-label" for="pubExtDesc"><span>Description</span></label>
                                 <input type="text" id="pubExtDesc" class="text-input" placeholder="Brief description of what this extension does">
+                            </div>
+                            <div class="field-box">
+                                <label class="field-label"><span id="lblPubNoCode">No-code building blocks (click to add)</span><span class="field-tag" id="tagPubNoCode">Zero-code</span></label>
+                                <div class="preset-chips" id="pubNoCodeBar" style="margin-top: 2px;">
+                                    <button type="button" class="preset-chip" data-pub-nocode="unblock_copy">🔓 Unblock Copy &amp; Right-Click</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="links_newtab">🔗 Open External Links in New Tab</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="clean_font">📖 Clean Reading Typography</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="scroll_top_btn">⬆️ Floating Back-to-Top Button</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="hide_popups">🧹 Hide Sticky Popups &amp; App Banners</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="auto_click_skip">⚡ Auto-Expand / Skip Prompts</button>
+                                </div>
                             </div>
                             <div class="field-box">
                                 <label class="field-label" for="pubExtCss"><span>Custom CSS</span></label>
