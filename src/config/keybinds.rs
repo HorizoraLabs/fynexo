@@ -34,6 +34,12 @@ fn default_kb_devtools() -> String {
 fn default_kb_dev_drawer() -> String {
     "Ctrl+Shift+J".to_string()
 }
+fn default_kb_new_window() -> String {
+    "Ctrl+N".to_string()
+}
+fn default_kb_new_incognito_window() -> String {
+    "Ctrl+Shift+N".to_string()
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
@@ -61,6 +67,10 @@ pub struct KeybindsConfig {
     pub devtools: String,
     #[serde(default = "default_kb_dev_drawer")]
     pub dev_drawer: String,
+    #[serde(default = "default_kb_new_window")]
+    pub new_window: String,
+    #[serde(default = "default_kb_new_incognito_window")]
+    pub new_incognito_window: String,
     pub bookmark_page: String,
     pub find_in_page: String,
     pub reader_mode: String,
@@ -89,6 +99,8 @@ impl Default for KeybindsConfig {
             mute_tab: default_kb_mute_tab(),
             devtools: default_kb_devtools(),
             dev_drawer: default_kb_dev_drawer(),
+            new_window: default_kb_new_window(),
+            new_incognito_window: default_kb_new_incognito_window(),
             bookmark_page: "Ctrl+D".to_string(),
             find_in_page: "Ctrl+F".to_string(),
             reader_mode: "Alt+R".to_string(),

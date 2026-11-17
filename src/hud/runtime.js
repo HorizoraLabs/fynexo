@@ -105,16 +105,24 @@
    let config = Object.assign(
       {
          theme: 'dark',
-         enforce_perf: true,
+         enforce_perf: false,
          adblock: true,
          restore_session: true,
          force_dark: false,
          incognito: false,
+         https_first: true,
+         window_mode: 'multi',
          language: 'zh',
          default_zoom: 1.0,
          user_agent_mode: 'default',
          custom_user_agent: '',
          tab_cache_mode: 'balanced',
+         perf_preset: 'low',
+         efficiency_mode: true,
+         auto_trim_ram: true,
+         tab_sleep_minutes: 15,
+         hw_accel: true,
+         reduce_animations: false,
          ext_side_panel: false,
          ext_reader_mode: false,
          ext_yt_ad_skipper: false,
@@ -156,6 +164,13 @@
       DEFAULT_STYLES.colors,
       bootPayload.active_theme || {},
    );
+   let modeThemes = Object.assign({}, bootPayload.mode_themes || {});
+   if (Array.isArray(bootPayload.themes)) {
+      for (let i = 0; i < bootPayload.themes.length; i++) {
+         const t = bootPayload.themes[i];
+         if (t && t.id && t.colors) modeThemes[t.id] = t.colors;
+      }
+   }
    let keybinds = Object.assign(
       {},
       DEFAULT_KEYBINDS,
@@ -172,6 +187,10 @@
    let historyItems = Array.isArray(bootPayload.history)
       ? bootPayload.history
       : [];
+   let recentDownloads = Array.isArray(bootPayload.downloads)
+      ? bootPayload.downloads
+      : [];
+   let syncDownloadsUIRef = null;
 
    function getEngines() {
       return Array.isArray(config.search_engines) &&
@@ -198,10 +217,12 @@
          config: config,
          styles: styles,
          active_theme: activeTheme,
+         mode_themes: modeThemes,
          keybinds: keybinds,
          enabled_rules: enabledRules,
          bookmarks: bookmarks,
          history: historyItems.slice(0, 25),
+         downloads: recentDownloads,
       });
    }
 
@@ -835,11 +856,14 @@
    }
 
    function formatHostLabel(rawUrl) {
-      if (!rawUrl && isInternalNewtab()) return 'Search or enter URL';
-      if (!rawUrl && isInternalSettings()) return 'Preferences';
-      if (isInternalNewtab(rawUrl)) return 'Search or enter URL';
-      if (isInternalSettings(rawUrl)) return 'Preferences';
-      if (!rawUrl || rawUrl === 'about:blank') return 'Search or enter URL';
+      const zh = isZh();
+      const ntTxt = zh ? '搜索或输入网址' : 'Search or enter URL';
+      const prefTxt = zh ? '偏好设置' : 'Preferences';
+      if (!rawUrl && isInternalNewtab()) return ntTxt;
+      if (!rawUrl && isInternalSettings()) return prefTxt;
+      if (isInternalNewtab(rawUrl)) return ntTxt;
+      if (isInternalSettings(rawUrl)) return prefTxt;
+      if (!rawUrl || rawUrl === 'about:blank') return ntTxt;
       try {
          const parsed = new URL(rawUrl);
          const cleanHost = parsed.hostname.replace(/^www\./, '');
@@ -1738,9 +1762,31 @@
             }
         `;
 
-      const perfCss = '';
-
       const isInt = isInternalAny();
+      const zeroFxCss =
+         config.enforce_perf && !isInt
+            ? `
+            html:not([data-fynexo-internal]) *,
+            html:not([data-fynexo-internal]) *::before,
+            html:not([data-fynexo-internal]) *::after {
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+                box-shadow: none !important;
+                text-shadow: none !important;
+            }
+        `
+            : '';
+      const animCss = config.reduce_animations
+         ? `
+            *, *::before, *::after {
+                animation-duration: 0.001ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.001ms !important;
+                scroll-behavior: auto !important;
+            }
+        `
+         : '';
+      const perfCss = zeroFxCss + animCss;
       const siteOv = isInt ? null : getCurrentSiteOverride();
       try {
          if (document.documentElement) {
@@ -2576,7 +2622,13 @@
          styles.topbar.layout = modeLayoutBackup;
          modeLayoutBackup = null;
       }
-      const wantTheme = mp && mp.theme && typeof BUILTIN_THEME_COLORS !== 'undefined' ? BUILTIN_THEME_COLORS[mp.theme] : null;
+      const wantThemeId = mp && mp.theme ? String(mp.theme) : '';
+      const wantTheme = wantThemeId
+         ? (modeThemes && modeThemes[wantThemeId]) ||
+           (typeof BUILTIN_THEME_COLORS !== 'undefined'
+              ? BUILTIN_THEME_COLORS[wantThemeId]
+              : null)
+         : null;
       if (wantTheme) {
          if (modeThemeBackup === null) modeThemeBackup = Object.assign({}, activeTheme);
          activeTheme = Object.assign({}, modeThemeBackup, wantTheme);
@@ -2585,6 +2637,7 @@
          modeThemeBackup = null;
       }
 
+      const manualKeys = Object.keys(pageManualFeatureOverrides);
       for (let i = 0; i < manualKeys.length; i++) {
          const mk = manualKeys[i];
          config[mk] = pageManualFeatureOverrides[mk];
@@ -2642,25 +2695,48 @@
       }
    }
 
+   function isInsecureExternalHttp(rawUrl) {
+      if (!rawUrl || !/^http:\/\//i.test(rawUrl)) return false;
+      try {
+         const u = new URL(rawUrl);
+         return !isLocalDevHost(u.hostname || '');
+      } catch (_) {
+         return false;
+      }
+   }
+
    function updateProtocolIcon(containerEl, rawUrl) {
       if (!containerEl) return;
       const isSet = isInternalSettings(rawUrl);
       const isNt = isInternalNewtab(rawUrl);
       const isHttps = rawUrl && rawUrl.startsWith('https://');
+      const isUnsafeHttp = isInsecureExternalHttp(rawUrl);
       const kind = isSet
          ? 'settings'
          : isNt
            ? 'search'
-           : isHttps
-             ? 'lock'
-             : 'search';
-      if (containerEl.dataset.iconKind === kind) return;
-      containerEl.dataset.iconKind = kind;
-      containerEl.textContent = '';
-      containerEl.appendChild(createIcon(kind));
+           : isUnsafeHttp
+             ? 'alert'
+             : isHttps
+               ? 'lock'
+               : 'search';
+      if (containerEl.dataset.iconKind !== kind) {
+         containerEl.dataset.iconKind = kind;
+         containerEl.textContent = '';
+         containerEl.appendChild(createIcon(kind));
+      }
       containerEl.style.color = isSet
          ? 'var(--fnx-accent)'
-         : 'var(--fnx-muted)';
+         : isUnsafeHttp
+           ? '#F59E0B'
+           : isHttps
+             ? '#10B981'
+             : 'var(--fnx-muted)';
+      containerEl.title = isUnsafeHttp
+         ? (isZh() ? 'HTTP 明文连接（不安全）' : 'Not secure (HTTP connection)')
+         : isHttps
+           ? (isZh() ? 'HTTPS 安全加密连接' : 'Connection is secure (HTTPS)')
+           : '';
    }
 
    function syncBookmarkButtons() {
@@ -2691,8 +2767,8 @@
          }
          deskStar.classList.toggle('active-route', starred);
          deskStar.title = starred
-            ? `Remove shortcut (${keybinds.bookmark_page || 'Ctrl+D'})`
-            : `Save shortcut (${keybinds.bookmark_page || 'Ctrl+D'})`;
+            ? (isZh() ? `取消收藏 (${keybinds.bookmark_page || 'Ctrl+D'})` : `Remove shortcut (${keybinds.bookmark_page || 'Ctrl+D'})`)
+            : (isZh() ? `收藏此页 (${keybinds.bookmark_page || 'Ctrl+D'})` : `Save shortcut (${keybinds.bookmark_page || 'Ctrl+D'})`);
       }
 
       cachedReaderable = !internal && isPageReaderable();
@@ -2701,35 +2777,42 @@
          deskReader.style.display =
             !internal && (cachedReaderable || isReaderOpen) ? 'flex' : 'none';
          deskReader.classList.toggle('active-route', isReaderOpen);
-         deskReader.title = `Reader mode (${keybinds.reader_mode || 'Alt+R'})`;
+         deskReader.title = (isZh() ? '阅读模式' : 'Reader mode') + ` (${keybinds.reader_mode || 'Alt+R'})`;
       }
 
       const deskDark = shadowRoot.getElementById('__fynexo_desk_dark__');
       if (deskDark) {
          deskDark.classList.toggle('active-route', !!config.force_dark);
-         deskDark.title = `Smart Force Dark: ${config.force_dark ? 'On' : 'Off'} (${keybinds.force_dark || 'Alt+Shift+D'})`;
+         deskDark.title = isZh()
+            ? `智能夜间：${config.force_dark ? '已开启' : '已关闭'} (${keybinds.force_dark || 'Alt+Shift+D'})`
+            : `Smart Force Dark: ${config.force_dark ? 'On' : 'Off'} (${keybinds.force_dark || 'Alt+Shift+D'})`;
       }
 
       const bmAddBtn = shadowRoot.getElementById('__fynexo_bm_add__');
       if (bmAddBtn) {
          bmAddBtn.textContent = '';
+         const zh = isZh();
          if (internal) {
             bmAddBtn.appendChild(createIcon('settings'));
-            bmAddBtn.appendChild(document.createTextNode('Manage'));
-            bmAddBtn.title = 'Manage shortcuts in Studio Preferences';
+            bmAddBtn.appendChild(document.createTextNode(zh ? '管理' : 'Manage'));
+            bmAddBtn.title = zh ? '在偏好设置中管理常用网站' : 'Manage shortcuts in Studio Preferences';
          } else {
             bmAddBtn.appendChild(createIcon(starred ? 'starFilled' : 'plus'));
             bmAddBtn.appendChild(
-               document.createTextNode(starred ? 'Saved' : 'Save page'),
+               document.createTextNode(starred ? (zh ? '已收藏' : 'Saved') : (zh ? '收藏本页' : 'Save page')),
             );
             bmAddBtn.title = starred
-               ? 'Remove current page from shortcuts'
-               : 'Pin current page to shortcuts bar';
+               ? (zh ? '从书签栏移除当前页' : 'Remove current page from shortcuts')
+               : (zh ? '把当前页固定到书签栏' : 'Pin current page to shortcuts bar');
          }
       }
 
       const incogBadge = shadowRoot.getElementById('__fynexo_incog_badge__');
       if (incogBadge) {
+         incogBadge.textContent = isZh() ? '无痕' : 'Private';
+         incogBadge.title = isZh()
+            ? '无痕模式开启中 — 点击退出'
+            : 'Private mode active — click to exit Private mode';
          incogBadge.style.display = config.incognito ? 'inline-flex' : 'none';
       }
 
@@ -2769,24 +2852,32 @@
       const schemeEl = shadowRoot.getElementById('__fynexo_addr_scheme__');
       const domEl = shadowRoot.getElementById('__fynexo_addr_domain__');
       const pathEl = shadowRoot.getElementById('__fynexo_addr_path__');
+      const zh = isZh();
       if (domEl && pathEl) {
          if (isNt || !href || href === 'about:blank') {
             if (schemeEl) schemeEl.textContent = '';
             domEl.textContent = '';
-            pathEl.textContent = `Search ${engName} or type a URL...`;
+            pathEl.textContent = zh
+               ? `在 ${engName} 搜索或输入网址...`
+               : `Search ${engName} or type a URL...`;
             pathEl.style.color = 'var(--fnx-muted)';
          } else if (isSet) {
             if (schemeEl) schemeEl.textContent = 'fynexo://';
             domEl.textContent = 'settings';
             domEl.style.color = 'var(--fnx-fg)';
-            pathEl.textContent = ' · Studio Preferences';
+            pathEl.textContent = zh ? ' · 偏好设置' : ' · Studio Preferences';
             pathEl.style.color = 'var(--fnx-muted)';
          } else {
             try {
                const u = new URL(href);
+               const isUnsafeHttp = isInsecureExternalHttp(href);
                if (schemeEl) {
-                  schemeEl.textContent =
-                     u.protocol === 'https:' ? '' : u.protocol + '//';
+                  schemeEl.textContent = isUnsafeHttp
+                     ? (zh ? '不安全 · http://' : 'Not secure · http://')
+                     : u.protocol === 'https:'
+                       ? ''
+                       : u.protocol + '//';
+                  schemeEl.style.color = isUnsafeHttp ? '#F59E0B' : '';
                }
                const rawHost = u.host || label;
                domEl.textContent = rawHost.replace(/^www\./i, '');
@@ -2810,7 +2901,7 @@
       if (mobLabel) {
          const mobText =
             isNt || !href || href === 'about:blank'
-               ? `Search ${engName} or type URL`
+               ? (zh ? `在 ${engName} 搜索或输入网址` : `Search ${engName} or type URL`)
                : label;
          if (mobLabel.textContent !== mobText) mobLabel.textContent = mobText;
       }
@@ -3543,11 +3634,13 @@
       }
       if (cleaned.length === 0) return;
 
+      tabContextMenuEl.setAttribute('role', 'menu');
       for (let i = 0; i < cleaned.length; i++) {
          const entry = cleaned[i];
          if (entry.sep) {
             const sep = document.createElement('div');
             sep.className = 'fnx-menu-sep';
+            sep.setAttribute('role', 'separator');
             tabContextMenuEl.appendChild(sep);
             continue;
          }
@@ -3557,6 +3650,9 @@
          if (entry.danger) cls += ' danger';
          if (entry.disabled) cls += ' disabled';
          item.className = cls;
+         item.setAttribute('role', 'menuitem');
+         item.tabIndex = entry.disabled ? -1 : 0;
+         if (entry.disabled) item.setAttribute('aria-disabled', 'true');
 
          const leftWrap = document.createElement('div');
          leftWrap.style.cssText =
@@ -3589,6 +3685,23 @@
                entry.onClick();
             }
          };
+         item.onkeydown = (ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') {
+               ev.preventDefault();
+               item.click();
+            } else if (ev.key === 'Escape') {
+               ev.preventDefault();
+               hideTabContextMenu();
+            } else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+               ev.preventDefault();
+               const list = Array.from(tabContextMenuEl.querySelectorAll('[role="menuitem"]:not([aria-disabled="true"])'));
+               const idx = list.indexOf(item);
+               if (idx >= 0 && list.length > 0) {
+                  const next = list[(idx + (ev.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length];
+                  if (next) next.focus();
+               }
+            }
+         };
          tabContextMenuEl.appendChild(item);
       }
 
@@ -3617,9 +3730,10 @@
    }
 
    function showTabContextMenu(e, tab, idx) {
+      const zh = isZh();
       const entries = [
          {
-            label: 'Reload tab',
+            label: zh ? '重新加载标签页' : 'Reload tab',
             shortcut: 'Ctrl+R',
             icon: 'reload',
             onClick: () => {
@@ -3632,31 +3746,38 @@
             },
          },
          {
-            label: 'Duplicate tab',
+            label: zh ? '复制标签页' : 'Duplicate tab',
             icon: 'copy',
             onClick: () => sendIpc({ type: 'DUPLICATE_TAB', id: tab.id }),
          },
+         !isMobilePlatform() && config.window_mode !== 'single'
+            ? {
+                 label: zh ? '移至新窗口' : 'Move tab to new window',
+                 icon: 'external',
+                 onClick: () => sendIpc({ type: 'DETACH_TAB', id: tab.id }),
+              }
+            : null,
          {
-            label: tab.pinned ? 'Unpin tab' : 'Pin tab',
+            label: tab.pinned ? (zh ? '取消固定标签页' : 'Unpin tab') : (zh ? '固定标签页' : 'Pin tab'),
             icon: 'pin',
             onClick: () => sendIpc({ type: 'TOGGLE_PIN_TAB', id: tab.id }),
          },
          {
             label: tab.background_play
-               ? 'Disable background running'
-               : 'Allow running in background',
+               ? (zh ? '禁止后台保活运行' : 'Disable background running')
+               : (zh ? '允许后台持续运行' : 'Allow running in background'),
             icon: 'media',
             onClick: () =>
                sendIpc({ type: 'TOGGLE_BACKGROUND_PLAY', id: tab.id }),
          },
          {
-            label: tab.muted ? 'Unmute tab' : 'Mute tab',
+            label: tab.muted ? (zh ? '取消标签页静音' : 'Unmute tab') : (zh ? '静音此标签页' : 'Mute tab'),
             icon: tab.muted ? 'volumeUp' : 'volumeMute',
             onClick: () => sendIpc({ type: 'TOGGLE_MUTE_TAB', id: tab.id }),
          },
          { sep: true },
          {
-            label: 'Close tab',
+            label: zh ? '关闭标签页' : 'Close tab',
             shortcut: 'Ctrl+W',
             icon: 'close',
             onClick: () =>
@@ -3664,7 +3785,7 @@
          },
          tabState.tabs.length > 1
             ? {
-                 label: 'Close other tabs',
+                 label: zh ? '关闭其他标签页' : 'Close other tabs',
                  onClick: () => {
                     const otherCount = tabState.tabs.filter(
                        (t) => t.id !== tab.id && !t.pinned,
@@ -3675,11 +3796,12 @@
                     }
                     openPromptModalRef(
                        {
-                          title: 'Close other tabs',
-                          badge: `${otherCount} tabs`,
-                          description:
-                             'Close all other unpinned tabs in the current workspace?',
-                          confirmText: 'Close tabs',
+                          title: zh ? '关闭其他标签页' : 'Close other tabs',
+                          badge: zh ? `${otherCount} 个标签` : `${otherCount} tabs`,
+                          description: zh
+                             ? '确认关闭当前工作区内其余未固定的标签页？'
+                             : 'Close all other unpinned tabs in the current workspace?',
+                          confirmText: zh ? '确认关闭' : 'Close tabs',
                           hideInput: true,
                        },
                        () => sendIpc({ type: 'CLOSE_OTHER_TABS', id: tab.id }),
@@ -3689,13 +3811,13 @@
             : null,
          idx < tabState.tabs.length - 1
             ? {
-                 label: 'Close tabs to the right',
+                 label: zh ? '关闭右侧标签页' : 'Close tabs to the right',
                  onClick: () =>
                     sendIpc({ type: 'CLOSE_TABS_TO_RIGHT', id: tab.id }),
               }
             : null,
          {
-            label: 'Close all tabs',
+            label: zh ? '关闭全部标签页' : 'Close all tabs',
             danger: true,
             onClick: () => {
                const unpinned = tabState.tabs.filter((t) => !t.pinned).length;
@@ -3705,11 +3827,12 @@
                }
                openPromptModalRef(
                   {
-                     title: 'Close all tabs',
-                     badge: `${unpinned} tabs`,
-                     description:
-                        'Close all unpinned tabs and reset to Start Page?',
-                     confirmText: 'Close all tabs',
+                     title: zh ? '关闭全部标签页' : 'Close all tabs',
+                     badge: zh ? `${unpinned} 个标签` : `${unpinned} tabs`,
+                     description: zh
+                        ? '确认关闭所有未固定标签页并回到起始页？'
+                        : 'Close all unpinned tabs and reset to Start Page?',
+                     confirmText: zh ? '全部关闭' : 'Close all tabs',
                      hideInput: true,
                   },
                   () => sendIpc({ type: 'CLOSE_ALL_TABS' }),
@@ -3718,13 +3841,13 @@
          },
          { sep: true },
          {
-            label: 'Reopen closed tab',
+            label: zh ? '重新打开关闭的标签页' : 'Reopen closed tab',
             shortcut: 'Ctrl+Shift+T',
             icon: 'undo',
             onClick: () => sendIpc({ type: 'REOPEN_CLOSED_TAB' }),
          },
          {
-            label: 'New tab',
+            label: zh ? '新建标签页' : 'New tab',
             shortcut: 'Ctrl+T',
             icon: 'plus',
             onClick: () => {
@@ -3734,18 +3857,19 @@
          },
          { sep: true },
          {
-            label: 'Save current workspace...',
+            label: zh ? '保存当前工作区快照...' : 'Save current workspace...',
             icon: 'workspace',
             onClick: () => {
                if (!openPromptModalRef) return;
                openPromptModalRef(
                   {
-                     title: 'Save workspace',
-                     badge: 'Session',
-                     description:
-                        'Save all open tabs into a named workspace (e.g. Work, Music, Dev).',
-                     placeholder: 'Workspace name...',
-                     confirmText: 'Save workspace',
+                     title: zh ? '保存工作区快照' : 'Save workspace',
+                     badge: zh ? '会话' : 'Session',
+                     description: zh
+                        ? '把当前所有标签页保存为命名工作区（例如：工作、学习、开发）。'
+                        : 'Save all open tabs into a named workspace (e.g. Work, Music, Dev).',
+                     placeholder: zh ? '输入工作区名称…' : 'Workspace name...',
+                     confirmText: zh ? '保存工作区' : 'Save workspace',
                   },
                   (name) => {
                      if (name && name.trim()) {
@@ -3802,6 +3926,7 @@
       }
       const trimmedSel = selText.trim();
 
+      const zh = isZh();
       const entries = [];
 
       // 1. Link actions
@@ -3810,7 +3935,7 @@
          const canOpenTab = /^(https?:|fynexo:)/i.test(linkHref);
          if (canOpenTab) {
             entries.push({
-               label: 'Open link in new tab',
+               label: zh ? '在新标签页打开链接' : 'Open link in new tab',
                icon: 'externalLink',
                onClick: () => {
                   sendIpc({
@@ -3821,11 +3946,24 @@
                   });
                },
             });
+            if (!isMobilePlatform() && String(config.window_mode || 'multi').toLowerCase() !== 'single') {
+               entries.push({
+                  label: zh ? '在新窗口打开链接' : 'Open link in new window',
+                  icon: 'workspace',
+                  onClick: () => {
+                     sendIpc({
+                        type: 'NEW_WINDOW',
+                        url: linkHref,
+                        incognito: false,
+                     });
+                  },
+               });
+            }
          }
          entries.push({
-            label: 'Copy link address',
+            label: zh ? '复制链接地址' : 'Copy link address',
             icon: 'link',
-            onClick: () => copyTextToClipboard(linkHref, 'Link copied'),
+            onClick: () => copyTextToClipboard(linkHref, zh ? '链接已复制' : 'Link copied'),
          });
          entries.push({ sep: true });
       }
@@ -3836,7 +3974,7 @@
          if (imgSrc) {
             if (/^https?:/i.test(imgSrc)) {
                entries.push({
-                  label: 'Open image in new tab',
+                  label: zh ? '在新标签页打开图片' : 'Open image in new tab',
                   icon: 'externalLink',
                   onClick: () =>
                      sendIpc({
@@ -3847,10 +3985,10 @@
                });
             }
             entries.push({
-               label: 'Copy image URL',
+               label: zh ? '复制图片地址' : 'Copy image URL',
                icon: 'copy',
                onClick: () =>
-                  copyTextToClipboard(imgSrc, 'Image URL copied'),
+                  copyTextToClipboard(imgSrc, zh ? '图片地址已复制' : 'Image URL copied'),
             });
             entries.push({ sep: true });
          }
@@ -3860,7 +3998,7 @@
       if (isEditable) {
          const hasEditableSel = !isPassword && selText.length > 0;
          entries.push({
-            label: 'Cut',
+            label: zh ? '剪切' : 'Cut',
             shortcut: 'Ctrl+X',
             icon: 'scissors',
             disabled: !hasEditableSel,
@@ -3878,17 +4016,18 @@
             },
          });
          entries.push({
-            label: 'Copy',
+            label: zh ? '复制' : 'Copy',
             shortcut: 'Ctrl+C',
             icon: 'copy',
             disabled: !hasEditableSel,
-            onClick: () => copyTextToClipboard(selText, 'Copied'),
+            onClick: () => copyTextToClipboard(selText, zh ? '已复制' : 'Copied'),
          });
          entries.push({
-            label: 'Paste',
+            label: zh ? '粘贴' : 'Paste',
             shortcut: 'Ctrl+V',
             icon: 'clipboard',
             onClick: () => {
+               const pasteTip = zh ? '请按 Ctrl+V 粘贴' : 'Press Ctrl+V to paste';
                try {
                   targetEl.focus();
                   if (
@@ -3911,17 +4050,17 @@
                               document.execCommand('insertText', false, clip);
                            }
                         })
-                        .catch(() => showHudToast('Press Ctrl+V to paste'));
+                        .catch(() => showHudToast(pasteTip));
                   } else {
-                     showHudToast('Press Ctrl+V to paste');
+                     showHudToast(pasteTip);
                   }
                } catch (_) {
-                  showHudToast('Press Ctrl+V to paste');
+                  showHudToast(pasteTip);
                }
             },
          });
          entries.push({
-            label: 'Select all',
+            label: zh ? '全选' : 'Select all',
             shortcut: 'Ctrl+A',
             onClick: () => {
                try {
@@ -3946,13 +4085,15 @@
                ? trimmedSel.slice(0, 18) + '…'
                : trimmedSel;
          entries.push({
-            label: 'Copy',
+            label: zh ? '复制' : 'Copy',
             shortcut: 'Ctrl+C',
             icon: 'copy',
-            onClick: () => copyTextToClipboard(selText, 'Copied'),
+            onClick: () => copyTextToClipboard(selText, zh ? '已复制' : 'Copied'),
          });
          entries.push({
-            label: `Search ${eng.name || 'web'} for "${shortSel}"`,
+            label: zh
+               ? `使用 ${eng.name || '搜索'} 搜索“${shortSel}”`
+               : `Search ${eng.name || 'web'} for "${shortSel}"`,
             icon: 'search',
             onClick: () => {
                const searchUrl = fillQueryTemplate(
@@ -3968,21 +4109,21 @@
 
       // 4. Core Navigation & Page Tools
       entries.push({
-         label: 'Back',
+         label: zh ? '后退' : 'Back',
          shortcut: 'Alt+Left',
          icon: 'back',
          disabled: !navState.canBack,
          onClick: () => requestHistoryNav('back'),
       });
       entries.push({
-         label: 'Forward',
+         label: zh ? '前进' : 'Forward',
          shortcut: 'Alt+Right',
          icon: 'forward',
          disabled: !navState.canForward,
          onClick: () => requestHistoryNav('forward'),
       });
       entries.push({
-         label: 'Reload',
+         label: zh ? '重新加载' : 'Reload',
          shortcut: 'Ctrl+R',
          icon: 'reload',
          onClick: () => {
@@ -3998,17 +4139,17 @@
       if (!internal && curUrl && curUrl !== 'about:blank') {
          const starred = isUrlBookmarked(curUrl);
          entries.push({
-            label: 'Copy page URL',
+            label: zh ? '复制本页网址' : 'Copy page URL',
             icon: 'link',
             onClick: () => copyCurrentUrl(),
          });
          entries.push({
-            label: starred ? 'Remove bookmark' : 'Bookmark page',
+            label: starred ? (zh ? '取消收藏' : 'Remove bookmark') : (zh ? '收藏本页' : 'Bookmark page'),
             icon: starred ? 'starFilled' : 'star',
             onClick: () => toggleCurrentBookmark(),
          });
          entries.push({
-            label: isReaderOpen ? 'Exit reader mode' : 'Reader mode',
+            label: isReaderOpen ? (zh ? '退出阅读模式' : 'Exit reader mode') : (zh ? '纯净阅读模式' : 'Reader mode'),
             shortcut: 'Alt+R',
             icon: 'reader',
             onClick: () => toggleReaderMode(),
@@ -4016,7 +4157,7 @@
       }
       if (!isSet) {
          entries.push({
-            label: 'Find in page',
+            label: zh ? '页内查找' : 'Find in page',
             shortcut: keybinds.find_in_page || 'Ctrl+F',
             icon: 'search',
             onClick: () => openFindBar(),
@@ -4025,7 +4166,7 @@
       entries.push({ sep: true });
 
       entries.push({
-         label: 'Print...',
+         label: zh ? '打印...' : 'Print...',
          shortcut: 'Ctrl+P',
          icon: 'printer',
          onClick: () => {
@@ -4111,22 +4252,26 @@
                   const isActive = tab.id === tabState.active_id;
                   const isSet = isInternalSettings(tab.url);
                   const isNt = isInternalNewtab(tab.url);
+                  const zh = isZh();
                   const cleanTitle = isSet
-                     ? 'Preferences'
+                     ? (zh ? '偏好设置' : 'Preferences')
                      : isNt
-                       ? 'Start page'
-                       : tab.title || 'New tab';
+                       ? (zh ? '起始页' : 'Start page')
+                       : tab.title || (zh ? '新标签页' : 'New tab');
 
                   const el = document.createElement('div');
                   let cls = isActive ? 'fnx-tab-item active' : 'fnx-tab-item';
                   if (tab.pinned) cls += ' pinned';
                   if (tab.suspended && !isActive) cls += ' suspended';
                   el.className = cls;
+                  el.setAttribute('role', 'tab');
+                  el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                  el.tabIndex = 0;
                   if (isActive) activeTabEl = el;
 
                   el.title =
                      tab.suspended && !isActive
-                        ? `${cleanTitle} (Suspended · click to load)`
+                        ? (zh ? `${cleanTitle}（已休眠 · 点击恢复）` : `${cleanTitle} (Suspended · click to load)`)
                         : cleanTitle;
                   el.draggable = true;
 
@@ -4299,64 +4444,11 @@
       }
    }
 
-   function evalSafeMathExpr(raw) {
-      const src = String(raw || '').trim().replace(/×/g, '*').replace(/÷/g, '/');
-      if (!src || src.length > 80 || !/^[0-9+\-*/().%\s^,]+$/.test(src)) return null;
-      if (!/[0-9]/.test(src) || !/[+\-*/%^]/.test(src.replace(/^\s*-/, ''))) return null;
-      const toks = src.replace(/,/g, '').replace(/\*\*/g, '^').match(/\d+\.?\d*|\.\d+|[+\-*/%^()]/g);
-      if (!toks || toks.join('').length < src.replace(/[\s,]/g, '').replace(/\*\*/g, '^').length) return null;
-      let pos = 0;
-      let guard = 0;
-      function peek() { return toks[pos]; }
-      function parseExpr() {
-         let v = parseTerm();
-         while (peek() === '+' || peek() === '-') {
-            const op = toks[pos++];
-            const r = parseTerm();
-            v = op === '+' ? v + r : v - r;
-         }
-         return v;
-      }
-      function parseTerm() {
-         let v = parsePow();
-         while (peek() === '*' || peek() === '/' || peek() === '%') {
-            const op = toks[pos++];
-            const r = parsePow();
-            v = op === '*' ? v * r : op === '/' ? v / r : v % r;
-         }
-         return v;
-      }
-      function parsePow() {
-         const base = parseUnary();
-         if (peek() === '^') {
-            pos++;
-            return Math.pow(base, parsePow());
-         }
-         return base;
-      }
-      function parseUnary() {
-         if (++guard > 200) throw new Error('deep');
-         if (peek() === '-') { pos++; return -parseUnary(); }
-         if (peek() === '+') { pos++; return parseUnary(); }
-         if (peek() === '(') {
-            pos++;
-            const v = parseExpr();
-            if (peek() !== ')') throw new Error('paren');
-            pos++;
-            return v;
-         }
-         const n = parseFloat(toks[pos++]);
-         if (!isFinite(n)) throw new Error('num');
-         return n;
-      }
-      try {
-         const v = parseExpr();
-         if (pos !== toks.length || !isFinite(v)) return null;
-         const rounded = Math.round(v * 1e10) / 1e10;
-         return { value: rounded, text: rounded.toLocaleString('en-US', { maximumFractionDigits: 10 }) };
-      } catch (_) {
-         return null;
-      }
+   function omniboxPlaceholder(engName) {
+      const name = engName || 'Google';
+      return isZh()
+         ? `在 ${name} 搜索，或输入 !bang、>命令、算式、网址...`
+         : `Search ${name}, or enter !bang, >cmd, math, URL...`;
    }
 
    function getPaletteCommands() {
@@ -4372,9 +4464,26 @@
       };
       const cmds = [
          { zh: '切换到自动场景模式', en: 'Mode: Auto by site', kw: 'auto mode 自动 模式', run: setMode('auto', zh ? '自动' : 'Auto') },
-         { zh: '切换开发者模式', en: 'Mode: Developer', kw: 'developer dev 开发者 模式', run: setMode('developer', zh ? '开发者' : 'Developer') },
-         { zh: '切换学习模式', en: 'Mode: Study', kw: 'study learn 学习 阅读 模式', run: setMode('study', zh ? '学习' : 'Study') },
-         { zh: '切换影音模式', en: 'Mode: Media', kw: 'media video 影音 模式', run: setMode('media', zh ? '影音' : 'Media') },
+      ];
+      const profiles = Array.isArray(rawBaseConfig.mode_profiles) && rawBaseConfig.mode_profiles.length
+         ? rawBaseConfig.mode_profiles
+         : (Array.isArray(config.mode_profiles) ? config.mode_profiles : []);
+      for (let i = 0; i < profiles.length; i++) {
+         const p = profiles[i];
+         if (!p || !p.id) continue;
+         const nmZh = p.name_zh || p.name_en || p.id;
+         const nmEn = p.name_en || p.name_zh || p.id;
+         const icon = p.icon ? p.icon + ' ' : '';
+         cmds.push({
+            zh: '切换' + icon + nmZh,
+            en: 'Mode: ' + icon + nmEn,
+            kw: (p.id + ' ' + nmZh + ' ' + nmEn + ' mode 模式').toLowerCase(),
+            run: setMode(p.id, zh ? nmZh : nmEn),
+         });
+      }
+      cmds.push(
+         { zh: '新建浏览窗口', en: 'New browser window', kw: 'new window win 新建 窗口', run: () => sendIpc({ type: 'NEW_WINDOW', incognito: false }) },
+         { zh: '新建独立无痕窗口', en: 'New InPrivate window', kw: 'new incognito private window 无痕 新建 窗口', run: () => sendIpc({ type: 'NEW_WINDOW', incognito: true }) },
          { zh: '切换标准模式（无特殊模式）', en: 'Mode: Standard', kw: 'default standard 标准 模式', run: setMode('default', zh ? '标准' : 'Standard') },
          {
             zh: '开关智能夜间深色', en: 'Toggle Smart Force Dark', kw: 'dark night 夜间 深色',
@@ -4412,9 +4521,12 @@
                );
             },
          },
+         { zh: '将当前标签移至新窗口', en: 'Move active tab to new window', kw: 'detach move window tab 标签 新窗口 拆出', run: () => sendIpc({ type: 'DETACH_TAB' }) },
+         { zh: '释放浏览器闲置内存', en: 'Flush idle browser RAM', kw: 'ram memory trim flush 内存 释放 清理', run: () => sendIpc({ type: 'FORCE_TRIM_MEMORY' }) },
+         { zh: '打开性能与内存设置', en: 'Open Performance & Memory Settings', kw: 'performance ram memory eco preset 性能 内存 设置', run: () => sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-performance' }) },
          { zh: '硬刷新并清理缓存', en: 'Hard reload & clear cache', kw: 'reload refresh cache 刷新 缓存', run: () => performHardCacheBustReload() },
          { zh: '打开偏好设置', en: 'Open Preferences', kw: 'settings preferences 设置 偏好', run: () => togglePreferences() },
-      ];
+      );
       return cmds.map((c) => ({ kind: 'cmd', title: '> ' + (zh ? c.zh : c.en), kw: (c.zh + ' ' + c.en + ' ' + c.kw).toLowerCase(), hint: zh ? '回车执行' : 'Enter to run', badge: zh ? '命令' : 'Command', run: c.run }));
    }
    function renderOmniboxSuggestions(rawQuery, listEl, inputEl, closeFn) {
@@ -4499,7 +4611,7 @@
                tabId: t.id,
                title: title,
                url: url,
-               badge: 'Tab',
+               badge: isZh() ? '标签' : 'Tab',
             });
          }
       }
@@ -4518,7 +4630,7 @@
                kind: 'bookmark',
                title: title,
                url: url,
-               badge: 'Saved',
+               badge: isZh() ? '收藏' : 'Saved',
             });
          }
       }
@@ -4536,14 +4648,14 @@
                kind: 'history',
                title: title,
                url: url,
-               badge: 'History',
+               badge: isZh() ? '历史' : 'History',
             });
          } else if (!q && results.length < 5) {
             pushCandidate({
                kind: 'history',
                title: title,
                url: url,
-               badge: 'Recent',
+               badge: isZh() ? '最近' : 'Recent',
             });
          }
       }
@@ -4674,8 +4786,9 @@
          return c;
       }
 
+      const zh = isZh();
       leftGroup.appendChild(
-         makeChip('Start', false, () => {
+         makeChip(zh ? '起始页' : 'Start', false, () => {
             if (closeFn) closeFn();
             triggerProgress();
             sendIpc({ type: 'NAVIGATE', url: 'fynexo://newtab' });
@@ -4685,7 +4798,7 @@
       if ((Number(tabState.closed_count) || 0) > 0) {
          leftGroup.appendChild(
             makeChip(
-               'Reopen',
+               zh ? '恢复标签' : 'Reopen',
                false,
                () => {
                   if (closeFn) closeFn();
@@ -4699,13 +4812,13 @@
 
       if (!isInternalAny()) {
          leftGroup.appendChild(
-            makeChip('Find', isFindOpen, () => {
+            makeChip(zh ? '查找' : 'Find', isFindOpen, () => {
                if (closeFn) closeFn();
                openFindBar();
             }),
          );
          leftGroup.appendChild(
-            makeChip('Reader', isReaderOpen, () => {
+            makeChip(zh ? '阅读' : 'Reader', isReaderOpen, () => {
                if (closeFn) closeFn();
                toggleReaderMode();
             }),
@@ -4714,7 +4827,7 @@
 
       leftGroup.appendChild(
          makeChip(
-            config.force_dark ? 'Dark: On' : 'Dark: Off',
+            config.force_dark ? (zh ? '夜间: 开' : 'Dark: On') : (zh ? '夜间: 关' : 'Dark: Off'),
             !!config.force_dark,
             () => {
                config.force_dark = !config.force_dark;
@@ -4722,12 +4835,12 @@
                applyPageRules();
                renderHudQuickBar(quickRow, closeFn);
                if (config.force_dark && isPageAlreadyDark()) {
-                  showHudToast('Smart Dark: Page is already dark (skipped)');
+                  showHudToast(zh ? '智能深色：当前网页已是深色背景（已自动跳过）' : 'Smart Dark: Page is already dark (skipped)');
                } else {
                   showHudToast(
                      config.force_dark
-                        ? 'Smart Force Dark enabled'
-                        : 'Smart Force Dark off',
+                        ? (zh ? '智能夜间深色已开启' : 'Smart Force Dark enabled')
+                        : (zh ? '智能夜间深色已关闭' : 'Smart Force Dark off'),
                   );
                }
             },
@@ -4736,7 +4849,7 @@
 
       leftGroup.appendChild(
          makeChip(
-            config.incognito ? 'Private: On' : 'Private',
+            config.incognito ? (zh ? '无痕: 开' : 'Private: On') : (zh ? '无痕' : 'Private'),
             !!config.incognito,
             () => {
                config.incognito = !config.incognito;
@@ -4745,8 +4858,8 @@
                renderHudQuickBar(quickRow, closeFn);
                showHudToast(
                   config.incognito
-                     ? 'Private mode on (history paused)'
-                     : 'Private mode off',
+                     ? (zh ? '无痕模式已开启（暂停历史记录）' : 'Private mode on (history paused)')
+                     : (zh ? '无痕模式已关闭' : 'Private mode off'),
                );
             },
          ),
@@ -4773,7 +4886,7 @@
       );
 
       rightGroup.appendChild(
-         makeChip('Prefs', false, () => {
+         makeChip(zh ? '设置' : 'Prefs', false, () => {
             if (closeFn) closeFn();
             togglePreferences();
          }),
@@ -4895,7 +5008,18 @@
          }
       }
 
-      if (/^https?:\/\//i.test(raw)) return raw;
+      if (/^https?:\/\//i.test(raw)) {
+         if (/^http:\/\//i.test(raw) && config.https_first !== false) {
+            try {
+               const u = new URL(raw);
+               if (!isLocalDevHost(u.hostname || '')) {
+                  u.protocol = 'https:';
+                  return u.toString();
+               }
+            } catch (_) {}
+         }
+         return raw;
+      }
       if (/^:(\d{2,5})(?:[/?#].*)?$/.test(raw)) return 'http://localhost' + raw;
       if (
          /^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:localhost|local|test)|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)(?::\d+)?(?:[/?#].*)?$/i.test(
@@ -5030,8 +5154,8 @@
          el.disabled = !canBack;
          el.setAttribute('aria-disabled', canBack ? 'false' : 'true');
          el.title = canBack
-            ? 'Back (Alt+Left)'
-            : 'Back (Alt+Left) — No back history';
+            ? (isZh() ? '后退 (Alt+Left)' : 'Back (Alt+Left)')
+            : (isZh() ? '后退 (Alt+Left) — 暂无上一页' : 'Back (Alt+Left) — No back history');
       }
       const fwdIds = ['__fynexo_btn_forward__', '__fynexo_sheet_fwd__'];
       for (let i = 0; i < fwdIds.length; i++) {
@@ -5040,8 +5164,8 @@
          el.disabled = !canFwd;
          el.setAttribute('aria-disabled', canFwd ? 'false' : 'true');
          el.title = canFwd
-            ? 'Forward (Alt+Right)'
-            : 'Forward (Alt+Right) — No forward history';
+            ? (isZh() ? '前进 (Alt+Right)' : 'Forward (Alt+Right)')
+            : (isZh() ? '前进 (Alt+Right) — 暂无下一页' : 'Forward (Alt+Right) — No forward history');
          if (el.id === '__fynexo_sheet_fwd__') {
             el.style.opacity = canFwd ? '1' : '0.34';
             el.style.cursor = canFwd ? 'pointer' : 'default';
@@ -5131,6 +5255,16 @@
          if (rtPayload.active_theme) modeThemeBackup = null;
          if (rtPayload.active_theme)
             activeTheme = Object.assign(activeTheme, rtPayload.active_theme);
+         if (rtPayload.mode_themes || Array.isArray(rtPayload.themes)) {
+            modeThemes = Object.assign({}, rtPayload.mode_themes || {});
+            if (Array.isArray(rtPayload.themes)) {
+               for (let i = 0; i < rtPayload.themes.length; i++) {
+                  const t = rtPayload.themes[i];
+                  if (t && t.id && t.colors) modeThemes[t.id] = t.colors;
+               }
+            }
+            modeThemeBackup = null;
+         }
          if (rtPayload.keybinds)
             keybinds = Object.assign({}, DEFAULT_KEYBINDS, rtPayload.keybinds);
          if (Array.isArray(rtPayload.enabled_rules)) {
@@ -5141,6 +5275,7 @@
          if (Array.isArray(rtPayload.bookmarks))
             bookmarks = rtPayload.bookmarks;
          if (Array.isArray(rtPayload.history)) historyItems = rtPayload.history;
+         if (Array.isArray(rtPayload.downloads)) recentDownloads = rtPayload.downloads;
          cacheSlimRuntime();
          if (
             isInternalAny() &&
@@ -5171,6 +5306,16 @@
       if (payload.active_theme) modeThemeBackup = null;
       if (payload.active_theme)
          activeTheme = Object.assign(activeTheme, payload.active_theme);
+      if (payload.mode_themes || Array.isArray(payload.themes)) {
+         modeThemes = Object.assign({}, payload.mode_themes || {});
+         if (Array.isArray(payload.themes)) {
+            for (let i = 0; i < payload.themes.length; i++) {
+               const t = payload.themes[i];
+               if (t && t.id && t.colors) modeThemes[t.id] = t.colors;
+            }
+         }
+         modeThemeBackup = null;
+      }
       if (payload.keybinds)
          keybinds = Object.assign({}, DEFAULT_KEYBINDS, payload.keybinds);
       if (Array.isArray(payload.enabled_rules)) {
@@ -5187,7 +5332,7 @@
            shadowRoot.getElementById('__fynexo_input__')
          : null;
       if (input) {
-         input.placeholder = `Search ${currentEngineObj().name} or enter !bang / URL...`;
+         input.placeholder = omniboxPlaceholder(currentEngineObj().name);
       }
       if (shadowRoot) {
          const inlineQuick = shadowRoot.getElementById(
@@ -5214,8 +5359,13 @@
 
    exposeBridge('__fynexo_toast__', function (msg) {
       showHudToast(msg);
-      if (typeof handleDownloadToast === 'function') {
-         handleDownloadToast(msg);
+   });
+
+   exposeBridge('__fynexo_set_downloads__', function (list) {
+      recentDownloads = Array.isArray(list) ? list : [];
+      cacheSlimRuntime();
+      if (typeof syncDownloadsUIRef === 'function') {
+         syncDownloadsUIRef();
       }
    });
 
@@ -5356,6 +5506,12 @@
       if (typeof onResourceStatsCb === 'function') {
          onResourceStatsCb(stats);
       }
+      if (
+         typeof window.__fynexo_on_settings_perf__ === 'function' &&
+         isInternalSettings()
+      ) {
+         window.__fynexo_on_settings_perf__(stats);
+      }
    });
 
    exposeBridge('__fynexo_trigger_progress__', function () {
@@ -5474,35 +5630,70 @@
             }
          } catch (_) {}
 
-         // Feature 3: Background Audio Keep-Alive & Anti-Pause (Prevent auto-pause when minimized/occluded/screen locked)
+         // Conditional Background Media Keep-Alive (only activates for background_play tabs or playing media,
+         // keeping normal browsing tabs 100% compatible with visibility/anti-bot checks)
          try {
             if (!window.__fynexo_bg_audio_hooked__) {
                window.__fynexo_bg_audio_hooked__ = true;
-               try {
-                  Object.defineProperty(Document.prototype, 'hidden', {
-                     get: () => false,
-                     configurable: true,
-                  });
-                  Object.defineProperty(Document.prototype, 'visibilityState', {
-                     get: () => 'visible',
-                     configurable: true,
-                  });
-               } catch (_) {}
-               try {
-                  Object.defineProperty(document, 'hidden', {
-                     get: () => false,
-                     configurable: true,
-                  });
-                  Object.defineProperty(document, 'visibilityState', {
-                     get: () => 'visible',
-                     configurable: true,
-                  });
-               } catch (_) {}
+               const origHiddenDesc = Object.getOwnPropertyDescriptor(
+                  Document.prototype,
+                  'hidden',
+               );
+               const origVisDesc = Object.getOwnPropertyDescriptor(
+                  Document.prototype,
+                  'visibilityState',
+               );
+               const shouldKeepTabAwake = () => {
+                  try {
+                     const curTab =
+                        tabState &&
+                        Array.isArray(tabState.tabs) &&
+                        tabState.tabs.find((t) => t.id === tabState.active_id);
+                     if (curTab && curTab.background_play) return true;
+                     if (
+                        activeModeMatch &&
+                        activeModeMatch.profile &&
+                        activeModeMatch.profile.id === 'media'
+                     ) {
+                        return true;
+                     }
+                     const mediaList = document.querySelectorAll('video, audio');
+                     for (let i = 0; i < mediaList.length; i++) {
+                        const m = mediaList[i];
+                        if (m && !m.paused && !m.ended) return true;
+                     }
+                  } catch (_) {}
+                  return false;
+               };
+               if (origHiddenDesc && origHiddenDesc.get) {
+                  try {
+                     Object.defineProperty(Document.prototype, 'hidden', {
+                        get: function () {
+                           if (shouldKeepTabAwake()) return false;
+                           return origHiddenDesc.get.call(this);
+                        },
+                        configurable: true,
+                     });
+                  } catch (_) {}
+               }
+               if (origVisDesc && origVisDesc.get) {
+                  try {
+                     Object.defineProperty(Document.prototype, 'visibilityState', {
+                        get: function () {
+                           if (shouldKeepTabAwake()) return 'visible';
+                           return origVisDesc.get.call(this);
+                        },
+                        configurable: true,
+                     });
+                  } catch (_) {}
+               }
 
                window.addEventListener(
                   'visibilitychange',
                   (e) => {
-                     e.stopImmediatePropagation();
+                     if (shouldKeepTabAwake()) {
+                        e.stopImmediatePropagation();
+                     }
                   },
                   true,
                );
@@ -5510,6 +5701,7 @@
                window.addEventListener(
                   'blur',
                   () => {
+                     if (!shouldKeepTabAwake()) return;
                      try {
                         const mediaEls =
                            document.querySelectorAll('video, audio');
@@ -5596,6 +5788,7 @@
             b.type = 'button';
             b.className = 'fnx-icon-btn';
             b.title = tooltip;
+            if (tooltip) b.setAttribute('aria-label', tooltip);
             b.appendChild(createIcon(iconName));
             b.onclick = onClick;
             return b;
@@ -5866,15 +6059,17 @@
          incogBadge.type = 'button';
          incogBadge.id = '__fynexo_incog_badge__';
          incogBadge.className = 'fnx-incog-pill';
-         incogBadge.title = 'Private mode active — click to exit Private mode';
-         incogBadge.textContent = 'Private';
+         incogBadge.title = isZh()
+            ? '无痕模式开启中 — 点击退出'
+            : 'Private mode active — click to exit Private mode';
+         incogBadge.textContent = isZh() ? '无痕' : 'Private';
          incogBadge.style.display = config.incognito ? 'inline-flex' : 'none';
          incogBadge.onclick = () => {
             config.incognito = false;
             sendIpc({ type: 'PATCH_HUD_PREFS', incognito: false });
             incogBadge.style.display = 'none';
             syncBookmarkButtons();
-            showHudToast('Private mode turned off');
+            showHudToast(isZh() ? '已退出无痕模式' : 'Private mode turned off');
          };
          rightZone.appendChild(incogBadge);
 
@@ -5905,14 +6100,16 @@
             }
             bgDockTargetTabId = bgTab.id;
             bgMediaLabel.textContent =
-               bgTab.title || formatHostLabel(bgTab.url) || 'Background Media';
-            bgMediaPill.title = `${bgMediaLabel.textContent} — click to jump to tab`;
+               bgTab.title || formatHostLabel(bgTab.url) || (isZh() ? '后台媒体' : 'Background Media');
+            bgMediaPill.title = isZh()
+               ? `${bgMediaLabel.textContent} — 点击跳转至标签页`
+               : `${bgMediaLabel.textContent} — click to jump to tab`;
             bgMediaMute.textContent = '';
             const mIcon = createIcon(bgTab.muted ? 'volumeMute' : 'volumeUp');
             mIcon.style.cssText = 'width: 11px; height: 11px; color: var(--fnx-secondary);';
             bgMediaMute.title = bgTab.muted
-               ? 'Unmute background tab'
-               : 'Mute background tab';
+               ? (isZh() ? '取消后台标签静音' : 'Unmute background tab')
+               : (isZh() ? '静音后台标签' : 'Mute background tab');
             bgMediaMute.appendChild(mIcon);
             bgMediaPill.style.display = 'inline-flex';
          }
@@ -5936,7 +6133,7 @@
          // 2. Media Control Button (Conditional: only shown when audio/video is playing)
          const btnMedia = makeDesktopIconBtn(
             'media',
-            'Media Control & Volume Booster',
+            isZh() ? '媒体控制与音量增强' : 'Media Control & Volume Booster',
             (e) => {
                if (e && e.stopPropagation) e.stopPropagation();
                toggleMediaPopover();
@@ -5955,7 +6152,7 @@
          // 3. Downloads Button (Conditional: only shown when downloading or recent download)
          const btnDownloads = makeDesktopIconBtn(
             'download',
-            'Downloads',
+            isZh() ? '下载管理' : 'Downloads',
             (e) => {
                if (e && e.stopPropagation) e.stopPropagation();
                toggleDownloadsPopover();
@@ -5988,7 +6185,7 @@
          // 4. Adblock & Privacy Shield (Always visible)
          const btnShield = makeDesktopIconBtn(
             'shield',
-            'Adblock & Privacy Shield',
+            isZh() ? '隐私拦截与站点开关' : 'Adblock & Privacy Shield',
             (e) => {
                if (e && e.stopPropagation) e.stopPropagation();
                toggleShieldPopover();
@@ -6008,7 +6205,7 @@
          // 4.5 Side Panel Toggle (Alt+S, Opt-In Extension)
          const btnSidePanel = makeDesktopIconBtn(
             'sidepanel',
-            'Side Panel (Alt+S)',
+            isZh() ? '分屏侧边栏 (Alt+S)' : 'Side Panel (Alt+S)',
             (e) => {
                if (e && e.stopPropagation) e.stopPropagation();
                toggleSidePanel();
@@ -6019,7 +6216,7 @@
          rightZone.appendChild(btnSidePanel);
 
          // 5. Main Menu 3-Dots Button (Always visible)
-         const btnMore = makeDesktopIconBtn('more', 'Menu', (e) => {
+         const btnMore = makeDesktopIconBtn('more', isZh() ? '主菜单' : 'Menu', (e) => {
             if (e && e.stopPropagation) e.stopPropagation();
             toggleMainMenu();
          });
@@ -6118,12 +6315,34 @@
          mainMenuEl = document.createElement('div');
          mainMenuEl.id = '__fynexo_main_menu__';
          mainMenuEl.className = 'fnx-nav-popover';
+         mainMenuEl.setAttribute('role', 'menu');
          mainMenuEl.style.width = '260px';
 
          const menuI18nEntries = [];
          function addMenuItem(iconName, label, shortcut, onClick, zhLabel) {
             const item = document.createElement('div');
             item.className = 'fnx-menu-item';
+            item.setAttribute('role', 'menuitem');
+            item.tabIndex = 0;
+            item.onkeydown = (ev) => {
+               if (ev.key === 'Enter' || ev.key === ' ') {
+                  ev.preventDefault();
+                  item.click();
+               } else if (ev.key === 'Escape') {
+                  ev.preventDefault();
+                  closeAllNavPopovers();
+               } else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+                  ev.preventDefault();
+                  const list = Array.from(mainMenuEl.querySelectorAll('[role="menuitem"]')).filter(
+                     (el) => el.offsetParent !== null,
+                  );
+                  const idx = list.indexOf(item);
+                  if (idx >= 0 && list.length > 0) {
+                     const next = list[(idx + (ev.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length];
+                     if (next) next.focus();
+                  }
+               }
+            };
             const leftWrap = document.createElement('div');
             leftWrap.style.cssText =
                'display: flex; align-items: center; gap: 9px; min-width: 0;';
@@ -6267,6 +6486,15 @@
             zoomValSpan.textContent =
                Math.round((Number(config.default_zoom) || 1.0) * 100) + '%';
             const internal = isInternalAny();
+            const showMultiWin =
+               !isMobilePlatform() &&
+               String(config.window_mode || 'multi').toLowerCase() !== 'single';
+            if (typeof newWindowMenuItem !== 'undefined' && newWindowMenuItem) {
+               newWindowMenuItem.style.display = showMultiWin ? '' : 'none';
+            }
+            if (typeof newIncogWindowMenuItem !== 'undefined' && newIncogWindowMenuItem) {
+               newIncogWindowMenuItem.style.display = showMultiWin ? '' : 'none';
+            }
             if (typeof devDrawerMenuItem !== 'undefined' && devDrawerMenuItem) {
                const showDevItem =
                   !activeModeMatch ||
@@ -6426,6 +6654,26 @@
                sendIpc({ type: 'NEW_TAB' });
             },
             '新建标签页',
+         );
+
+         // New Window & New Incognito Window (shown in Multi-Window desktop mode)
+         const newWindowMenuItem = addMenuItem(
+            'workspace',
+            'New window',
+            keybinds.new_window || 'Ctrl+N',
+            () => {
+               sendIpc({ type: 'NEW_WINDOW', incognito: false });
+            },
+            '新建窗口',
+         );
+         const newIncogWindowMenuItem = addMenuItem(
+            'shield',
+            'New InPrivate window',
+            keybinds.new_incognito_window || 'Ctrl+Shift+N',
+            () => {
+               sendIpc({ type: 'NEW_WINDOW', incognito: true });
+            },
+            '新建无痕窗口',
          );
 
          // History Drawer
@@ -7679,6 +7927,7 @@
             }
 
             const localDev = !internal && isLocalDevHost(window.location.hostname || '');
+            const unsafeHttp = !internal && isInsecureExternalHttp(canonicalCurrentUrl());
             const displayHost =
                (window.location.host || window.location.hostname || '').replace(
                   /^www\./,
@@ -7691,9 +7940,12 @@
                ? (zh ? '已豁免' : 'Exempt')
                : localDev
                  ? (zh ? '本地开发 · 免误拦/免反色' : 'Local Dev · Auto-exempt')
-                 : adOn
-                   ? (zh ? '65+ 拦截规则' : '65+ domain rules')
-                   : (zh ? '已暂停' : 'Paused');
+                 : unsafeHttp
+                   ? (zh ? '⚠️ HTTP 明文连接（不安全）' : '⚠️ HTTP Not Secure')
+                   : adOn
+                     ? (zh ? '🔒 HTTPS · 65+ 拦截规则' : '🔒 HTTPS · 65+ rules')
+                     : (zh ? '已暂停' : 'Paused');
+            shieldStatusMeta.style.color = unsafeHttp ? '#F59E0B' : 'var(--fnx-muted)';
             shieldSwitch.disabled = internal;
             shieldSwitch.classList.toggle('on', !internal && adOn);
             shieldSwitch.setAttribute(
@@ -7902,21 +8154,19 @@
          downloadsPopoverEl.className = 'fnx-nav-popover fnx-nav-popover--panel';
          downloadsPopoverEl.style.width = '296px';
 
-         let recentDownloads = [];
-
          const dlHeader = document.createElement('div');
          dlHeader.className = 'fnx-pop-head';
          const dlHeaderLeft = document.createElement('div');
          dlHeaderLeft.className = 'fnx-pop-title';
          dlHeaderLeft.appendChild(createIcon('download'));
          const dlHTxt = document.createElement('span');
-         dlHTxt.textContent = 'Downloads';
+         dlHTxt.textContent = isZh() ? '下载管理' : 'Downloads';
          dlHeaderLeft.appendChild(dlHTxt);
          dlHeader.appendChild(dlHeaderLeft);
          const btnOpenDlFolder = document.createElement('button');
          btnOpenDlFolder.type = 'button';
          btnOpenDlFolder.className = 'fnx-pop-link fnx-desktop-only-row';
-         btnOpenDlFolder.textContent = 'Open folder';
+         btnOpenDlFolder.textContent = isZh() ? '打开文件夹' : 'Open folder';
          btnOpenDlFolder.onclick = () => {
             sendIpc({ type: 'OPEN_DOWNLOADS_DIR' });
          };
@@ -7929,13 +8179,52 @@
             'display: flex; flex-direction: column; gap: 2px; padding: 6px; max-height: 224px; overflow-y: auto;';
          downloadsPopoverEl.appendChild(dlListContainer);
 
+         function formatDlTime(dl) {
+            if (dl.updated_at) {
+               try {
+                  return new Date(Number(dl.updated_at) * 1000).toLocaleTimeString([], {
+                     hour: '2-digit',
+                     minute: '2-digit',
+                  });
+               } catch (_) {}
+            }
+            return dl.time || '';
+         }
+
+         function syncDownloadsUI() {
+            const zh = isZh();
+            dlHTxt.textContent = zh ? '下载管理' : 'Downloads';
+            btnOpenDlFolder.textContent = zh ? '打开文件夹' : 'Open folder';
+            btnDownloads.title = zh ? '下载管理' : 'Downloads';
+            if (recentDownloads.length > 0) {
+               btnDownloads.style.display = 'flex';
+               const activeCount = recentDownloads.filter(
+                  (d) => d && d.status === 'downloading',
+               ).length;
+               dlBadge.textContent = String(
+                  activeCount > 0 ? activeCount : recentDownloads.length,
+               );
+               dlBadge.style.background =
+                  activeCount > 0 ? '#10B981' : '';
+               dlBadge.style.display = 'flex';
+            } else {
+               btnDownloads.style.display = 'none';
+               dlBadge.style.display = 'none';
+            }
+            renderDownloadsList();
+         }
+         syncDownloadsUIRef = syncDownloadsUI;
+
          function renderDownloadsList() {
+            const zh = isZh();
             dlListContainer.textContent = '';
             if (recentDownloads.length === 0) {
                const emptyTip = document.createElement('div');
                emptyTip.style.cssText =
                   'padding: 18px 8px; text-align: center; color: var(--fnx-muted); font-size: 12px;';
-               emptyTip.textContent = 'No downloads in this session';
+               emptyTip.textContent = zh
+                  ? '本次浏览暂无下载记录'
+                  : 'No downloads in this session';
                dlListContainer.appendChild(emptyTip);
                return;
             }
@@ -7956,22 +8245,30 @@
                nameSpan.style.cssText =
                   'font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fnx-fg);';
                nameSpan.textContent = dl.name;
+               const st = String(dl.status || '').toLowerCase();
+               const stLabel =
+                  st === 'downloading'
+                     ? (zh ? '下载中...' : 'Downloading...')
+                     : st === 'failed'
+                       ? (zh ? '已取消或失败' : 'Failed / Cancelled')
+                       : (zh ? '已完成' : 'Completed');
                const timeSpan = document.createElement('span');
                timeSpan.className = 'fnx-pop-sub';
                timeSpan.style.fontSize = '10.5px';
-               timeSpan.textContent = dl.time + ' · ' + dl.status;
+               const ts = formatDlTime(dl);
+               timeSpan.textContent = ts ? ts + ' · ' + stLabel : stLabel;
                nameWrap.appendChild(nameSpan);
                nameWrap.appendChild(timeSpan);
                rowLeft.appendChild(nameWrap);
                row.appendChild(rowLeft);
-               if (dl.status === 'Completed') {
+               if (st === 'completed') {
                   const openSpan = document.createElement('span');
                   openSpan.className = 'fnx-pop-dl-open';
-                  openSpan.textContent = 'Open';
+                  openSpan.textContent = zh ? '打开' : 'Open';
                   row.appendChild(openSpan);
                }
                row.onclick = () => {
-                  if (dl.status === 'Completed') {
+                  if (st === 'completed') {
                      sendIpc({ type: 'OPEN_DOWNLOAD_FILE', filename: dl.name });
                   } else {
                      sendIpc({ type: 'OPEN_DOWNLOADS_DIR' });
@@ -7980,46 +8277,7 @@
                dlListContainer.appendChild(row);
             });
          }
-         renderDownloadsList();
-
-         function handleDownloadToast(msg) {
-            if (!msg) return;
-            const lower = msg.toLowerCase();
-            if (
-               lower.includes('download') ||
-               lower.includes('saved') ||
-               lower.includes('exported')
-            ) {
-               const match = msg.match(
-                  /(?:Downloading|Saved|Exported)\s+(.+?)(?:\s+to\s+Downloads|$)/i,
-               );
-               const fname = match ? match[1] : 'File';
-               const now = new Date();
-               const timeStr = now.toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-               });
-               const nextStatus = lower.includes('downloading')
-                  ? 'Downloading...'
-                  : 'Completed';
-               const existing = recentDownloads.find((d) => d.name === fname);
-               if (existing) {
-                  existing.time = timeStr;
-                  existing.status = nextStatus;
-               } else {
-                  recentDownloads.unshift({
-                     name: fname,
-                     time: timeStr,
-                     status: nextStatus,
-                  });
-                  if (recentDownloads.length > 8) recentDownloads.pop();
-               }
-               btnDownloads.style.display = 'flex';
-               dlBadge.textContent = String(recentDownloads.length);
-               dlBadge.style.display = 'flex';
-               renderDownloadsList();
-            }
-         }
+         syncDownloadsUI();
 
          function toggleMainMenu(anchorBtn) {
             const isOpen = !!activeNavPopoverEl;
@@ -8102,10 +8360,10 @@
          const tmTitle = document.createElement('div');
          tmTitle.className = 'fnx-pop-title';
          tmTitle.appendChild(createIcon('cpu'));
-         tmTitle.appendChild(document.createTextNode('Resource Monitor'));
+         tmTitle.appendChild(document.createTextNode(isZh() ? '内存与资源监视' : 'Resource Monitor'));
          const tmBadge = document.createElement('span');
          tmBadge.className = 'fnx-pop-sub';
-         tmBadge.textContent = 'Single-WebView';
+         tmBadge.textContent = isZh() ? '站点隔离' : 'Site-Isolated';
          tmHeader.appendChild(tmTitle);
          tmHeader.appendChild(tmBadge);
          taskMgrPopoverEl.appendChild(tmHeader);
@@ -8133,20 +8391,22 @@
             return row;
          }
          const tmHostRow = makeStatRow(
-            'Working Set RAM',
+            isZh() ? '总内存 (Host + 渲染)' : 'Total RAM (Host + Tabs)',
             '-- MB',
             '__fynexo_tm_host__',
          );
          const tmCommitRow = makeStatRow(
-            'Commit Memory',
+            isZh() ? '内核 / 子进程提交' : 'Committed / Procs',
             '-- MB',
             '__fynexo_tm_commit__',
          );
          const tmModeRow = makeStatRow(
-            'Renderer Limit',
-            '256 MB cap',
-            '',
-            '#10B981',
+            isZh() ? 'Edge 能效压缩' : 'Efficiency Pool',
+            config.efficiency_mode !== false
+               ? (isZh() ? '已启用' : 'Active')
+               : (isZh() ? '已暂停' : 'Off'),
+            '__fynexo_tm_mode__',
+            config.efficiency_mode !== false ? '#10B981' : 'var(--fnx-muted)',
          );
          tmStatsWrap.appendChild(tmHostRow);
          tmStatsWrap.appendChild(tmCommitRow);
@@ -8159,33 +8419,37 @@
          const cacheTitle = document.createElement('div');
          cacheTitle.className = 'fnx-pop-sub';
          cacheTitle.style.fontSize = '11.5px';
-         cacheTitle.textContent = 'Tab cache & freeze';
+         cacheTitle.textContent = isZh() ? '后台标签缓存上限' : 'Cached tab limit';
          cacheWrap.appendChild(cacheTitle);
          const cacheBtnRow = document.createElement('div');
          cacheBtnRow.className = 'fnx-pop-seg';
-         cacheBtnRow.style.gridTemplateColumns = 'repeat(3, 1fr)';
-         const cacheOptions = [
-            { id: 'eco', label: 'Eco (2)' },
-            {
-               id: 'balanced',
-               label: isMobilePlatform() ? 'Balanced (2)' : 'Balanced (3)',
-            },
-            {
-               id: 'smooth',
-               label: isMobilePlatform() ? 'Smooth (4)' : 'Smooth (6)',
-            },
-         ];
+         cacheBtnRow.style.gridTemplateColumns = 'repeat(5, 1fr)';
+         const cacheOptions = isMobilePlatform()
+            ? [
+                 { id: 'minimal', label: '1' },
+                 { id: 'eco', label: '2' },
+                 { id: 'balanced', label: '2+' },
+                 { id: 'medium', label: '3' },
+                 { id: 'smooth', label: '4' },
+              ]
+            : [
+                 { id: 'minimal', label: '1' },
+                 { id: 'eco', label: '2' },
+                 { id: 'balanced', label: '3' },
+                 { id: 'medium', label: '5' },
+                 { id: 'smooth', label: '8' },
+              ];
          const cacheBtns = [];
          function syncCacheModeButtons() {
             const cur = String(
                config.tab_cache_mode || 'balanced',
             ).toLowerCase();
+            const known = ['minimal', 'eco', 'balanced', 'medium', 'smooth'];
             for (let i = 0; i < cacheBtns.length; i++) {
                const b = cacheBtns[i];
                const active =
                   b.dataset.mode === cur ||
-                  (!['eco', 'balanced', 'smooth'].includes(cur) &&
-                     b.dataset.mode === 'balanced');
+                  (!known.includes(cur) && b.dataset.mode === 'balanced');
                b.classList.toggle('active', active);
             }
          }
@@ -8198,9 +8462,10 @@
             b.textContent = opt.label;
             b.onclick = () => {
                config.tab_cache_mode = opt.id;
+               config.perf_preset = 'custom';
                syncCacheModeButtons();
-               sendIpc({ type: 'PATCH_HUD_PREFS', tab_cache_mode: opt.id });
-               showHudToast('Tab cache mode: ' + opt.label);
+               sendIpc({ type: 'PATCH_HUD_PREFS', tab_cache_mode: opt.id, perf_preset: 'custom' });
+               showHudToast((isZh() ? '后台缓存上限：' : 'Cached limit: ') + opt.label);
             };
             cacheBtns.push(b);
             cacheBtnRow.appendChild(b);
@@ -8211,13 +8476,22 @@
 
          const tmFooter = document.createElement('div');
          tmFooter.className = 'fnx-pop-footer';
+         const btnPerfSet = document.createElement('button');
+         btnPerfSet.type = 'button';
+         btnPerfSet.className = 'fnx-pop-btn';
+         btnPerfSet.textContent = isZh() ? '性能设置' : 'Performance';
+         btnPerfSet.onclick = () => {
+            closeAllNavPopovers();
+            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-performance' });
+         };
          const btnTrimMem = document.createElement('button');
          btnTrimMem.type = 'button';
          btnTrimMem.className = 'fnx-pop-btn';
-         btnTrimMem.textContent = 'Flush working set';
+         btnTrimMem.textContent = isZh() ? '释放内存' : 'Flush RAM';
          btnTrimMem.onclick = () => {
             sendIpc({ type: 'FORCE_TRIM_MEMORY' });
          };
+         tmFooter.appendChild(btnPerfSet);
          tmFooter.appendChild(btnTrimMem);
          taskMgrPopoverEl.appendChild(tmFooter);
 
@@ -8234,10 +8508,25 @@
             if (!stats) return;
             const h = taskMgrPopoverEl.querySelector('#__fynexo_tm_host__');
             const c = taskMgrPopoverEl.querySelector('#__fynexo_tm_commit__');
-            if (h && stats.host_mb !== undefined)
-               h.textContent = stats.host_mb + ' MB';
-            if (c && stats.commit_mb !== undefined)
-               c.textContent = stats.commit_mb + ' MB';
+            const m = taskMgrPopoverEl.querySelector('#__fynexo_tm_mode__');
+            if (h) {
+               const tot = stats.total_mb !== undefined ? stats.total_mb : stats.host_mb;
+               if (tot !== undefined) {
+                  const winPart = stats.window_count > 1 ? ' (' + stats.window_count + (isZh() ? '窗' : 'w') + ')' : '';
+                  h.textContent = Math.round(tot) + ' MB' + winPart;
+               }
+            }
+            if (c && stats.commit_mb !== undefined) {
+               const tabsPart = stats.live_tabs !== undefined && stats.total_tabs !== undefined
+                  ? ' · ' + stats.live_tabs + '/' + stats.total_tabs + (isZh() ? ' 页' : ' tabs')
+                  : '';
+               c.textContent = Math.round(stats.commit_mb) + ' MB' + tabsPart;
+            }
+            if (m) {
+               const effOn = config.efficiency_mode !== false;
+               m.textContent = effOn ? (isZh() ? '已启用' : 'Active') : (isZh() ? '已暂停' : 'Off');
+               m.style.color = effOn ? '#10B981' : 'var(--fnx-muted)';
+            }
          };
 
          shell.appendChild(taskMgrPopoverEl);
@@ -8250,13 +8539,13 @@
          bmStartBtn.type = 'button';
          bmStartBtn.id = '__fynexo_bm_start__';
          bmStartBtn.className = 'fnx-bm-pill';
-         bmStartBtn.title = 'Open Start page (fynexo://newtab)';
+         bmStartBtn.title = isZh() ? '打开起始页 (fynexo://newtab)' : 'Open Start page (fynexo://newtab)';
          const bmStartIcon = document.createElement('span');
          bmStartIcon.style.cssText =
             'display: inline-flex; align-items: center; color: var(--fnx-secondary);';
          bmStartIcon.appendChild(createIcon('grid'));
          const bmStartText = document.createElement('span');
-         bmStartText.textContent = 'Start';
+         bmStartText.textContent = isZh() ? '起始页' : 'Start';
          bmStartBtn.appendChild(bmStartIcon);
          bmStartBtn.appendChild(bmStartText);
          bmStartBtn.onclick = () => {
@@ -8309,7 +8598,7 @@
          const findInput = document.createElement('input');
          findInput.id = '__fynexo_find_input__';
          findInput.type = 'text';
-         findInput.placeholder = 'Find in page...';
+         findInput.placeholder = isZh() ? '在页面中查找...' : 'Find in page...';
          findInput.spellcheck = false;
          findInput.autocomplete = 'off';
          const findCount = document.createElement('span');
@@ -8319,21 +8608,21 @@
          const btnFindPrev = document.createElement('button');
          btnFindPrev.type = 'button';
          btnFindPrev.className = 'fnx-find-btn';
-         btnFindPrev.title = 'Previous match (Shift+Enter)';
+         btnFindPrev.title = isZh() ? '上一个匹配 (Shift+Enter)' : 'Previous match (Shift+Enter)';
          btnFindPrev.appendChild(createIcon('chevUp'));
          btnFindPrev.onclick = () => stepFindMatch(-1);
 
          const btnFindNext = document.createElement('button');
          btnFindNext.type = 'button';
          btnFindNext.className = 'fnx-find-btn';
-         btnFindNext.title = 'Next match (Enter)';
+         btnFindNext.title = isZh() ? '下一个匹配 (Enter)' : 'Next match (Enter)';
          btnFindNext.appendChild(createIcon('chevDown'));
          btnFindNext.onclick = () => stepFindMatch(1);
 
          const btnFindClose = document.createElement('button');
          btnFindClose.type = 'button';
          btnFindClose.className = 'fnx-find-btn';
-         btnFindClose.title = 'Close (Esc)';
+         btnFindClose.title = isZh() ? '关闭 (Esc)' : 'Close (Esc)';
          btnFindClose.appendChild(createIcon('close'));
          btnFindClose.onclick = () => closeFindBar();
 
@@ -8368,7 +8657,7 @@
             const readerMeta = document.createElement('span');
             readerMeta.id = '__fynexo_reader_meta__';
             readerMeta.className = 'fnx-rd-meta';
-            readerMeta.textContent = 'Reader mode';
+            readerMeta.textContent = isZh() ? '纯净阅读模式' : 'Reader mode';
 
             const readerCtrls = document.createElement('div');
             readerCtrls.className = 'fnx-rd-controls';
@@ -8379,7 +8668,7 @@
             const btnRdSmaller = document.createElement('button');
             btnRdSmaller.type = 'button';
             btnRdSmaller.className = 'fnx-pop-seg-btn';
-            btnRdSmaller.title = 'Decrease font size';
+            btnRdSmaller.title = isZh() ? '缩小字号' : 'Decrease font size';
             btnRdSmaller.textContent = 'A−';
             btnRdSmaller.onclick = () => {
                readerFontPx = Math.max(14, readerFontPx - 2);
@@ -8394,7 +8683,7 @@
             const btnRdLarger = document.createElement('button');
             btnRdLarger.type = 'button';
             btnRdLarger.className = 'fnx-pop-seg-btn';
-            btnRdLarger.title = 'Increase font size';
+            btnRdLarger.title = isZh() ? '放大字号' : 'Increase font size';
             btnRdLarger.textContent = 'A+';
             btnRdLarger.onclick = () => {
                readerFontPx = Math.min(26, readerFontPx + 2);
@@ -8412,8 +8701,8 @@
             btnRdWidth.type = 'button';
             btnRdWidth.id = '__fynexo_reader_width__';
             btnRdWidth.className = 'fnx-pop-seg-btn';
-            btnRdWidth.title = 'Toggle wide column';
-            btnRdWidth.textContent = 'Wide';
+            btnRdWidth.title = isZh() ? '切换宽版/窄版栏宽' : 'Toggle wide column';
+            btnRdWidth.textContent = isZh() ? '宽版' : 'Wide';
             btnRdWidth.onclick = () => {
                readerWide = !readerWide;
                syncReaderTypography();
@@ -8424,7 +8713,7 @@
             btnRdExit.type = 'button';
             btnRdExit.className = 'fnx-rd-btn';
             btnRdExit.appendChild(createIcon('close'));
-            btnRdExit.appendChild(document.createTextNode('Exit Reader'));
+            btnRdExit.appendChild(document.createTextNode(isZh() ? '退出阅读' : 'Exit Reader'));
             btnRdExit.onclick = () => closeReaderMode();
 
             readerCtrls.appendChild(readerSizeSeg);
@@ -10521,13 +10810,13 @@
          histHeader.className = 'fnx-pop-header';
          const histTitle = document.createElement('span');
          histTitle.className = 'fnx-pop-title';
-         histTitle.textContent = 'Browsing History';
+         histTitle.textContent = isZh() ? '浏览历史记录' : 'Browsing History';
          const histCountBadge = document.createElement('span');
          histCountBadge.className = 'fnx-pop-badge';
          const histCloseBtn = document.createElement('button');
          histCloseBtn.type = 'button';
          histCloseBtn.className = 'fnx-sp-close';
-         histCloseBtn.title = 'Close (Esc)';
+         histCloseBtn.title = isZh() ? '关闭 (Esc)' : 'Close (Esc)';
          histCloseBtn.appendChild(createIcon('close'));
          const histHeadRight = document.createElement('div');
          histHeadRight.style.cssText =
@@ -10543,7 +10832,7 @@
          const histSearchInput = document.createElement('input');
          histSearchInput.type = 'text';
          histSearchInput.className = 'fnx-hist-search-input';
-         histSearchInput.placeholder = 'Search visited pages...';
+         histSearchInput.placeholder = isZh() ? '搜索访问过的网页...' : 'Search visited pages...';
          histSearchWrap.appendChild(histSearchInput);
 
          const histList = document.createElement('div');
@@ -10553,7 +10842,7 @@
          histFooter.type = 'button';
          histFooter.className = 'fnx-pop-footer-row';
          const histFooterLabel = document.createElement('span');
-         histFooterLabel.textContent = 'Manage browsing history';
+         histFooterLabel.textContent = isZh() ? '在偏好设置中管理历史记录' : 'Manage browsing history';
          const histFooterArrow = document.createElement('span');
          histFooterArrow.textContent = '→';
          histFooter.appendChild(histFooterLabel);
@@ -10588,16 +10877,17 @@
                     return t.includes(q) || u.includes(q);
                  })
                : allItems;
-            histCountBadge.textContent =
-               filtered.length === 1 ? '1 item' : `${filtered.length} items`;
+            histCountBadge.textContent = isZh()
+               ? `${filtered.length} 条记录`
+               : (filtered.length === 1 ? '1 item' : `${filtered.length} items`);
             histList.textContent = '';
 
             if (filtered.length === 0) {
                const empty = document.createElement('div');
                empty.className = 'fnx-hist-empty';
                empty.textContent = q
-                  ? 'No matching pages found in history.'
-                  : 'No visited pages recorded yet.';
+                  ? (isZh() ? '历史记录中未找到匹配网页。' : 'No matching pages found in history.')
+                  : (isZh() ? '暂无浏览历史记录。' : 'No visited pages recorded yet.');
                histList.appendChild(empty);
                return;
             }
@@ -10629,7 +10919,7 @@
                const bgBtn = document.createElement('button');
                bgBtn.type = 'button';
                bgBtn.className = 'fnx-hist-open-btn';
-               bgBtn.title = 'Open in new tab';
+               bgBtn.title = isZh() ? '在新标签页中打开' : 'Open in new tab';
                bgBtn.appendChild(createIcon('externalLink'));
                bgBtn.onclick = (ev) => {
                   ev.stopPropagation();
@@ -10728,11 +11018,11 @@
          const promptCancelBtn = document.createElement('button');
          promptCancelBtn.type = 'button';
          promptCancelBtn.className = 'fnx-prompt-btn';
-         promptCancelBtn.textContent = 'Cancel';
+         promptCancelBtn.textContent = isZh() ? '取消' : 'Cancel';
          const promptConfirmBtn = document.createElement('button');
          promptConfirmBtn.type = 'button';
          promptConfirmBtn.className = 'fnx-prompt-btn primary';
-         promptConfirmBtn.textContent = 'Confirm';
+         promptConfirmBtn.textContent = isZh() ? '确定' : 'Confirm';
          promptActions.appendChild(promptCancelBtn);
          promptActions.appendChild(promptConfirmBtn);
 
@@ -10941,7 +11231,7 @@
             inp.autocomplete = 'off';
             inp.setAttribute('autocapitalize', 'off');
             inp.setAttribute('enterkeyhint', 'go');
-            inp.placeholder = `Search ${currentEngineObj().name} or enter !bang / URL...`;
+            inp.placeholder = omniboxPlaceholder(currentEngineObj().name);
 
             const btnClear = document.createElement('button');
             btnClear.type = 'button';
@@ -11029,7 +11319,7 @@
                if (next) {
                   config.search_engine = next.id;
                   engBtn.textContent = next.name;
-                  inp.placeholder = `Search ${next.name} or enter !bang / URL...`;
+                  inp.placeholder = omniboxPlaceholder(next.name);
                   updateAddressLabels();
                   sendIpc({
                      type: 'PATCH_HUD_PREFS',
@@ -11081,7 +11371,7 @@
             input.autocomplete = 'off';
             input.setAttribute('autocapitalize', 'off');
             input.setAttribute('enterkeyhint', 'go');
-            input.placeholder = `Search ${currentEngineObj().name} or enter !bang / URL...`;
+            input.placeholder = omniboxPlaceholder(currentEngineObj().name);
             input.style.cssText =
                'flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--fnx-fg); letter-spacing: -0.01em; user-select: auto;';
 
@@ -11157,7 +11447,7 @@
                if (next) {
                   config.search_engine = next.id;
                   engineBadge.textContent = next.name;
-                  input.placeholder = `Search ${next.name} or enter !bang / URL...`;
+                  input.placeholder = omniboxPlaceholder(next.name);
                   updateAddressLabels();
                   sendIpc({
                      type: 'PATCH_HUD_PREFS',
@@ -11417,6 +11707,18 @@
                   e.stopPropagation();
                   triggerProgress();
                   sendIpc({ type: 'REOPEN_CLOSED_TAB' });
+                  return;
+               }
+               if (matchesKeybind(e, keybinds.new_incognito_window || 'Ctrl+Shift+N')) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  sendIpc({ type: 'NEW_WINDOW', incognito: true });
+                  return;
+               }
+               if (matchesKeybind(e, keybinds.new_window || 'Ctrl+N')) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  sendIpc({ type: 'NEW_WINDOW', incognito: false });
                   return;
                }
                if (matchesKeybind(e, keybinds.new_tab)) {

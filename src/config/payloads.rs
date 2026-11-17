@@ -60,6 +60,13 @@ pub struct RuntimePayload {
     pub workspaces: Vec<crate::tabs::WorkspaceSnapshot>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DownloadEntry {
+    pub name: String,
+    pub status: String,
+    pub updated_at: u64,
+}
+
 /// Slim boot payload injected into external webpages (`hud.rs`) so disabled rules, inactive `.json`
 /// themes, filesystem paths, and adblock lists consume 0 bytes and are never exposed to external pages.
 #[derive(Serialize, Clone, Debug)]
@@ -73,6 +80,25 @@ pub struct HudBootPayload<'a> {
     pub history: &'a [HistoryItem],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tabs: Option<&'a crate::tabs::TabState>,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub mode_themes: std::collections::BTreeMap<String, &'a ThemeColors>,
+    #[serde(skip_serializing_if = "<[DownloadEntry]>::is_empty")]
+    pub downloads: &'a [DownloadEntry],
+}
+
+pub fn collect_mode_themes<'a>(
+    config: &AppConfig,
+    themes: &'a [ThemePreset],
+) -> std::collections::BTreeMap<String, &'a ThemeColors> {
+    let mut map = std::collections::BTreeMap::new();
+    for p in &config.mode_profiles {
+        if !p.theme.is_empty() && !map.contains_key(&p.theme) {
+            if let Some(found) = themes.iter().find(|t| t.id == p.theme) {
+                map.insert(p.theme.clone(), &found.colors);
+            }
+        }
+    }
+    map
 }
 
 impl<'a> HudBootPayload<'a> {
@@ -80,6 +106,7 @@ impl<'a> HudBootPayload<'a> {
     pub fn from_runtime(payload: &'a RuntimePayload, tabs: Option<&'a crate::tabs::TabState>) -> Self {
         let history_slice = &payload.history[..payload.history.len().min(25)];
         let enabled_rules: Vec<&SiteRule> = payload.site_rules.iter().filter(|r| r.enabled).collect();
+        let mode_themes = collect_mode_themes(&payload.config, &payload.themes);
         Self {
             config: &payload.config,
             styles: &payload.styles,
@@ -89,6 +116,8 @@ impl<'a> HudBootPayload<'a> {
             bookmarks: &payload.bookmarks,
             history: history_slice,
             tabs,
+            mode_themes,
+            downloads: &[],
         }
     }
 }
@@ -116,5 +145,45 @@ impl<'a> NewTabBootPayload<'a> {
             history: history_slice,
             blocked_ads: payload.blocked_ads,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::app::BrowserModeProfile;
+
+    #[test]
+    fn collect_mode_themes_includes_only_referenced_themes() {
+        let cfg = AppConfig {
+            mode_profiles: vec![BrowserModeProfile {
+                id: "dev".to_string(),
+                theme: "my-custom".to_string(),
+                ..BrowserModeProfile::default()
+            }],
+            ..AppConfig::default()
+        };
+        let themes = vec![
+            ThemePreset {
+                id: "my-custom".to_string(),
+                name: "My Custom".to_string(),
+                author: String::new(),
+                description: String::new(),
+                builtin: false,
+                colors: ThemeColors::default(),
+            },
+            ThemePreset {
+                id: "unused-secret".to_string(),
+                name: "Unused".to_string(),
+                author: String::new(),
+                description: String::new(),
+                builtin: false,
+                colors: ThemeColors::default(),
+            },
+        ];
+        let map = collect_mode_themes(&cfg, &themes);
+        assert!(map.contains_key("my-custom"));
+        assert!(!map.contains_key("unused-secret"));
+        assert_eq!(map.len(), 1);
     }
 }

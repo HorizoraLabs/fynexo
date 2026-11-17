@@ -486,6 +486,73 @@ pub fn apply_windows_user_agent(webview: &wry::WebView, custom_ua: Option<&str>)
 }
 
 #[cfg(target_os = "windows")]
+pub fn apply_windows_autofill(webview: &wry::WebView, enabled: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings4;
+    use windows::core::Interface;
+    use wry::WebViewExtWindows;
+
+    let core_wv = webview.webview();
+    unsafe {
+        if let Ok(settings) = core_wv.Settings() {
+            if let Ok(settings4) = settings.cast::<ICoreWebView2Settings4>() {
+                let _ = settings4.SetIsPasswordAutosaveEnabled(enabled);
+                let _ = settings4.SetIsGeneralAutofillEnabled(enabled);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn attach_windows_resilience(
+    webview: &wry::WebView,
+    incognito: bool,
+    win_id: usize,
+    tab_id: Arc<AtomicUsize>,
+    proxy: tao::event_loop::EventLoopProxy<crate::app::events::UserEvent>,
+) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE,
+    };
+    use webview2_com::ProcessFailedEventHandler;
+    use wry::WebViewExtWindows;
+
+    apply_windows_autofill(webview, !incognito);
+
+    let core_wv = webview.webview();
+    unsafe {
+        let mut token: i64 = 0;
+        let _ = core_wv.add_ProcessFailed(
+            &ProcessFailedEventHandler::create(Box::new(move |_, args| {
+                let tid = tab_id.load(Ordering::Acquire);
+                if tid == 0 {
+                    return Ok(());
+                }
+                let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+                if let Some(a) = args {
+                    let _ = a.ProcessFailedKind(&mut kind);
+                }
+                let unresponsive =
+                    kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE;
+                if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
+                    || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED
+                    || unresponsive
+                {
+                    let _ = proxy.send_event(crate::app::events::UserEvent::RendererCrashed {
+                        win_id,
+                        tab_id: tid,
+                        unresponsive,
+                    });
+                }
+                Ok(())
+            })),
+            &mut token,
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub fn launch_external_scheme_windows(url: &str) -> bool {
     use windows::core::{w, HSTRING};
     use windows::Win32::Foundation::HWND;

@@ -41,6 +41,10 @@ __FNX_SETTINGS_CSS__
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="5.5" cy="4.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="8" r="1.2" fill="currentColor"/><circle cx="6.5" cy="11.5" r="1.2" fill="currentColor"/></svg>
                         <span>Browsing &amp; tabs</span>
                     </button>
+                    <button type="button" class="nav-link" data-sec="sec-performance">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.6 11a5.8 5.8 0 1 1 10.8 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M8 9.2l2.7-2.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="9.6" r="1.1" fill="currentColor"/></svg>
+                        <span>Performance</span>
+                    </button>
                     <button type="button" class="nav-link" data-sec="sec-modes">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.35"/><path d="M9 4.8h4.5M2.5 11.2H7M9 11.2h4.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/><circle cx="11.2" cy="4.8" r="1.3" fill="currentColor"/></svg>
                         <span>Contextual modes</span>
@@ -184,13 +188,27 @@ __FNX_SETTINGS_CSS__
                         </div>
                     </div>
 
-                    <div class="set-row">
+                    <div class="set-row desktop-only-sec">
                         <div class="set-meta">
-                            <div class="set-label">Zero-FX rendering filter</div>
-                            <div class="set-hint">Strips heavy CSS shadows and backdrop blurs on external pages for smooth frame pacing.</div>
+                            <div class="set-label">Window architecture</div>
+                            <div class="set-hint">Multi-window (default) supports independent windows &amp; isolated InPrivate windows; Single-window keeps everything in one window.</div>
                         </div>
                         <div class="set-ctrl">
-                            <button type="button" id="btnPerfToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Zero-FX rendering filter"></button>
+                            <div class="seg-group" id="windowModeGroup">
+                                <button type="button" class="seg-btn active" data-wm="multi">Multi-Window</button>
+                                <button type="button" class="seg-btn" data-wm="single">Single-Window</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="set-row desktop-only-sec">
+                        <div class="set-meta">
+                            <div class="set-label">Downloads folder</div>
+                            <div class="set-hint">Custom directory for saved downloads (leave blank for default system Downloads folder).</div>
+                        </div>
+                        <div class="set-ctrl" style="max-width: 380px; width: 100%;">
+                            <input type="text" id="inputDownloadsDir" class="text-input mono" spellcheck="false" placeholder="Default system Downloads folder" style="flex: 1;">
+                            <button type="button" class="action-btn compact" id="btnResetDownloadsDir">Default</button>
                         </div>
                     </div>
 
@@ -219,7 +237,196 @@ __FNX_SETTINGS_CSS__
                         </div>
                     </div>                </section>
 
-                <!-- 2B. Contextual Modes & Auto-Triggers -->
+                <!-- 2B. Performance & RAM Tuner -->
+                <section class="sec-block" id="sec-performance">
+                    <div class="sec-header">
+                        <div>
+                            <h2 class="sec-title">Performance &amp; RAM</h2>
+                            <p class="sec-desc">Pick a game-style resource preset or fine-tune memory, sleeping tabs, and GPU effects with live RAM estimates.</p>
+                        </div>
+                        <div class="sec-actions">
+                            <button type="button" class="action-btn compact" id="btnPerfRefreshRam">Refresh RAM</button>
+                            <button type="button" class="action-btn compact" id="btnPerfFlushRam">Flush idle RAM</button>
+                        </div>
+                    </div>
+
+                    <div class="perf-ram-hero" id="perfRamHero">
+                        <div class="perf-hero-col">
+                            <div class="perf-hero-kicker">
+                                <span id="lblPerfEstKicker">Estimated Typical RAM Footprint</span>
+                                <span class="perf-preset-tag" id="perfModeBadge">Low · Edge Eco</span>
+                            </div>
+                            <div class="perf-hero-value" id="perfEstRange">~150 – 225 MB</div>
+                            <div class="perf-meter-track"><div class="perf-meter-fill" id="perfEstFill"></div></div>
+                            <div class="perf-hero-sub" id="perfEstDetail">Calculates multi-process browser runtime + cached background tabs + active modules.</div>
+                        </div>
+                        <div class="perf-hero-col live">
+                            <div class="perf-hero-kicker" id="lblPerfLiveKicker">Live Multi-Process Memory</div>
+                            <div class="perf-hero-value" id="perfLiveTotal">-- MB</div>
+                            <div class="perf-hero-sub" id="perfLiveBreakdown">Click "Refresh RAM" or open on Windows to measure host + WebView2 child processes.</div>
+                        </div>
+                    </div>
+
+                    <div class="set-block-head" style="margin-top: 4px;">
+                        <div class="set-label" id="lblPerfPresets">Performance Quality Preset</div>
+                        <span class="set-hint" id="hintPerfPresets">1-click tuning for beginners — like game graphics presets</span>
+                    </div>
+                    <div class="perf-presets-grid" id="perfPresetGrid">
+                        <button type="button" class="perf-preset-card" data-preset="ultra_low">
+                            <div class="perf-preset-head">
+                                <span class="perf-preset-title">Ultra Low</span>
+                                <span class="perf-preset-tag">Battery / 4GB</span>
+                            </div>
+                            <div class="perf-preset-ram">~90 – 130 MB RAM</div>
+                            <div class="perf-preset-desc">Active tab only, 5m sleep, Zero-FX visuals, trims RAM aggressively.</div>
+                        </button>
+                        <button type="button" class="perf-preset-card active" data-preset="low">
+                            <div class="perf-preset-head">
+                                <span class="perf-preset-title">Low (Edge Eco)</span>
+                                <span class="perf-preset-tag">Recommended</span>
+                            </div>
+                            <div class="perf-preset-ram">~135 – 210 MB RAM</div>
+                            <div class="perf-preset-desc">Normal browser experience with Edge-style background memory compression.</div>
+                        </button>
+                        <button type="button" class="perf-preset-card" data-preset="medium">
+                            <div class="perf-preset-head">
+                                <span class="perf-preset-title">Medium</span>
+                                <span class="perf-preset-tag">Balanced</span>
+                            </div>
+                            <div class="perf-preset-ram">~230 – 370 MB RAM</div>
+                            <div class="perf-preset-desc">Keeps up to 5 recent tabs warm in memory, 30m idle sleep.</div>
+                        </button>
+                        <button type="button" class="perf-preset-card" data-preset="high">
+                            <div class="perf-preset-head">
+                                <span class="perf-preset-title">High</span>
+                                <span class="perf-preset-tag">Max Smooth</span>
+                            </div>
+                            <div class="perf-preset-ram">~440 – 720+ MB RAM</div>
+                            <div class="perf-preset-desc">Up to 8 live tabs with 3 hot buffers and auto-sleep disabled.</div>
+                        </button>
+                    </div>
+                    <div class="perf-custom-note" id="perfCustomNote">
+                        <span id="perfCustomNoteText">Custom mix active — you tweaked individual controls below. Click any preset card above to snap back.</span>
+                    </div>
+
+                    <div class="set-group-title" id="grpPerfMem">Memory &amp; Sleeping Tabs</div>
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label"><span>Edge-style Efficiency Mode</span><span class="ext-mem-tag on" id="tagEffRam">Saves ~25–35% BG RAM</span></div>
+                            <div class="set-hint">Cools non-active tabs to Low memory tier (frees bitmaps/textures without reloading).</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnEfficiencyToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Efficiency Mode"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label"><span>Background cached tab limit</span><span class="ext-mem-tag" id="tagCacheRam">+~30 MB / tab</span></div>
+                            <div class="set-hint">How many recent normal tabs stay live behind the scenes for instant switching.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <div class="seg-group" id="perfCacheModeGroup">
+                                <button type="button" class="seg-btn" data-cm="minimal">1</button>
+                                <button type="button" class="seg-btn" data-cm="eco">2</button>
+                                <button type="button" class="seg-btn active" data-cm="balanced">3</button>
+                                <button type="button" class="seg-btn" data-cm="medium">5</button>
+                                <button type="button" class="seg-btn" data-cm="smooth">8</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label"><span>Put idle background tabs to sleep</span><span class="ext-mem-tag" id="tagSleepRam">Reclaims full WebView</span></div>
+                            <div class="set-hint">Automatically sleeps inactive tabs after the chosen idle timeout (reloads when clicked).</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <select id="selTabSleepMinutes" class="select-input" style="width: 156px;">
+                                <option value="5">After 5 minutes</option>
+                                <option value="15">After 15 minutes</option>
+                                <option value="30">After 30 minutes</option>
+                                <option value="60">After 60 minutes</option>
+                                <option value="0">Never sleep</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label"><span>Auto working-set RAM trim</span><span class="ext-mem-tag on" id="tagTrimRam">~10% lighter host</span></div>
+                            <div class="set-hint">Releases unused working-set pages when minimizing windows or putting tabs to sleep.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnAutoTrimToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Auto trim working set"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-group-title" id="grpPerfGpu">Rendering &amp; Hardware</div>
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label"><span>Zero-FX rendering filter</span><span class="ext-mem-tag" id="tagZeroFxRam">Saves GPU / frames</span></div>
+                            <div class="set-hint">Strips heavy CSS shadows and backdrop blurs on external sites (off by default for normal visuals).</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnPerfToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Zero-FX rendering filter"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label"><span>Reduce UI &amp; page animations</span><span class="ext-mem-tag" id="tagAnimRam">Lower compositor load</span></div>
+                            <div class="set-hint">Disables CSS transitions and motion animations across HUD and external web pages.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnReduceAnimToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Reduce animations"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row desktop-only-sec">
+                        <div class="set-meta">
+                            <div class="set-label"><span>GPU hardware acceleration</span><span class="ext-mem-tag" id="tagHwRam">Restart to apply</span></div>
+                            <div class="set-hint">Uses GPU rasterization &amp; zero-copy compositing (disable on low-VRAM laptops to cut GPU memory).</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnHwAccelToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="GPU hardware acceleration"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-group-title" id="grpPerfModules">Features Affecting Memory</div>
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label"><span>Network Adblock Shield</span><span class="ext-mem-tag on" id="tagPerfAdblockRam">Saves ~35–75 MB</span></div>
+                            <div class="set-hint">Intercepting heavy ad scripts and trackers speeds up page load and cuts per-tab RAM.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnPerfAdblockToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Adblock Shield"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label"><span>Built-in opt-in modules &amp; extensions</span><span class="ext-mem-tag" id="tagPerfExtRam">0 MB when off</span></div>
+                            <div class="set-hint" id="hintPerfExtSummary">Active heavy modules add memory per tab; turn off unused ones to stay lean.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" class="action-btn compact" id="btnPerfDisableHeavyExt">Disable heavy</button>
+                            <button type="button" class="action-btn compact" id="btnPerfManageExt">Manage</button>
+                        </div>
+                    </div>
+
+                    <div class="set-row desktop-only-sec" style="border-bottom: none;">
+                        <div class="set-meta">
+                            <div class="set-label"><span>Window architecture mode</span><span class="ext-mem-tag" id="tagPerfWinRam">+80–150 MB / extra win</span></div>
+                            <div class="set-hint" id="hintPerfWinMode">Multi-window (default) supports independent windows; Single-window restricts to one window.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" class="action-btn compact" id="btnPerfToggleWinMode">Multi-Window</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 2C. Contextual Modes & Auto-Triggers -->
                 <section class="sec-block" id="sec-modes">
                     <div class="sec-header">
                         <div>
@@ -296,8 +503,8 @@ __FNX_SETTINGS_CSS__
                             <p class="sec-desc" id="shortcutsHint">Start page &amp; omnibox shortcuts synced to <code>config/shortcuts.json</code>.</p>
                         </div>
                         <div class="sec-actions">
-                            <input type="file" id="fileImportShortcuts" accept="application/json,text/plain" style="display: none;">
-                            <button type="button" class="action-btn" id="btnImportShortcuts">Import .json</button>
+                            <input type="file" id="fileImportShortcuts" accept=".json,.html,.htm,application/json,text/html,text/plain" style="display: none;">
+                            <button type="button" class="action-btn" id="btnImportShortcuts">Import HTML / JSON</button>
                             <button type="button" class="action-btn" id="btnExportShortcuts">Export .json</button>
                             <button type="button" class="action-btn" id="btnResetShortcuts">Reset defaults</button>
                         </div>
@@ -388,6 +595,16 @@ __FNX_SETTINGS_CSS__
 
                     <div class="set-row">
                         <div class="set-meta">
+                            <div class="set-label">Always use HTTPS (HTTPS-First)</div>
+                            <div class="set-hint">Automatically upgrades external http:// addresses to encrypted https:// (local dev hosts stay http://).</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnHttpsFirstToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="HTTPS-First"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
                             <div class="set-label">Private / Incognito mode</div>
                             <div class="set-hint">Pauses browsing history recording and tab session disk persistence.</div>
                         </div>
@@ -407,6 +624,19 @@ __FNX_SETTINGS_CSS__
                             <button type="button" class="action-btn danger" id="btnClearSiteData">Clear cache &amp; cookies</button>
                             <button type="button" class="action-btn desktop-only-inline" id="btnOpenDataDir">Profile folder</button>
                             <button type="button" class="action-btn desktop-only-inline" id="btnOpenDownloadsDir">Downloads</button>
+                        </div>
+                    </div>
+
+                    <div class="set-block" style="border-top: 1px solid var(--fnx-hairline); margin-top: 10px; padding-top: 14px;">
+                        <div class="set-block-head">
+                            <div>
+                                <div class="set-label" id="lblHistoryManager">Browsing History</div>
+                                <div class="set-hint" id="hintHistoryManager">Search visited pages, reopen in a new tab, or remove individual items.</div>
+                            </div>
+                            <input type="text" id="inputHistorySearch" class="text-input" placeholder="Search history..." style="width: 210px; height: 29px; font-size: 12px;">
+                        </div>
+                        <div class="rc-table">
+                            <div class="rc-rows" id="historyTable" style="max-height: 300px; overflow-y: auto;"></div>
                         </div>
                     </div>
                 </section>

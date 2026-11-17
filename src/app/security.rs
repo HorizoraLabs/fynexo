@@ -129,6 +129,8 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
         "BOOT_SYNC"
             | "NAVIGATE"
             | "NEW_TAB"
+            | "NEW_WINDOW"
+            | "DETACH_TAB"
             | "SWITCH_TAB"
             | "TOGGLE_PIN_TAB"
             | "TOGGLE_BACKGROUND_PLAY"

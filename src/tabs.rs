@@ -53,6 +53,7 @@ pub struct TabManager {
     counter: usize,
     closed_tabs: Vec<ClosedTabEntry>,
     incognito: bool,
+    persist_session: bool,
 }
 
 #[inline]
@@ -107,6 +108,7 @@ impl TabManager {
             counter: 1,
             closed_tabs: Vec::new(),
             incognito,
+            persist_session: true,
         }
     }
 
@@ -134,6 +136,7 @@ impl TabManager {
                                 counter: max_id.max(1),
                                 closed_tabs: Vec::new(),
                                 incognito,
+                                persist_session: true,
                             };
                         }
                     }
@@ -149,8 +152,16 @@ impl TabManager {
         self.incognito = incognito;
     }
 
+    pub fn is_incognito(&self) -> bool {
+        self.incognito
+    }
+
+    pub fn set_persist_session(&mut self, persist: bool) {
+        self.persist_session = persist;
+    }
+
     pub fn save(&self) {
-        if self.incognito {
+        if self.incognito || !self.persist_session {
             return;
         }
         let state = self.get_state();

@@ -102,8 +102,23 @@ pub fn downloads_dir() -> PathBuf {
     dir
 }
 
+pub fn resolved_downloads_dir(custom: &str) -> PathBuf {
+    let trimmed = custom.trim();
+    if !trimmed.is_empty() {
+        let p = PathBuf::from(trimmed);
+        if (p.is_dir() || fs::create_dir_all(&p).is_ok()) && p.is_absolute() {
+            return p;
+        }
+    }
+    downloads_dir()
+}
+
 pub fn unique_download_path(suggested_filename: &str) -> PathBuf {
-    let base_dir = downloads_dir();
+    unique_download_path_in(&downloads_dir(), suggested_filename)
+}
+
+pub fn unique_download_path_in(base_dir: &Path, suggested_filename: &str) -> PathBuf {
+    let _ = fs::create_dir_all(base_dir);
     let raw_name = Path::new(suggested_filename)
         .file_name()
         .and_then(|n| n.to_str())
@@ -373,5 +388,13 @@ mod tests {
         let name = p.file_name().unwrap().to_string_lossy().to_string();
         assert!(!name.contains(['<', '>', ':', '?', '\\', '/']));
         assert!(unique_download_path("").file_name().is_some());
+        assert_eq!(resolved_downloads_dir(""), downloads_dir());
+        assert_eq!(resolved_downloads_dir("relative/path"), downloads_dir());
+        let custom_root = std::env::temp_dir().join("fynexo_dl_test");
+        let chosen = resolved_downloads_dir(&custom_root.to_string_lossy());
+        assert_eq!(chosen, custom_root);
+        let in_custom = unique_download_path_in(&chosen, "hello.zip");
+        assert!(in_custom.starts_with(&chosen));
+        let _ = fs::remove_dir_all(&custom_root);
     }
 }

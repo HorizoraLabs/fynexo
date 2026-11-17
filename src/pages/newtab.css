@@ -450,6 +450,56 @@
             gap: 6px;
             margin-top: 10px;
         }
+        .nt-tips-card {
+            margin-top: 12px;
+            padding: 9px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--nt-hairline);
+            background: var(--nt-surface);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .nt-tips-body {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            font-size: 11.5px;
+            color: var(--nt-dim);
+            flex: 1;
+            min-width: 220px;
+        }
+        .nt-tips-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .nt-tips-kbd {
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 10.5px;
+            padding: 1px 5px;
+            border-radius: 4px;
+            border: 1px solid var(--nt-hairline-hover);
+            color: var(--nt-fg);
+            background: color-mix(in srgb, var(--nt-fg) 4%, transparent);
+        }
+        .nt-tips-dismiss {
+            border: 1px solid var(--nt-hairline-hover);
+            background: transparent;
+            color: var(--nt-dim);
+            border-radius: 7px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .nt-tips-dismiss:hover {
+            color: var(--nt-fg);
+            border-color: var(--nt-accent);
+        }
         .nt-bang-chip {
             border: 1px solid var(--nt-hairline);
             background: color-mix(in srgb, var(--nt-surface) 84%, transparent);

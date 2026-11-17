@@ -2,6 +2,8 @@
         const KEYBIND_DEFS = [
             ['omnibox', 'Open omnibox & quick bar', 'Focus address bar from anywhere', '打开地址栏与快速搜索框', '在任意页面随时输入网址或搜索'],
             ['new_tab', 'Open new tab', 'Launch a fresh Start Page tab', '新建标签页', '打开一个全新的起始页'],
+            ['new_window', 'Open new window', 'Launch an independent browser window (Multi-Window mode)', '新建浏览窗口', '在多窗口模式下新开一个独立窗口'],
+            ['new_incognito_window', 'New InPrivate window', 'Open an isolated Private window alongside normal windows', '新建独立无痕窗口', '开启隔离隐私会话的新窗口'],
             ['close_tab', 'Close active tab', 'Close current tab or return home', '关闭当前标签页', '关闭正在浏览的网页'],
             ['reopen_closed_tab', 'Reopen closed tab', 'Restore the most recently closed tab', '恢复刚关闭的标签页', '不小心关错网页时一键找回'],
             ['next_tab', 'Cycle open tabs', 'Switch sequentially to the next tab', '切换到下一个标签页', '顺时针切换已打开的标签页'],
@@ -48,16 +50,23 @@
         const boot = __FNX_BOOT_JSON__ || {};
         let config = Object.assign({
             theme: 'dark',
-            enforce_perf: true,
+            enforce_perf: false,
             adblock: true,
             restore_session: true,
             force_dark: false,
             incognito: false,
+            window_mode: 'multi',
             language: 'zh',
             default_zoom: 1.0,
             user_agent_mode: 'default',
             custom_user_agent: '',
             tab_cache_mode: 'balanced',
+            perf_preset: 'low',
+            efficiency_mode: true,
+            auto_trim_ram: true,
+            tab_sleep_minutes: 15,
+            hw_accel: true,
+            reduce_animations: false,
             ext_side_panel: false,
             ext_reader_mode: false,
             ext_yt_ad_skipper: false,
@@ -94,7 +103,8 @@
         }
         let rustBlockedAds = Number(boot.blocked_ads) || 0;
         let blockedAds = resolveTotalBlockedAds(rustBlockedAds);
-        let historyCount = Array.isArray(boot.history) ? boot.history.length : 0;
+        let historyEntries = Array.isArray(boot.history) ? boot.history : [];
+        let historyCount = historyEntries.length;
 
         let editingRuleId = null;
         let recordingActionKey = null;
@@ -1531,10 +1541,13 @@
                         nameZh: '多标签后台流畅保活',
                         mem: 'Smooth RAM Pool',
                         memZh: '后台保活',
-                        desc: 'Keeps up to 6 background tabs warm in memory instead of discarding idle WebViews.',
-                        descZh: '允许最多 6 个常用标签页留在后台保持运行（内存较充裕的电脑开启后切标签瞬间响应）。',
+                        desc: 'Keeps up to 8 background tabs warm in memory instead of discarding idle WebViews.',
+                        descZh: '允许最多 8 个常用标签页留在后台保持运行（内存较充裕的电脑开启后切标签瞬间响应）。',
                         get: () => (config.tab_cache_mode || 'balanced').toLowerCase() === 'smooth',
-                        set: (next) => { config.tab_cache_mode = next ? 'smooth' : 'balanced'; }
+                        set: (next) => {
+                            config.tab_cache_mode = next ? 'smooth' : 'balanced';
+                            config.perf_preset = 'custom';
+                        }
                     }
                 ]
             }
@@ -1815,8 +1828,16 @@
                 navEn: 'Browsing & tabs',
                 titleZh: '浏览与基础习惯',
                 titleEn: 'Browsing & tabs',
-                descZh: '设置新标签页打开地址、网页默认大小、设备伪装，以及重启是否恢复网页。',
-                descEn: 'Homepage, User-Agent spoofing, page zoom, Zero-FX rendering, and session restore.'
+                descZh: '设置新标签页打开地址、网页默认大小、窗口架构，以及重启是否恢复网页。',
+                descEn: 'Homepage, User-Agent spoofing, page zoom, window architecture, and session restore.'
+            },
+            'sec-performance': {
+                navZh: '性能与内存',
+                navEn: 'Performance',
+                titleZh: '性能调优与内存管理',
+                titleEn: 'Performance & RAM',
+                descZh: '像游戏画质一样一键选择「极低 / 低 / 一般 / 高」，或精细微调每一项耗能参数并实时预览预估 RAM。',
+                descEn: 'Pick a game-style resource preset or fine-tune memory, sleeping tabs, and GPU effects with live RAM estimates.'
             },
             'sec-modes': {
                 navZh: '场景模式与自动切换',
@@ -2263,11 +2284,13 @@
                     return wrap;
                 };
                 const themeOpts = [['', '跟随全局', 'Follow global']];
-                if (typeof BUILTIN_THEME_COLORS !== 'undefined') {
-                    themes.forEach((th) => {
-                        if (th && th.id && BUILTIN_THEME_COLORS[th.id]) themeOpts.push([th.id, th.name || th.id, th.name || th.id]);
-                    });
-                }
+                themes.forEach((th) => {
+                    if (!th || !th.id) return;
+                    const baseName = th.name || th.id;
+                    const labelZh = th.builtin ? baseName : `${baseName}（自定义）`;
+                    const labelEn = th.builtin ? baseName : `${baseName} (Custom)`;
+                    themeOpts.push([th.id, labelZh, labelEn]);
+                });
                 skinRow.appendChild(mkSelect('专属主题', 'Theme', themeOpts, p.theme, (v) => {
                     p.theme = v;
                     saveConfig(zh ? '已更新模式专属主题' : 'Updated mode theme');
@@ -2407,6 +2430,32 @@
                 setPlainRowI18n(row.querySelector('.set-label'), lblZh, lblEn);
                 setPlainRowI18n(row.querySelector('.set-hint'), hintZh, null);
             });
+            [
+                ['btnPerfToggle', 'Zero-FX 渲染过滤', 'Zero-FX rendering filter', '移除外部网页高耗阴影与高斯模糊（默认关闭以保留网页原本光影特效，低配设备可开启）'],
+                ['btnEfficiencyToggle', 'Edge 风格后台能效压缩', 'Edge-style Efficiency Mode', '自动将后台非当前标签降级为低内存水位（释放显存与位图缓存，切回页面无需重载）'],
+                ['perfCacheModeGroup', '后台缓存标签上限', 'Background cached tab limit', '保留多少个近期打开的普通标签在后台秒切；超出后自动回收最久未用的标签'],
+                ['selTabSleepMinutes', '闲置标签自动休眠', 'Put idle background tabs to sleep', '后台标签超过设定时间未操作后自动休眠彻底释放内存（点击标签页时自动唤醒加载）'],
+                ['btnAutoTrimToggle', '闲置工作集自动整理', 'Auto working-set RAM trim', '最小化窗口或休眠标签后自动整理主机工作集内存'],
+                ['btnReduceAnimToggle', '减弱界面与网页动画', 'Reduce UI & page animations', '禁用过渡动画与非必要动效，降低合成器开销与掉帧'],
+                ['btnHwAccelToggle', 'GPU 硬件加速', 'GPU hardware acceleration', '启用显卡光栅化与零拷贝合成以保证视频与滚动流畅（关闭可省独显/集显显存，需重启生效）'],
+                ['btnPerfAdblockToggle', '网络广告与追踪拦截盾', 'Network Adblock Shield', '拦截臃肿广告脚本与追踪器；开启后反而能大幅加快加载并降低每标签 RAM'],
+                ['btnPerfManageExt', '内建功能模块与扩展开销', 'Built-in opt-in modules & extensions', '当前启用的高耗扩展都会增加每页内存，未启用模块为 0 内存占用'],
+                ['btnPerfToggleWinMode', '窗口架构对内存的影响', 'Window architecture mode', '多窗口支持独立进程/无痕隔离（每个额外窗口约 +80~150 MB）；单窗口可控制在单一窗口内'],
+                ['btnHttpsFirstToggle', 'HTTPS 优先安全连接 (HTTPS-First)', 'Always use HTTPS (HTTPS-First)', '访问外部 http:// 网站时自动升级为加密 https://（本地开发域名仍保留 http://）'],
+                ['inputDownloadsDir', '下载文件保存目录', 'Downloads folder', '自定义下载保存目录（留空则使用系统默认“下载”文件夹）'],
+                ['windowModeGroup', '窗口架构模式', 'Window architecture', '多窗口（默认）支持 Ctrl+N 新开独立窗口及隔离无痕窗口；单窗口则全部收口在同一窗口内']
+            ].forEach(([id, lblZh, lblEn, hintZh]) => {
+                const el = document.getElementById(id);
+                const row = el && el.closest('.set-row');
+                if (!row) return;
+                const lblSpan = row.querySelector('.set-label > span:first-child') || row.querySelector('.set-label');
+                setPlainRowI18n(lblSpan, lblZh, lblEn);
+                setPlainRowI18n(row.querySelector('.set-hint'), hintZh, null);
+            });
+            document.querySelectorAll('#windowModeGroup .seg-btn').forEach((b) => {
+                if (b.dataset.wm === 'multi') b.textContent = zh ? '多窗口（默认）' : 'Multi-Window';
+                else if (b.dataset.wm === 'single') b.textContent = zh ? '单窗口' : 'Single-Window';
+            });
 
             setPlainRowI18n(document.getElementById('lblRuleNoCode'), '零代码积木工坊（点击一键填入）', 'No-code building blocks (click to add)');
             setPlainRowI18n(document.getElementById('tagRuleNoCode'), '零代码', 'Zero-code');
@@ -2434,11 +2483,23 @@
             const pathDisplay = document.getElementById('stylesPathDisplay');
             if (pathDisplay) pathDisplay.textContent = stylesPath;
             document.getElementById('dataDirLabel').textContent = dataDir || stylesPath;
+            setPlainRowI18n(document.getElementById('btnImportShortcuts'), '导入 (Chrome HTML / JSON)', 'Import HTML / JSON');
+            setPlainRowI18n(document.getElementById('btnExportShortcuts'), '导出 .json', 'Export .json');
+            setPlainRowI18n(document.getElementById('btnResetShortcuts'), '恢复默认', 'Reset defaults');
             document.getElementById('shortcutsHint').textContent = zh
-                ? `已同步 ${bookmarks.length} 个常用网站卡片（保存在 shortcuts.json）。`
-                : `${bookmarks.length} saved shortcut${bookmarks.length === 1 ? '' : 's'} synced to shortcuts.json.`;
+                ? `已同步 ${bookmarks.length} 个常用网站卡片（支持直接导入 Chrome / Edge / Firefox 导出的书签 HTML 或 JSON）。`
+                : `${bookmarks.length} saved shortcut${bookmarks.length === 1 ? '' : 's'} (supports importing Chrome / Edge / Firefox bookmarks.html or JSON).`;
 
             document.getElementById('inputHomepage').value = config.homepage || 'fynexo://newtab';
+            const inpDlDir = document.getElementById('inputDownloadsDir');
+            const btnResetDlDir = document.getElementById('btnResetDownloadsDir');
+            if (inpDlDir) {
+                if (document.activeElement !== inpDlDir) {
+                    inpDlDir.value = config.downloads_dir || '';
+                }
+                inpDlDir.placeholder = zh ? '系统默认下载文件夹（Downloads）' : 'Default system Downloads folder';
+            }
+            if (btnResetDlDir) btnResetDlDir.textContent = zh ? '恢复默认' : 'Default';
 
             const uaMode = (config.user_agent_mode || 'default').toLowerCase();
             document.querySelectorAll('#uaModeGroup .seg-btn').forEach(b => {
@@ -2451,10 +2512,17 @@
             const zoomPct = Math.round((Number(config.default_zoom) || 1) * 100);
             document.getElementById('btnZoomReset').textContent = `${zoomPct}%`;
 
+            const curWMode = (config.window_mode || 'multi').toLowerCase() === 'single' ? 'single' : 'multi';
+            document.querySelectorAll('#windowModeGroup .seg-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.wm === curWMode);
+            });
+
             setSwitchState('btnIncognitoToggle', !!config.incognito);
+            setSwitchState('btnHttpsFirstToggle', config.https_first !== false);
 
             const perfOn = !!config.enforce_perf;
             setSwitchState('btnPerfToggle', perfOn);
+            syncPerformanceSection();
 
             const adOn = config.adblock !== false;
             setSwitchState('btnAdblockToggle', adOn);
@@ -2665,6 +2733,23 @@
             const val = inputHp.value.trim();
             if (val) { config.homepage = val; saveConfig('Homepage updated'); }
         };
+        const inputDlDir = document.getElementById('inputDownloadsDir');
+        if (inputDlDir) {
+            inputDlDir.onchange = () => {
+                config.downloads_dir = inputDlDir.value.trim();
+                saveConfig(config.downloads_dir
+                    ? (isZh() ? '已更新下载保存目录' : 'Downloads folder updated')
+                    : (isZh() ? '已恢复默认下载目录' : 'Restored default Downloads folder'));
+            };
+        }
+        const btnResetDlDir = document.getElementById('btnResetDownloadsDir');
+        if (btnResetDlDir) {
+            btnResetDlDir.onclick = () => {
+                config.downloads_dir = '';
+                syncFormControls();
+                saveConfig(isZh() ? '已恢复系统默认下载目录' : 'Restored default Downloads folder');
+            };
+        }
         document.querySelectorAll('.preset-chip').forEach(chip => {
             chip.onclick = () => {
                 const hp = chip.dataset.hp;
@@ -2699,15 +2784,411 @@
             document.getElementById('inputScUrl').value = '';
         };
 
+        document.querySelectorAll('#windowModeGroup .seg-btn').forEach(btn => {
+            btn.onclick = () => {
+                config.window_mode = btn.dataset.wm === 'single' ? 'single' : 'multi';
+                syncFormControls();
+                saveConfig(config.window_mode === 'single'
+                    ? (isZh() ? '已切换为单窗口模式' : 'Switched to Single-Window mode')
+                    : (isZh() ? '已切换为多窗口模式（默认）' : 'Switched to Multi-Window mode'));
+            };
+        });
         document.getElementById('btnIncognitoToggle').onclick = () => {
             config.incognito = !config.incognito;
             syncFormControls();
             saveConfig(config.incognito ? 'Private mode active' : 'Private mode off');
         };
+        document.getElementById('btnHttpsFirstToggle').onclick = () => {
+            config.https_first = !(config.https_first !== false);
+            syncFormControls();
+            saveConfig(config.https_first
+                ? (isZh() ? '已开启 HTTPS 优先加密连接' : 'HTTPS-First enabled')
+                : (isZh() ? '已关闭 HTTPS 优先自动升级' : 'HTTPS-First disabled'));
+        };
+        const PERF_PRESET_DEFS = {
+            ultra_low: {
+                titleZh: '极低', titleEn: 'Ultra Low',
+                tagZh: '4GB / 极限省电', tagEn: 'Battery / 4GB',
+                ramZh: '~90 – 130 MB RAM', ramEn: '~90 – 130 MB RAM',
+                descZh: '只留当前活动标签、5 分钟休眠、开启 Zero-FX 与激进内存整理。',
+                descEn: 'Active tab only, 5m sleep, Zero-FX visuals, trims RAM aggressively.'
+            },
+            low: {
+                titleZh: '低（Edge 推荐）', titleEn: 'Low (Edge Eco)',
+                tagZh: '默认推荐', tagEn: 'Recommended',
+                ramZh: '~135 – 210 MB RAM', ramEn: '~135 – 210 MB RAM',
+                descZh: '普通浏览全体验，开启 Edge 同款能效压缩将后台功耗压至极限。',
+                descEn: 'Normal browser experience with Edge-style background memory compression.'
+            },
+            medium: {
+                titleZh: '一般', titleEn: 'Medium',
+                tagZh: '均衡多开', tagEn: 'Balanced',
+                ramZh: '~230 – 370 MB RAM', ramEn: '~230 – 370 MB RAM',
+                descZh: '保留最多 5 个常用网页热切换不重载，30 分钟闲置后自动休眠。',
+                descEn: 'Keeps up to 5 recent tabs warm in memory, 30m idle sleep.'
+            },
+            high: {
+                titleZh: '高（流畅性能）', titleEn: 'High',
+                tagZh: '零冻结全开', tagEn: 'Max Smooth',
+                ramZh: '~440 – 720+ MB RAM', ramEn: '~440 – 720+ MB RAM',
+                descZh: '最多 8 个后台标签与 3 个热缓冲常驻，永不休眠且关闭能效限制。',
+                descEn: 'Up to 8 live tabs with 3 hot buffers and auto-sleep disabled.'
+            }
+        };
+
+        function cacheSlotLimitFor(mode) {
+            switch (String(mode || 'balanced').toLowerCase()) {
+                case 'minimal': return 1;
+                case 'eco': return 2;
+                case 'medium': return 5;
+                case 'smooth': return 8;
+                default: return 3;
+            }
+        }
+
+        function countHeavyExtensions(cfg) {
+            return [
+                cfg.ext_side_panel,
+                cfg.ext_reader_mode,
+                cfg.ext_yt_ad_skipper,
+                cfg.ext_gh_harmonizer,
+                cfg.ext_media_booster
+            ].filter(Boolean).length;
+        }
+
+        function estimateConfigRam(cfg) {
+            const slots = Math.max(0, cacheSlotLimitFor(cfg.tab_cache_mode) - 1);
+            const hw = cfg.hw_accel !== false;
+            const eff = cfg.efficiency_mode !== false;
+            const trim = cfg.auto_trim_ram !== false;
+            const zeroFx = !!cfg.enforce_perf;
+            const adOn = cfg.adblock !== false;
+            const extCount = countHeavyExtensions(cfg);
+
+            const baseMin = hw ? 105 : 90;
+            const baseMax = hw ? 145 : 125;
+            const perTabMin = eff ? 22 : 42;
+            const perTabMax = eff ? 36 : 68;
+            const extOver = extCount * 14;
+            const adPen = adOn ? 0 : 35;
+            const trimBonus = trim ? 0.90 : 1.0;
+            const fxBonus = zeroFx ? 0.92 : 1.0;
+
+            const minMb = Math.round((baseMin + slots * perTabMin + extOver + adPen) * trimBonus * fxBonus);
+            const maxMb = Math.max(minMb + 20, Math.round((baseMax + slots * perTabMax + extOver * 1.6 + adPen * 1.8) * trimBonus * fxBonus));
+            return { minMb, maxMb, extCount };
+        }
+
+        function applyPerfPresetClient(preset) {
+            config.perf_preset = preset;
+            if (preset === 'ultra_low') {
+                config.tab_cache_mode = 'minimal';
+                config.efficiency_mode = true;
+                config.auto_trim_ram = true;
+                config.tab_sleep_minutes = 5;
+                config.enforce_perf = true;
+                config.reduce_animations = true;
+                config.ext_side_panel = false;
+                config.ext_reader_mode = false;
+                config.ext_yt_ad_skipper = false;
+                config.ext_gh_harmonizer = false;
+                config.ext_media_booster = false;
+            } else if (preset === 'low') {
+                config.tab_cache_mode = 'balanced';
+                config.efficiency_mode = true;
+                config.auto_trim_ram = true;
+                config.tab_sleep_minutes = 15;
+                config.enforce_perf = false;
+                config.reduce_animations = false;
+            } else if (preset === 'medium') {
+                config.tab_cache_mode = 'medium';
+                config.efficiency_mode = true;
+                config.auto_trim_ram = false;
+                config.tab_sleep_minutes = 30;
+                config.enforce_perf = false;
+                config.reduce_animations = false;
+            } else if (preset === 'high') {
+                config.tab_cache_mode = 'smooth';
+                config.efficiency_mode = false;
+                config.auto_trim_ram = false;
+                config.tab_sleep_minutes = 0;
+                config.enforce_perf = false;
+                config.reduce_animations = false;
+            }
+        }
+
+        function renderLivePerfTelemetry(stats) {
+            const zh = isZh();
+            const totEl = document.getElementById('perfLiveTotal');
+            const subEl = document.getElementById('perfLiveBreakdown');
+            if (!totEl || !subEl || !stats) return;
+            const total = stats.total_mb !== undefined ? Number(stats.total_mb) : Number(stats.host_mb || 0);
+            if (!total || total <= 0) {
+                totEl.textContent = zh ? '轻量WebView' : 'Mobile WebView';
+                subEl.textContent = (stats.live_tabs !== undefined && stats.total_tabs !== undefined)
+                    ? (zh ? `当前活动缓存标签：${stats.live_tabs} / ${stats.total_tabs}` : `Live cached tabs: ${stats.live_tabs} / ${stats.total_tabs}`)
+                    : (zh ? '系统统一管理移动端内存池。' : 'Managed by system WebView pool.');
+                return;
+            }
+            totEl.textContent = `${Math.round(total)} MB`;
+            const host = Math.round(Number(stats.host_mb || 0));
+            const wv = Math.round(Number(stats.webview_mb || 0));
+            const procs = Number(stats.process_count || 1);
+            const winTxt = stats.window_count > 1
+                ? (zh ? ` · ${stats.window_count} 窗口` : ` · ${stats.window_count} wins`)
+                : '';
+            const tabsTxt = (stats.live_tabs !== undefined && stats.total_tabs !== undefined)
+                ? (zh ? ` · 活跃标签 ${stats.live_tabs}/${stats.total_tabs}` : ` · Tabs ${stats.live_tabs}/${stats.total_tabs}`)
+                : '';
+            subEl.textContent = zh
+                ? `主程序 ${host} MB + 网页多进程 ${wv} MB（共 ${procs} 个进程${winTxt}${tabsTxt}）`
+                : `Host ${host} MB + WebView2 renderers ${wv} MB (${procs} processes${winTxt}${tabsTxt})`;
+        }
+
+        window.__fynexo_on_settings_perf__ = renderLivePerfTelemetry;
+
+        function syncPerformanceSection() {
+            const zh = isZh();
+            const preset = String(config.perf_preset || 'low').toLowerCase();
+            const est = estimateConfigRam(config);
+
+            const estKicker = document.getElementById('lblPerfEstKicker');
+            const liveKicker = document.getElementById('lblPerfLiveKicker');
+            const modeBadge = document.getElementById('perfModeBadge');
+            const estRange = document.getElementById('perfEstRange');
+            const estFill = document.getElementById('perfEstFill');
+            const estDetail = document.getElementById('perfEstDetail');
+            const lblPre = document.getElementById('lblPerfPresets');
+            const hintPre = document.getElementById('hintPerfPresets');
+            const grpMem = document.getElementById('grpPerfMem');
+            const grpGpu = document.getElementById('grpPerfGpu');
+            const grpMod = document.getElementById('grpPerfModules');
+            const btnRef = document.getElementById('btnPerfRefreshRam');
+            const btnFl = document.getElementById('btnPerfFlushRam');
+
+            if (estKicker) estKicker.textContent = zh ? '当前配置预计日常 RAM 占用' : 'Estimated Typical RAM Footprint';
+            if (liveKicker) liveKicker.textContent = zh ? '当前实际多进程内存监测' : 'Live Multi-Process Memory';
+            if (btnRef) btnRef.textContent = zh ? '刷新读数' : 'Refresh RAM';
+            if (btnFl) btnFl.textContent = zh ? '立即释放内存' : 'Flush idle RAM';
+            if (lblPre) lblPre.textContent = zh ? '性能与功耗预设档位（像游戏一样一键选择）' : 'Performance Quality Preset';
+            if (hintPre) hintPre.textContent = zh ? '新手推荐选「低（Edge 能效）」，日常流畅且把消耗压到极限' : '1-click tuning for beginners — like game graphics presets';
+            if (grpMem) grpMem.textContent = zh ? '内存与标签页休眠调度' : 'Memory & Sleeping Tabs';
+            if (grpGpu) grpGpu.textContent = zh ? '渲染特效与显卡硬件' : 'Rendering & Hardware';
+            if (grpMod) grpMod.textContent = zh ? '其他影响内存的功能模块' : 'Features Affecting Memory';
+
+            if (estRange) estRange.textContent = `~${est.minMb} – ${est.maxMb} MB`;
+            const mid = (est.minMb + est.maxMb) / 2;
+            const pct = Math.max(12, Math.min(98, Math.round((mid / 680) * 100)));
+            if (estFill) {
+                estFill.style.width = `${pct}%`;
+                estFill.style.background = mid < 240
+                    ? 'linear-gradient(90deg, #10B981, #34D399)'
+                    : (mid < 420 ? 'linear-gradient(90deg, #38BDF8, #F59E0B)' : 'linear-gradient(90deg, #F59E0B, #FB7185)');
+            }
+            if (modeBadge) {
+                const badgeMap = {
+                    ultra_low: zh ? '极低功耗' : 'Ultra Low',
+                    low: zh ? '低 · Edge 推荐' : 'Low · Edge Eco',
+                    medium: zh ? '一般均衡' : 'Medium',
+                    high: zh ? '高流畅度' : 'High Smooth',
+                    custom: zh ? '自定义调校' : 'Custom Mix'
+                };
+                modeBadge.textContent = badgeMap[preset] || badgeMap.low;
+            }
+            if (estDetail) {
+                const chromeBaseline = 560;
+                const savedPct = Math.max(0, Math.round(((chromeBaseline - mid) / chromeBaseline) * 100));
+                const slots = cacheSlotLimitFor(config.tab_cache_mode);
+                estDetail.textContent = zh
+                    ? `包含多进程内核 + 最多 ${slots} 个后台热标签（已开 ${est.extCount} 个重扩展）${savedPct > 10 ? ` · 相比常规多开约省 ${savedPct}% RAM` : ''}`
+                    : `Includes WebView2 multi-process + up to ${slots} live tab slots (${est.extCount} heavy ext on)${savedPct > 10 ? ` · ~${savedPct}% lighter than unthrottled Chrome` : ''}`;
+            }
+
+            document.querySelectorAll('#perfPresetGrid .perf-preset-card').forEach((card) => {
+                const p = card.dataset.preset;
+                const def = PERF_PRESET_DEFS[p];
+                card.classList.toggle('active', p === preset);
+                if (def) {
+                    const t = card.querySelector('.perf-preset-title');
+                    const g = card.querySelector('.perf-preset-tag');
+                    const r = card.querySelector('.perf-preset-ram');
+                    const d = card.querySelector('.perf-preset-desc');
+                    if (t) t.textContent = zh ? def.titleZh : def.titleEn;
+                    if (g) g.textContent = zh ? def.tagZh : def.tagEn;
+                    if (r) r.textContent = zh ? def.ramZh : def.ramEn;
+                    if (d) d.textContent = zh ? def.descZh : def.descEn;
+                }
+            });
+
+            const customNote = document.getElementById('perfCustomNote');
+            const customNoteTxt = document.getElementById('perfCustomNoteText');
+            if (customNote) customNote.classList.toggle('visible', preset === 'custom');
+            if (customNoteTxt) {
+                customNoteTxt.textContent = zh
+                    ? '当前为「自定义调校」：你已手动微调下方单项开关；点击上方任意预设卡片可随时一键归位。'
+                    : 'Custom mix active — you tweaked individual controls below. Click any preset card above to snap back.';
+            }
+
+            const effOn = config.efficiency_mode !== false;
+            setSwitchState('btnEfficiencyToggle', effOn);
+            setSwitchState('btnAutoTrimToggle', config.auto_trim_ram !== false);
+            setSwitchState('btnReduceAnimToggle', !!config.reduce_animations);
+            setSwitchState('btnHwAccelToggle', config.hw_accel !== false);
+            setSwitchState('btnPerfAdblockToggle', config.adblock !== false);
+
+            const curCm = String(config.tab_cache_mode || 'balanced').toLowerCase();
+            document.querySelectorAll('#perfCacheModeGroup .seg-btn').forEach((b) => {
+                b.classList.toggle('active', b.dataset.cm === curCm);
+            });
+
+            const sleepSel = document.getElementById('selTabSleepMinutes');
+            if (sleepSel) {
+                const curSleep = String(config.tab_sleep_minutes !== undefined ? config.tab_sleep_minutes : 15);
+                if ([...sleepSel.options].some((o) => o.value === curSleep)) sleepSel.value = curSleep;
+                const optMapZh = { '5': '5 分钟后休眠', '15': '15 分钟后休眠 (推荐)', '30': '30 分钟后休眠', '60': '60 分钟后休眠', '0': '永不自动休眠' };
+                const optMapEn = { '5': 'After 5 minutes', '15': 'After 15 minutes (Default)', '30': 'After 30 minutes', '60': 'After 60 minutes', '0': 'Never sleep' };
+                Array.from(sleepSel.options).forEach((o) => {
+                    o.textContent = zh ? (optMapZh[o.value] || o.value) : (optMapEn[o.value] || o.value);
+                });
+            }
+
+            const setTag = (id, zhTxt, enTxt, on) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.textContent = zh ? zhTxt : enTxt;
+                el.classList.toggle('on', !!on);
+            };
+            setTag('tagEffRam', effOn ? '可省 ~25–35% 后台 RAM' : '未压缩后台内存', effOn ? 'Saves ~25–35% BG RAM' : 'Unthrottled BG RAM', effOn);
+            setTag('tagCacheRam', `${cacheSlotLimitFor(curCm)} 个标签 (每页 +~30 MB)`, `${cacheSlotLimitFor(curCm)} tabs (+~30 MB each)`, cacheSlotLimitFor(curCm) <= 3);
+            const slVal = Number(config.tab_sleep_minutes !== undefined ? config.tab_sleep_minutes : 15);
+            setTag('tagSleepRam', slVal > 0 ? `${slVal}m 自动休眠回收` : '休眠已关闭', slVal > 0 ? `${slVal}m auto-reclaim` : 'Sleep disabled', slVal > 0);
+            setTag('tagTrimRam', config.auto_trim_ram !== false ? '约降 ~10% 工作集' : '不自动整理', config.auto_trim_ram !== false ? '~10% lighter host' : 'Manual only', config.auto_trim_ram !== false);
+            setTag('tagZeroFxRam', config.enforce_perf ? '已开启 · 省 GPU' : '保留原画质特效', config.enforce_perf ? 'Active · Saves GPU' : 'Full Web FX', !!config.enforce_perf);
+            setTag('tagAnimRam', config.reduce_animations ? '动画已精简' : '完整流畅动效', config.reduce_animations ? 'Reduced motion' : 'Full transitions', !!config.reduce_animations);
+            setTag('tagHwRam', config.hw_accel !== false ? 'GPU 加速中 · 改后重启' : '低显存软件模式 · 改后重启', config.hw_accel !== false ? 'GPU On · Restart on change' : 'Low VRAM · Restart on change', config.hw_accel !== false);
+            setTag('tagPerfAdblockRam', config.adblock !== false ? '已省 ~35–75 MB 广告' : '未拦截广告 (+~50 MB)', config.adblock !== false ? 'Saves ~35–75 MB' : '+~50 MB ad scripts', config.adblock !== false);
+            setTag('tagPerfExtRam', est.extCount > 0 ? `已开 ${est.extCount} 个 (+~${est.extCount * 18} MB)` : '全部关闭 · 0 MB', est.extCount > 0 ? `${est.extCount} active (+~${est.extCount * 18} MB)` : '0 MB when off', est.extCount === 0);
+
+            const hintExt = document.getElementById('hintPerfExtSummary');
+            if (hintExt) {
+                hintExt.textContent = zh
+                    ? (est.extCount > 0 ? `当前开启了 ${est.extCount} 个耗能内建模块（分屏/阅读/视频跳广告等），平时不用建议关掉。` : '所有高耗能内建扩展均已关闭，处于零内存占用状态。')
+                    : (est.extCount > 0 ? `${est.extCount} optional module(s) active; disable unused ones to save per-tab RAM.` : 'All heavy optional modules are off (0 extra RAM).');
+            }
+            const btnDisExt = document.getElementById('btnPerfDisableHeavyExt');
+            const btnManExt = document.getElementById('btnPerfManageExt');
+            if (btnDisExt) {
+                btnDisExt.textContent = zh ? '关闭重负载扩展' : 'Disable heavy';
+                btnDisExt.disabled = est.extCount === 0;
+            }
+            if (btnManExt) btnManExt.textContent = zh ? '前往管理' : 'Manage';
+
+            const isSingle = String(config.window_mode || 'multi').toLowerCase() === 'single';
+            setTag('tagPerfWinRam', isSingle ? '单窗口更省内存' : '多窗口 (+80~150 MB/新窗)', isSingle ? 'Single window (leaner)' : '+80–150 MB / extra win', isSingle);
+            const btnWin = document.getElementById('btnPerfToggleWinMode');
+            if (btnWin) btnWin.textContent = isSingle ? (zh ? '单窗口' : 'Single-Window') : (zh ? '多窗口（默认）' : 'Multi-Window');
+        }
+
+        document.querySelectorAll('#perfPresetGrid .perf-preset-card').forEach((card) => {
+            card.onclick = () => {
+                const preset = card.dataset.preset;
+                if (!preset) return;
+                applyPerfPresetClient(preset);
+                renderAllSections();
+                const def = PERF_PRESET_DEFS[preset];
+                const label = def ? (isZh() ? def.titleZh : def.titleEn) : preset;
+                saveConfig(isZh() ? `已切换性能预设：${label}` : `Applied preset: ${label}`);
+            };
+        });
+        const btnPerfRefresh = document.getElementById('btnPerfRefreshRam');
+        if (btnPerfRefresh) {
+            btnPerfRefresh.onclick = () => {
+                sendIpc({ type: 'GET_RESOURCE_USAGE' });
+                showToast(isZh() ? '正在刷新实时内存读数…' : 'Refreshing live RAM metrics...');
+            };
+        }
+        const btnPerfFlush = document.getElementById('btnPerfFlushRam');
+        if (btnPerfFlush) {
+            btnPerfFlush.onclick = () => sendIpc({ type: 'FORCE_TRIM_MEMORY' });
+        }
+        document.getElementById('btnEfficiencyToggle').onclick = () => {
+            config.efficiency_mode = !(config.efficiency_mode !== false);
+            config.perf_preset = 'custom';
+            syncFormControls();
+            saveConfig(config.efficiency_mode
+                ? (isZh() ? '已开启 Edge 能效后台压缩' : 'Efficiency Mode enabled')
+                : (isZh() ? '已关闭后台内存压缩' : 'Efficiency Mode disabled'));
+        };
+        document.querySelectorAll('#perfCacheModeGroup .seg-btn').forEach((b) => {
+            b.onclick = () => {
+                config.tab_cache_mode = b.dataset.cm || 'balanced';
+                config.perf_preset = 'custom';
+                syncFormControls();
+                saveConfig(isZh() ? `后台标签缓存上限已调整为 ${b.textContent}` : `Cached tab limit set to ${b.textContent}`);
+            };
+        });
+        document.getElementById('selTabSleepMinutes').onchange = (e) => {
+            config.tab_sleep_minutes = Math.max(0, Math.min(240, Number(e.target.value) || 0));
+            config.perf_preset = 'custom';
+            syncFormControls();
+            saveConfig(config.tab_sleep_minutes > 0
+                ? (isZh() ? `闲置 ${config.tab_sleep_minutes} 分钟后自动休眠标签` : `Auto-sleep set to ${config.tab_sleep_minutes}m`)
+                : (isZh() ? '已关闭标签自动休眠' : 'Tab auto-sleep disabled'));
+        };
+        document.getElementById('btnAutoTrimToggle').onclick = () => {
+            config.auto_trim_ram = !(config.auto_trim_ram !== false);
+            config.perf_preset = 'custom';
+            syncFormControls();
+            saveConfig(config.auto_trim_ram
+                ? (isZh() ? '已开启自动工作集整理' : 'Auto working-set trim enabled')
+                : (isZh() ? '已关闭自动工作集整理' : 'Auto working-set trim disabled'));
+        };
         document.getElementById('btnPerfToggle').onclick = () => {
             config.enforce_perf = !config.enforce_perf;
+            config.perf_preset = 'custom';
             syncFormControls();
-            saveConfig(config.enforce_perf ? 'Zero-FX filter enabled' : 'Zero-FX filter disabled');
+            saveConfig(config.enforce_perf
+                ? (isZh() ? '已开启 Zero-FX 渲染过滤' : 'Zero-FX filter enabled')
+                : (isZh() ? '已关闭 Zero-FX（恢复原网页特效）' : 'Zero-FX filter disabled'));
+        };
+        document.getElementById('btnReduceAnimToggle').onclick = () => {
+            config.reduce_animations = !config.reduce_animations;
+            config.perf_preset = 'custom';
+            syncFormControls();
+            saveConfig(config.reduce_animations
+                ? (isZh() ? '已减弱界面与网页动画' : 'Reduced animations enabled')
+                : (isZh() ? '已恢复完整动画效果' : 'Full animations restored'));
+        };
+        document.getElementById('btnHwAccelToggle').onclick = () => {
+            config.hw_accel = !(config.hw_accel !== false);
+            syncFormControls();
+            saveConfig(isZh()
+                ? (config.hw_accel ? 'GPU 硬件加速已开启（重启浏览器后生效）' : 'GPU 硬件加速已关闭（重启浏览器后生效）')
+                : (config.hw_accel ? 'Hardware acceleration enabled (restart to apply)' : 'Hardware acceleration disabled (restart to apply)'));
+        };
+        document.getElementById('btnPerfAdblockToggle').onclick = () => {
+            config.adblock = !(config.adblock !== false);
+            syncFormControls();
+            saveConfig(config.adblock ? 'Network adblock enabled' : 'Network adblock paused');
+        };
+        document.getElementById('btnPerfDisableHeavyExt').onclick = () => {
+            config.ext_side_panel = false;
+            config.ext_reader_mode = false;
+            config.ext_yt_ad_skipper = false;
+            config.ext_gh_harmonizer = false;
+            config.ext_media_booster = false;
+            renderAllSections();
+            saveConfig(isZh() ? '已一键关闭所有高耗内建扩展' : 'Disabled all heavy built-in modules');
+        };
+        document.getElementById('btnPerfManageExt').onclick = () => {
+            switchSettingsView('sec-extensions', true);
+        };
+        document.getElementById('btnPerfToggleWinMode').onclick = () => {
+            config.window_mode = String(config.window_mode || 'multi').toLowerCase() === 'single' ? 'multi' : 'single';
+            syncFormControls();
+            saveConfig(config.window_mode === 'single'
+                ? (isZh() ? '已切换为单窗口模式' : 'Switched to Single-Window mode')
+                : (isZh() ? '已切换为多窗口模式（默认）' : 'Switched to Multi-Window mode'));
         };
         document.getElementById('btnRestoreToggle').onclick = () => {
             config.restore_session = !(config.restore_session !== false);
@@ -2717,7 +3198,9 @@
 
         document.getElementById('btnClearHistory').onclick = () => {
             sendIpc({ type: 'CLEAR_HISTORY' });
+            historyEntries = [];
             historyCount = 0;
+            renderHistoryTable();
             syncFormControls();
         };
         document.getElementById('btnClearSiteData').onclick = () => { sendIpc({ type: 'CLEAR_SITE_DATA' }); };
@@ -3315,6 +3798,9 @@
                 } catch (_) {}
             }
             window.scrollTo(0, 0);
+            if (target.id === 'sec-performance') {
+                sendIpc({ type: 'GET_RESOURCE_USAGE' });
+            }
             if (updateHash && history && history.replaceState) {
                 history.replaceState(null, '', '#' + target.id);
             }
@@ -3422,7 +3908,9 @@
                 ext_userscript_engine: true,
                 ext_mouse_gestures: true,
                 dev_drawer_access: true,
-                fps_hud: false
+                fps_hud: false,
+                theme: '',
+                layout: ''
             });
             renderModeProfilesSection();
             saveConfig(zh ? '已新建自定义场景模式' : 'Created new mode profile');
@@ -3436,15 +3924,45 @@
         };
 
         let workspaces = Array.isArray(boot.workspaces) ? boot.workspaces : [];
+        function formatWorkspaceTime(tsSec) {
+            const sec = Number(tsSec) || 0;
+            if (!sec) return '';
+            const zh = isZh();
+            const diff = Math.max(0, Math.floor(Date.now() / 1000) - sec);
+            if (diff < 60) return zh ? '刚刚保存' : 'just now';
+            if (diff < 3600) {
+                const m = Math.floor(diff / 60);
+                return zh ? `${m} 分钟前` : `${m}m ago`;
+            }
+            if (diff < 86400) {
+                const h = Math.floor(diff / 3600);
+                return zh ? `${h} 小时前` : `${h}h ago`;
+            }
+            const d = new Date(sec * 1000);
+            return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        }
+        function syncSaveWorkspaceBtn() {
+            const saveBtn = document.getElementById('btnSaveWorkspace');
+            const inp = document.getElementById('inputWsName');
+            if (!saveBtn || !inp) return;
+            const zh = isZh();
+            const typed = inp.value.trim();
+            const willOverwrite = !!typed && workspaces.some((w) => w && w.name === typed);
+            saveBtn.textContent = willOverwrite
+                ? (zh ? '覆盖已有快照' : 'Overwrite snapshot')
+                : (zh ? '保存当前标签页' : 'Save current tabs');
+            saveBtn.style.borderColor = willOverwrite ? 'var(--fnx-accent)' : '';
+            saveBtn.style.color = willOverwrite ? 'var(--fnx-accent)' : '';
+        }
         function renderWorkspacesTable() {
             const zh = isZh();
             const box = document.getElementById('workspacesTable');
             if (!box) return;
             setPlainRowI18n(document.getElementById('lblWorkspaces'), '标签页工作区快照', 'Workspace snapshots');
-            setPlainRowI18n(document.getElementById('hintWorkspaces'), '把当前所有标签页保存为命名快照，随时一键恢复（例如“工作”“学习”）。', 'Save all open tabs as a named snapshot and restore it anytime.');
-            setPlainRowI18n(document.getElementById('btnSaveWorkspace'), '保存当前标签页', 'Save current tabs');
+            setPlainRowI18n(document.getElementById('hintWorkspaces'), '把当前所有标签页保存为命名快照，随时一键恢复；使用同名保存会覆盖更新旧快照。', 'Save all open tabs as a named snapshot and restore anytime (same name overwrites).');
             const inp = document.getElementById('inputWsName');
             if (inp) inp.placeholder = zh ? '快照名称…' : 'Snapshot name...';
+            syncSaveWorkspaceBtn();
             box.textContent = '';
             if (!workspaces.length) {
                 const empty = document.createElement('div');
@@ -3462,7 +3980,11 @@
                 nm.className = 'rc-cell';
                 nm.style.flex = '1';
                 const count = Array.isArray(w.tabs) ? w.tabs.length : 0;
-                nm.textContent = w.name + '  ·  ' + count + (zh ? ' 个标签页' : ' tabs');
+                const tsLabel = formatWorkspaceTime(w.updated_at);
+                nm.textContent = w.name + '  ·  ' + count + (zh ? ' 个标签页' : ' tabs') + (tsLabel ? '  ·  ' + tsLabel : '');
+                if (w.updated_at) {
+                    nm.title = new Date(w.updated_at * 1000).toLocaleString();
+                }
                 const restore = document.createElement('button');
                 restore.type = 'button';
                 restore.className = 'action-btn compact';
@@ -3488,12 +4010,96 @@
                 if (!name) return;
                 sendIpc({ type: 'SAVE_WORKSPACE', name: name });
                 inp.value = '';
+                syncSaveWorkspaceBtn();
             };
             saveBtn.onclick = doSave;
+            inp.addEventListener('input', syncSaveWorkspaceBtn);
             inp.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); doSave(); } };
         })();
+        function renderHistoryTable() {
+            const zh = isZh();
+            const box = document.getElementById('historyTable');
+            if (!box) return;
+            setPlainRowI18n(document.getElementById('lblHistoryManager'), '浏览历史管理', 'Browsing History');
+            setPlainRowI18n(document.getElementById('hintHistoryManager'), '支持按标题或网址搜索历史记录、在新标签中打开，或单独删除某一条。', 'Search visited pages, reopen in a new tab, or remove individual items.');
+            const inp = document.getElementById('inputHistorySearch');
+            if (inp) inp.placeholder = zh ? '搜索历史记录（标题或网址）…' : 'Search history...';
+            const q = String(inp ? inp.value : '').trim().toLowerCase();
+            box.textContent = '';
+
+            const filtered = historyEntries.filter((h) => {
+                if (!h || !h.url) return false;
+                if (!q) return true;
+                return String(h.title || '').toLowerCase().includes(q) || String(h.url || '').toLowerCase().includes(q);
+            });
+            if (!filtered.length) {
+                const empty = document.createElement('div');
+                empty.className = 'set-hint';
+                empty.style.padding = '12px';
+                empty.textContent = q
+                    ? (zh ? '没有匹配的历史记录' : 'No matching history entries')
+                    : (zh ? '暂无浏览历史记录' : 'No browsing history recorded yet');
+                box.appendChild(empty);
+                return;
+            }
+            const frag = document.createDocumentFragment();
+            filtered.slice(0, 120).forEach((item) => {
+                const row = document.createElement('div');
+                row.className = 'rc-row';
+                const mid = document.createElement('div');
+                mid.className = 'rc-mid';
+                const titleEl = document.createElement('span');
+                titleEl.className = 'rc-name';
+                titleEl.textContent = item.title || item.url;
+                const urlEl = document.createElement('span');
+                urlEl.className = 'rc-url mono';
+                urlEl.textContent = item.url;
+                mid.appendChild(titleEl);
+                mid.appendChild(urlEl);
+
+                const metaEl = document.createElement('span');
+                metaEl.className = 'set-hint mono';
+                metaEl.style.fontSize = '10.5px';
+                metaEl.style.whiteSpace = 'nowrap';
+                const tStr = formatWorkspaceTime(item.visited_at);
+                const vStr = (item.visits && item.visits > 1) ? `${item.visits}×` : '';
+                metaEl.textContent = [vStr, tStr].filter(Boolean).join(' · ');
+
+                const openBtn = document.createElement('button');
+                openBtn.type = 'button';
+                openBtn.className = 'action-btn compact';
+                openBtn.textContent = zh ? '打开' : 'Open';
+                openBtn.onclick = () => sendIpc({ type: 'NEW_TAB', url: item.url });
+
+                const delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'rc-del';
+                delBtn.title = zh ? '删除此条记录' : 'Remove history entry';
+                delBtn.textContent = '×';
+                delBtn.onclick = () => {
+                    historyEntries = historyEntries.filter((x) => x.url !== item.url);
+                    historyCount = historyEntries.length;
+                    renderHistoryTable();
+                    syncFormControls();
+                    sendIpc({ type: 'DELETE_HISTORY_ITEM', url: item.url });
+                };
+
+                row.appendChild(mid);
+                if (metaEl.textContent) row.appendChild(metaEl);
+                row.appendChild(openBtn);
+                row.appendChild(delBtn);
+                frag.appendChild(row);
+            });
+            box.appendChild(frag);
+        }
+        const historySearchInp = document.getElementById('inputHistorySearch');
+        if (historySearchInp) {
+            historySearchInp.addEventListener('input', () => renderHistoryTable());
+        }
+
         function renderAllSections() {
             renderWorkspacesTable();
+            renderHistoryTable();
             renderThemeGrid();
             renderColorTokensStudio();
             renderModeProfilesSection();
@@ -3530,7 +4136,10 @@
             if (payload.data_dir) dataDir = payload.data_dir;
             if (typeof payload.blocked_ads === 'number') rustBlockedAds = payload.blocked_ads;
             blockedAds = resolveTotalBlockedAds(rustBlockedAds);
-            if (Array.isArray(payload.history)) historyCount = payload.history.length;
+            if (Array.isArray(payload.history)) {
+                historyEntries = payload.history;
+                historyCount = historyEntries.length;
+            }
             renderAllSections();
         };
 

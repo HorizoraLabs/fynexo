@@ -67,22 +67,100 @@ impl Default for UserData {
     }
 }
 
-/// Parses either `[ { "title": "...", "url": "..." } ]` OR `{ "shortcuts": [...] }` OR `{ "bookmarks": [...] }`.
-pub fn parse_shortcuts_flexible(raw: &str) -> Result<Vec<BookmarkItem>, String> {
-    let val: serde_json::Value =
-        serde_json::from_str(raw).map_err(|e| format!("Invalid shortcuts JSON: {}", e))?;
-    let arr_val = if val.is_array() {
-        val
-    } else if let Some(s) = val.get("shortcuts") {
-        s.clone()
-    } else if let Some(b) = val.get("bookmarks") {
-        b.clone()
-    } else {
-        return Err("Shortcuts JSON must be an array or an object with \"shortcuts\"".to_string());
-    };
+fn decode_basic_html_entities(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+}
 
-    let items: Vec<BookmarkItem> =
-        serde_json::from_value(arr_val).map_err(|e| format!("Invalid shortcut item: {}", e))?;
+/// Parses Netscape Bookmark HTML (`<!DOCTYPE NETSCAPE-Bookmark-file-1>` exported by Chrome/Edge/Firefox).
+fn parse_netscape_bookmarks_html(raw: &str) -> Vec<BookmarkItem> {
+    let mut items = Vec::new();
+    let lower = raw.to_ascii_lowercase();
+    let mut pos = 0;
+    while let Some(rel) = lower[pos..].find("<a ") {
+        let tag_start = pos + rel;
+        let Some(gt_rel) = raw[tag_start..].find('>') else {
+            break;
+        };
+        let tag_end = tag_start + gt_rel;
+        let attrs = &raw[tag_start..tag_end];
+        let attrs_lower = &lower[tag_start..tag_end];
+        let mut href_val = None;
+        if let Some(h_rel) = attrs_lower.find("href=") {
+            let after = &attrs[h_rel + 5..];
+            let trimmed = after.trim_start();
+            if let Some(q) = trimmed.chars().next().filter(|c| *c == '"' || *c == '\'') {
+                if let Some(end_q) = trimmed[1..].find(q) {
+                    href_val = Some(decode_basic_html_entities(&trimmed[1..1 + end_q]));
+                }
+            } else {
+                let end_ws = trimmed
+                    .find(|c: char| c.is_ascii_whitespace())
+                    .unwrap_or(trimmed.len());
+                href_val = Some(decode_basic_html_entities(&trimmed[..end_ws]));
+            }
+        }
+
+        let after_tag = tag_end + 1;
+        let close_rel = lower[after_tag..].find("</a>");
+        let title_raw = match close_rel {
+            Some(c_rel) => &raw[after_tag..after_tag + c_rel],
+            None => "",
+        };
+        let title = decode_basic_html_entities(title_raw).trim().to_string();
+
+        if let Some(u) = href_val {
+            let u_trim = u.trim();
+            if u_trim.starts_with("http://")
+                || u_trim.starts_with("https://")
+                || u_trim.starts_with("fynexo://")
+            {
+                items.push(BookmarkItem {
+                    title,
+                    url: u_trim.to_string(),
+                });
+            }
+        }
+        pos = match close_rel {
+            Some(c_rel) => after_tag + c_rel + 4,
+            None => after_tag,
+        };
+    }
+    items
+}
+
+/// Parses JSON (`[...]`, `{ "shortcuts": [...] }`, `{ "bookmarks": [...] }`) or Chrome/Edge/Firefox `bookmarks.html`.
+pub fn parse_shortcuts_flexible(raw: &str) -> Result<Vec<BookmarkItem>, String> {
+    let trimmed_raw = raw.trim_start();
+    let lower_head = trimmed_raw[..trimmed_raw.len().min(512)].to_ascii_lowercase();
+    let items: Vec<BookmarkItem> = if trimmed_raw.starts_with('<')
+        || lower_head.contains("netscape-bookmark-file")
+    {
+        let parsed = parse_netscape_bookmarks_html(raw);
+        if parsed.is_empty() {
+            return Err("No valid http/https bookmarks found in HTML file".to_string());
+        }
+        parsed
+    } else {
+        let val: serde_json::Value =
+            serde_json::from_str(raw).map_err(|e| format!("Invalid shortcuts JSON: {}", e))?;
+        let arr_val = if val.is_array() {
+            val
+        } else if let Some(s) = val.get("shortcuts") {
+            s.clone()
+        } else if let Some(b) = val.get("bookmarks") {
+            b.clone()
+        } else {
+            return Err(
+                "Shortcuts JSON must be an array or an object with \"shortcuts\"".to_string(),
+            );
+        };
+        serde_json::from_value(arr_val).map_err(|e| format!("Invalid shortcut item: {}", e))?
+    };
 
     let mut cleaned = Vec::with_capacity(items.len());
     for item in items {
@@ -400,6 +478,19 @@ impl UserData {
         self.history.clear();
         self.save_history();
     }
+
+    pub fn remove_history_item(&mut self, url: &str) -> bool {
+        let key = normalize_url_key(url);
+        let prev = self.history.len();
+        self.history
+            .retain(|h| !normalize_url_key(&h.url).eq_ignore_ascii_case(key));
+        if self.history.len() != prev {
+            self.save_history_debounced();
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[cfg(test)]
@@ -429,5 +520,26 @@ mod tests {
         // Internal pages are never recorded.
         assert!(!ud.record_visit("Settings", "fynexo://settings"));
         assert_eq!(ud.history.len(), 1);
+
+        // Single-item deletion respects URL normalization.
+        assert!(ud.remove_history_item("https://example.com/watch?v=1"));
+        assert!(ud.history.is_empty());
+        assert!(!ud.remove_history_item("https://example.com/watch?v=1"));
+    }
+
+    #[test]
+    fn parse_shortcuts_flexible_supports_chrome_bookmarks_html() {
+        let html = r#"<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<DL><p>
+    <DT><A HREF="https://github.com/rust-lang/rust?a=1&amp;b=2" ADD_DATE="1700000000">Rust &amp; Friends</A>
+    <DT><A HREF="javascript:alert(1)">Bad XSS</A>
+    <DT><A HREF="https://docs.rs/">docs.rs</A>
+</DL><p>"#;
+        let parsed = parse_shortcuts_flexible(html).expect("parse html bookmarks");
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].title, "Rust & Friends");
+        assert_eq!(parsed[0].url, "https://github.com/rust-lang/rust?a=1&b=2");
+        assert_eq!(parsed[1].url, "https://docs.rs/");
     }
 }

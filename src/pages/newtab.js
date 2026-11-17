@@ -6,13 +6,19 @@
         const boot = __FNX_BOOT_JSON__ || {};
         let config = Object.assign({
             theme: 'dark',
-            enforce_perf: true,
+            enforce_perf: false,
             adblock: true,
             restore_session: true,
             force_dark: false,
             incognito: false,
             language: 'zh',
             tab_cache_mode: 'balanced',
+            perf_preset: 'low',
+            efficiency_mode: true,
+            auto_trim_ram: true,
+            tab_sleep_minutes: 15,
+            hw_accel: true,
+            reduce_animations: false,
             ext_side_panel: false,
             ext_reader_mode: false,
             ext_yt_ad_skipper: false,
@@ -240,7 +246,20 @@
                     }
                 }
             }
-            if (/^https?:\/\//i.test(raw)) return raw;
+            if (/^https?:\/\//i.test(raw)) {
+                if (/^http:\/\//i.test(raw) && config.https_first !== false) {
+                    try {
+                        const u = new URL(raw);
+                        const h = (u.hostname || '').toLowerCase();
+                        const isLocal = /^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(h) || /\.(?:localhost|local|test)$/.test(h);
+                        if (!isLocal) {
+                            u.protocol = 'https:';
+                            return u.toString();
+                        }
+                    } catch (_) {}
+                }
+                return raw;
+            }
             if (/^:(\d{2,5})(?:[/?#].*)?$/.test(raw)) return 'http://localhost' + raw;
             if (/^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:localhost|local|test)|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)(?::\d+)?(?:[/?#].*)?$/i.test(raw)) {
                 return 'http://' + raw;
@@ -402,8 +421,8 @@
                 }
             }
             document.getElementById('ntSearchInput').placeholder = zh
-                ? `在 ${engName} 中搜索，点下方 !快捷指令，或直接输入网址...`
-                : `Search ${engName}, !gh, or enter URL...`;
+                ? `在 ${engName} 中搜索，输入 >命令、算式、!bang 或网址...`
+                : `Search ${engName}, >cmd, math, !gh, or enter URL...`;
 
             const adOn = config.adblock !== false;
             document.getElementById('ntShieldDot').classList.toggle('off', !adOn);
@@ -495,6 +514,78 @@
             }
 
             updateClock();
+            renderQuickTipsCard();
+        }
+
+        const TIPS_STORAGE_KEY = '__fnx_tips_hidden__';
+        function isTipsDismissed() {
+            try { return localStorage.getItem(TIPS_STORAGE_KEY) === '1'; } catch (_) { return false; }
+        }
+        function renderQuickTipsCard(forceShow) {
+            const card = document.getElementById('ntTipsCard');
+            const list = document.getElementById('ntTipsList');
+            const dismissBtn = document.getElementById('btnDismissTips');
+            const tipsPill = document.getElementById('btnTipsPill');
+            if (!card || !list || !dismissBtn) return;
+            const zh = isZh();
+            if (tipsPill) {
+                tipsPill.title = zh ? '显示/隐藏上手技巧' : 'Show or hide quick tips';
+                tipsPill.classList.toggle('active', !isTipsDismissed());
+            }
+            if (!forceShow && isTipsDismissed()) {
+                card.style.display = 'none';
+                return;
+            }
+            card.style.display = 'flex';
+            list.textContent = '';
+            const tips = zh
+                ? [
+                    ['/', '聚焦搜索'],
+                    ['>', '快捷命令面板'],
+                    ['1920*1080', '即时算数'],
+                    ['!gh', '直达站内搜'],
+                    ['右键划动', '浏览器手势'],
+                    ['🛡️ 盾牌', '点哪藏哪屏蔽区块']
+                ]
+                : [
+                    ['/', 'Focus search'],
+                    ['>', 'Command palette'],
+                    ['1920*1080', 'Calculator'],
+                    ['!gh', 'Direct site search'],
+                    ['Right-drag', 'Mouse gestures'],
+                    ['🛡️ Shield', 'Pick & hide elements']
+                ];
+            tips.forEach(([kbdTxt, descTxt]) => {
+                const it = document.createElement('span');
+                it.className = 'nt-tips-item';
+                const k = document.createElement('span');
+                k.className = 'nt-tips-kbd';
+                k.textContent = kbdTxt;
+                const d = document.createElement('span');
+                d.textContent = descTxt;
+                it.appendChild(k);
+                it.appendChild(d);
+                list.appendChild(it);
+            });
+            dismissBtn.textContent = zh ? '知道了' : 'Dismiss';
+        }
+        const btnTipsPillEl = document.getElementById('btnTipsPill');
+        if (btnTipsPillEl) {
+            btnTipsPillEl.onclick = () => {
+                const nextHidden = !isTipsDismissed();
+                try {
+                    if (nextHidden) localStorage.setItem(TIPS_STORAGE_KEY, '1');
+                    else localStorage.removeItem(TIPS_STORAGE_KEY);
+                } catch (_) {}
+                renderQuickTipsCard(!nextHidden);
+            };
+        }
+        const btnDismissTipsEl = document.getElementById('btnDismissTips');
+        if (btnDismissTipsEl) {
+            btnDismissTipsEl.onclick = () => {
+                try { localStorage.setItem(TIPS_STORAGE_KEY, '1'); } catch (_) {}
+                renderQuickTipsCard(false);
+            };
         }
 
         function renderBookmarks() {
@@ -674,77 +765,64 @@
         let ntSuggestItems = [];
         let ntSuggestIdx = -1;
 
-        function evalSafeMathExpr(raw) {
-            const src = String(raw || '').trim().replace(/×/g, '*').replace(/÷/g, '/');
-            if (!src || src.length > 80 || !/^[0-9+\-*/().%\s^,]+$/.test(src)) return null;
-            if (!/[0-9]/.test(src) || !/[+\-*/%^]/.test(src.replace(/^\s*-/, ''))) return null;
-            const toks = src.replace(/,/g, '').replace(/\*\*/g, '^').match(/\d+\.?\d*|\.\d+|[+\-*/%^()]/g);
-            if (!toks || toks.join('').length < src.replace(/[\s,]/g, '').replace(/\*\*/g, '^').length) return null;
-            let pos = 0;
-            let guard = 0;
-            const peek = () => toks[pos];
-            function parseExpr() {
-                let v = parseTerm();
-                while (peek() === '+' || peek() === '-') {
-                    const op = toks[pos++];
-                    const r = parseTerm();
-                    v = op === '+' ? v + r : v - r;
-                }
-                return v;
-            }
-            function parseTerm() {
-                let v = parsePow();
-                while (peek() === '*' || peek() === '/' || peek() === '%') {
-                    const op = toks[pos++];
-                    const r = parsePow();
-                    v = op === '*' ? v * r : op === '/' ? v / r : v % r;
-                }
-                return v;
-            }
-            function parsePow() {
-                const base = parseUnary();
-                if (peek() === '^') { pos++; return Math.pow(base, parsePow()); }
-                return base;
-            }
-            function parseUnary() {
-                if (++guard > 200) throw new Error('deep');
-                if (peek() === '-') { pos++; return -parseUnary(); }
-                if (peek() === '+') { pos++; return parseUnary(); }
-                if (peek() === '(') {
-                    pos++;
-                    const v = parseExpr();
-                    if (peek() !== ')') throw new Error('paren');
-                    pos++;
-                    return v;
-                }
-                const n = parseFloat(toks[pos++]);
-                if (!isFinite(n)) throw new Error('num');
-                return n;
-            }
-            try {
-                const v = parseExpr();
-                if (pos !== toks.length || !isFinite(v)) return null;
-                const rounded = Math.round(v * 1e10) / 1e10;
-                return { value: rounded, text: rounded.toLocaleString('en-US', { maximumFractionDigits: 10 }) };
-            } catch (_) {
-                return null;
-            }
-        }
-
         function ntPaletteCommands() {
             const zh = isZh();
-            const setMode = (id) => () => {
-                config.active_mode = id;
-                sendIpc({ type: 'PATCH_HUD_PREFS', active_mode: id });
+            const runClose = (fn) => () => {
+                searchInput.value = '';
+                renderSuggestions();
+                fn();
             };
-            return [
-                ['切换到自动场景模式', 'Mode: Auto by site', 'auto 自动 模式', setMode('auto')],
-                ['切换开发者模式', 'Mode: Developer', 'developer dev 开发者 模式', setMode('developer')],
-                ['切换学习模式', 'Mode: Study', 'study 学习 模式', setMode('study')],
-                ['切换影音模式', 'Mode: Media', 'media 影音 模式', setMode('media')],
+            const setMode = (id) => runClose(() => {
+                config.active_mode = id;
+                applySurface();
+                sendIpc({ type: 'PATCH_HUD_PREFS', active_mode: id });
+            });
+            const list = [
+                ['切换到自动场景模式', 'Mode: Auto by site', 'auto 自动 模式', setMode('auto')]
+            ];
+            const profiles = Array.isArray(config.mode_profiles) ? config.mode_profiles : [];
+            for (let i = 0; i < profiles.length; i++) {
+                const p = profiles[i];
+                if (!p || !p.id) continue;
+                const nmZh = p.name_zh || p.name_en || p.id;
+                const nmEn = p.name_en || p.name_zh || p.id;
+                const icon = p.icon ? p.icon + ' ' : '';
+                list.push([
+                    '切换' + icon + nmZh,
+                    'Mode: ' + icon + nmEn,
+                    (p.id + ' ' + nmZh + ' ' + nmEn + ' mode 模式').toLowerCase(),
+                    setMode(p.id)
+                ]);
+            }
+            list.push(
                 ['切换标准模式', 'Mode: Standard', 'default standard 标准 模式', setMode('default')],
+                ['开关智能夜间深色', 'Toggle Smart Force Dark', 'dark night 夜间 深色', runClose(() => {
+                    config.force_dark = !config.force_dark;
+                    sendIpc({ type: 'PATCH_HUD_PREFS', force_dark: config.force_dark });
+                })],
+                ['开关无痕模式', 'Toggle Private mode', 'private incognito 无痕 隐私', runClose(() => {
+                    config.incognito = !config.incognito;
+                    applySurface();
+                    sendIpc({ type: 'PATCH_HUD_PREFS', incognito: config.incognito });
+                })],
+                ['开关广告拦截', 'Toggle Adblock Shield', 'adblock shield 广告 拦截', runClose(() => {
+                    config.adblock = config.adblock === false;
+                    applySurface();
+                    sendIpc({ type: 'PATCH_HUD_PREFS', adblock: config.adblock });
+                })],
+                ['切换界面语言 (中/EN)', 'Switch Language (ZH/EN)', 'lang language zh en 语言 中文 英文', runClose(() => {
+                    config.language = isZh() ? 'en' : 'zh';
+                    applySurface();
+                    renderBookmarks();
+                    renderHistory();
+                    sendIpc({ type: 'PATCH_HUD_PREFS', language: config.language });
+                })],
+                ['清空最近访问记录', 'Clear recent history', 'clear history 清空 历史', runClose(() => {
+                    sendIpc({ type: 'CLEAR_HISTORY' });
+                })],
                 ['打开偏好设置', 'Open Preferences', 'settings preferences 设置 偏好', () => sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings' })]
-            ].map((c) => ({ kind: 'cmd', title: '> ' + (zh ? c[0] : c[1]), kw: (c[0] + ' ' + c[1] + ' ' + c[2]).toLowerCase(), url: zh ? '回车执行' : 'Enter to run', tag: zh ? '命令' : 'Command', run: c[3] }));
+            );
+            return list.map((c) => ({ kind: 'cmd', title: '> ' + (zh ? c[0] : c[1]), kw: (c[0] + ' ' + c[1] + ' ' + c[2]).toLowerCase(), url: zh ? '回车执行' : 'Enter to run', tag: zh ? '命令' : 'Command', run: c[3] }));
         }
         function renderSuggestions() {
             const rawTrim = searchInput.value.trim();
@@ -812,7 +890,7 @@
                 }
             });
 
-            ntSuggestItems = matches.slice(0, isPalette ? 10 : 6);
+            ntSuggestItems = matches.slice(0, isPalette ? 14 : 6);
             ntSuggestIdx = calc || (isPalette && ntSuggestItems.length) ? 0 : -1;
 
             if (ntSuggestItems.length === 0) {

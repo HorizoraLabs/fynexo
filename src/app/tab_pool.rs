@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "windows")]
 use wry::{MemoryUsageLevel, WebViewExtWindows};
@@ -63,6 +64,7 @@ fn place_behind_visible(pending: &wry::WebView, visible: &wry::WebView) {
 pub struct TabPool {
     live_webviews: HashMap<usize, TabWebView>,
     lru_order: VecDeque<usize>,
+    last_active_at: HashMap<usize, Instant>,
     idle_webview: Option<TabWebView>,
     visible_tab_id: Option<usize>,
     pending_reveal: Option<(usize, u64)>,
@@ -75,9 +77,12 @@ impl TabPool {
         live_webviews.insert(initial_id, initial_tv);
         let mut lru_order = VecDeque::new();
         lru_order.push_back(initial_id);
+        let mut last_active_at = HashMap::new();
+        last_active_at.insert(initial_id, Instant::now());
         Self {
             live_webviews,
             lru_order,
+            last_active_at,
             idle_webview: None,
             visible_tab_id: Some(initial_id),
             pending_reveal: None,
@@ -91,6 +96,10 @@ impl TabPool {
 
     pub fn live_ids(&self) -> Vec<usize> {
         self.live_webviews.keys().copied().collect()
+    }
+
+    pub fn live_count(&self) -> usize {
+        self.live_webviews.len()
     }
 
     pub fn get_webview(&self, id: usize) -> Option<&wry::WebView> {
@@ -191,6 +200,7 @@ impl TabPool {
     pub fn touch_lru(&mut self, id: usize) {
         self.lru_order.retain(|&x| x != id);
         self.lru_order.push_back(id);
+        self.last_active_at.insert(id, Instant::now());
     }
 
     pub fn insert_live(&mut self, id: usize, tv: TabWebView) {
@@ -280,9 +290,11 @@ impl TabPool {
                     let _ = prev_tv.webview.evaluate_script(&clear_script);
                     let _ = prev_tv.webview.set_visible(false);
                 }
+                self.last_active_at.insert(prev_id, Instant::now());
             }
         }
         self.visible_tab_id = Some(id);
+        self.last_active_at.insert(id, Instant::now());
     }
 
     fn recycle_or_drop(&mut self, tv: TabWebView) {
@@ -304,7 +316,7 @@ impl TabPool {
         tabs: &[TabItem],
         active_id: usize,
         max_cached_normal: usize,
-    ) {
+    ) -> usize {
         let visible_id = self.visible_tab_id;
         let pending_id = self.pending_reveal_id();
         let is_bg = |tid: usize| tabs.iter().any(|t| t.id == tid && t.background_play);
@@ -315,6 +327,7 @@ impl TabPool {
             .keys()
             .filter(|&&tid| !is_bg(tid))
             .count();
+        let mut evicted = 0usize;
 
         while cached_normal > limit {
             let victim_pos = self.lru_order.iter().position(|&tid| {
@@ -328,19 +341,73 @@ impl TabPool {
                 break;
             };
             if let Some(victim_id) = self.lru_order.remove(pos) {
+                self.last_active_at.remove(&victim_id);
                 if let Some(tv) = self.live_webviews.remove(&victim_id) {
                     self.recycle_or_drop(tv);
                     cached_normal -= 1;
+                    evicted += 1;
                 }
             }
         }
+        evicted
     }
 
-    /// Keeps only the most recent `hot_limit` tabs at `MemoryUsageLevel::Normal` (hot frame buffer),
-    /// while cooling older cached/background WebViews to `MemoryUsageLevel::Low` to release bitmaps.
-    pub fn apply_memory_tiers(&self, active_id: usize, hot_limit: usize) {
+    /// Puts idle background tabs that exceed `max_idle` to sleep to reclaim RAM automatically.
+    pub fn sleep_idle_tabs(
+        &mut self,
+        tabs: &[TabItem],
+        active_id: usize,
+        max_idle: Duration,
+    ) -> usize {
+        if max_idle.is_zero() {
+            return 0;
+        }
+        let now = Instant::now();
+        let visible_id = self.visible_tab_id;
+        let pending_id = self.pending_reveal_id();
+        let victims: Vec<usize> = self
+            .live_webviews
+            .keys()
+            .copied()
+            .filter(|&tid| {
+                if tid == active_id || visible_id == Some(tid) || pending_id == Some(tid) {
+                    return false;
+                }
+                if tabs
+                    .iter()
+                    .any(|t| t.id == tid && (t.background_play || t.playing_audio))
+                {
+                    return false;
+                }
+                self.last_active_at
+                    .get(&tid)
+                    .map(|t| now.duration_since(*t) >= max_idle)
+                    .unwrap_or(false)
+            })
+            .collect();
+        let mut slept = 0usize;
+        for tid in victims {
+            self.lru_order.retain(|&x| x != tid);
+            self.last_active_at.remove(&tid);
+            if let Some(tv) = self.live_webviews.remove(&tid) {
+                self.recycle_or_drop(tv);
+                slept += 1;
+            }
+        }
+        slept
+    }
+
+    /// Keeps only the most recent `hot_limit` tabs at `MemoryUsageLevel::Normal` (hot frame buffer)
+    /// when `efficiency_mode` is enabled, cooling older cached WebViews to `MemoryUsageLevel::Low`.
+    pub fn apply_memory_tiers(&self, active_id: usize, hot_limit: usize, efficiency_mode: bool) {
         #[cfg(target_os = "windows")]
         {
+            if !efficiency_mode {
+                for tv in self.live_webviews.values() {
+                    let _ = tv.webview.set_memory_usage_level(MemoryUsageLevel::Normal);
+                }
+                return;
+            }
             let target_hot = hot_limit.max(1);
             let mut hot_ids: Vec<usize> = Vec::with_capacity(target_hot + 1);
             if active_id != 0 && self.live_webviews.contains_key(&active_id) {
@@ -375,7 +442,7 @@ impl TabPool {
         }
         #[cfg(not(target_os = "windows"))]
         {
-            let _ = (active_id, hot_limit);
+            let _ = (active_id, hot_limit, efficiency_mode);
         }
     }
 
@@ -388,6 +455,7 @@ impl TabPool {
             .collect();
         for tid in dead_ids {
             self.lru_order.retain(|&x| x != tid);
+            self.last_active_at.remove(&tid);
             if self.visible_tab_id == Some(tid) {
                 self.visible_tab_id = None;
             }
@@ -404,6 +472,7 @@ impl TabPool {
         self.visible_tab_id = None;
         self.pending_reveal = None;
         self.lru_order.clear();
+        self.last_active_at.clear();
         let drained: Vec<TabWebView> = self.live_webviews.drain().map(|(_, tv)| tv).collect();
         for tv in drained {
             self.recycle_or_drop(tv);
@@ -414,8 +483,28 @@ impl TabPool {
         self.visible_tab_id = None;
         self.pending_reveal = None;
         self.lru_order.clear();
+        self.last_active_at.clear();
         self.live_webviews.clear();
         self.idle_webview = None;
+    }
+
+    pub fn drop_crashed(&mut self, tab_id: usize) {
+        self.lru_order.retain(|&x| x != tab_id);
+        self.last_active_at.remove(&tab_id);
+        if self.visible_tab_id == Some(tab_id) {
+            self.visible_tab_id = None;
+        }
+        if self.pending_reveal_id() == Some(tab_id) {
+            self.pending_reveal = None;
+        }
+        if let Some(tv) = self.live_webviews.remove(&tab_id) {
+            tv.bound_tab_id.store(0, std::sync::atomic::Ordering::Release);
+            drop(tv);
+        }
+    }
+
+    pub fn all_webviews(&self) -> impl Iterator<Item = &wry::WebView> {
+        self.live_webviews.values().map(|tv| &tv.webview)
     }
 
     #[cfg(target_os = "windows")]

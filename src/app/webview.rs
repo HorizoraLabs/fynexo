@@ -8,7 +8,7 @@ use wry::{PageLoadEvent, WebContext, WebViewBuilder};
 use wry::WebViewBuilderExtWindows;
 
 use crate::adblock;
-use crate::config::unique_download_path;
+use crate::config::{resolved_downloads_dir, unique_download_path_in};
 use crate::hud;
 use crate::pages;
 use crate::tabs::TabManager;
@@ -25,6 +25,7 @@ pub struct TabWebView {
 }
 
 pub struct TabLaunch<'a> {
+    pub win_id: usize,
     pub tab_id: usize,
     pub url: &'a str,
     pub visible: bool,
@@ -38,21 +39,28 @@ pub fn build_tab_webview(
     tab_manager: &Arc<Mutex<TabManager>>,
     event_proxy: &EventLoopProxy<UserEvent>,
 ) -> Result<TabWebView, Box<dyn Error>> {
+    let win_id = launch.win_id;
     let target_url = launch.url;
     let bound_tab_id = Arc::new(AtomicUsize::new(launch.tab_id));
-    let initial_tabs = tab_manager.lock_safe().get_state();
+    let (initial_tabs, tm_incog) = {
+        let tm = tab_manager.lock_safe();
+        (tm.get_state(), tm.is_incognito())
+    };
     #[cfg(target_os = "windows")]
     let adblock_cfg;
+    #[cfg(target_os = "windows")]
+    let hw_accel;
     let (incognito, resolved_ua, default_zoom, initial_script) = {
         let mut st = app_state.lock_safe();
         let _ = st.reload_if_changed();
         #[cfg(target_os = "windows")]
         {
             adblock_cfg = st.adblock.clone();
+            hw_accel = st.config.hw_accel;
         }
         let script = hud::generate_hud_script_from_state(&st, Some(&initial_tabs));
         (
-            st.config.incognito,
+            st.config.incognito || tm_incog,
             st.config.resolved_user_agent(),
             st.config.default_zoom,
             script,
@@ -71,30 +79,27 @@ pub fn build_tab_webview(
 
     #[cfg(target_os = "windows")]
     {
-        // Deep lightweight optimization: single renderer process, HTTP/3 QUIC, GPU zero-copy rasterization, zero telemetry
-        builder = builder.with_additional_browser_args(
-            "--renderer-process-limit=1 \
-            --js-flags=\"--max-old-space-size=256 --optimize-for-size\" \
-            --enable-gpu-rasterization \
-            --enable-zero-copy \
+        // Edge-style resource-trimmed Chromium args: zero telemetry, HTTP/3 QUIC, optional GPU acceleration
+        let gpu_args = if hw_accel {
+            "--enable-gpu-rasterization --enable-zero-copy"
+        } else {
+            "--disable-gpu-rasterization --disable-gpu-compositing"
+        };
+        let args = format!(
+            "{} \
             --enable-quic \
             --enable-smooth-scrolling \
             --disable-background-networking \
             --disable-component-update \
             --disable-domain-reliability \
-            --disable-sync \
             --disable-breakpad \
-            --disable-extensions \
-            --disable-speech-api \
             --no-default-browser-check \
             --no-first-run \
-            --disable-client-side-phishing-detection \
-            --disable-hang-monitor \
-            --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Prerender2,TopicsAPI,Translate,MediaRouter,OptimizationHints,AutofillServerCommunication \
-            --enable-features=OverlayScrollbar,OverlayScrollbarWinStyle,OverlayScrollbarWinStyleAnimation,FluentOverlayScrollbar \
-            --disk-cache-size=33554432 \
-            ",
+            --disable-features=msWebOOUI,msPdfOOUI,Prerender2,TopicsAPI,Translate,MediaRouter,OptimizationHints \
+            --enable-features=OverlayScrollbar,OverlayScrollbarWinStyle,OverlayScrollbarWinStyleAnimation,FluentOverlayScrollbar",
+            gpu_args
         );
+        builder = builder.with_additional_browser_args(&args);
     }
 
     // Intercept New Window Requests (target="_blank", window.open) -> Block Ad Popups or Convert to Internal Tabs
@@ -115,8 +120,12 @@ pub fn build_tab_webview(
         }
         let logical = normalize_logical_url(&url);
         let (new_id, nav_url) = tabs_for_new_window.lock_safe().new_tab(&logical);
-        let _ = proxy_for_new_window.send_event(UserEvent::SwitchTab { id: new_id, url: nav_url });
-        let _ = proxy_for_new_window.send_event(UserEvent::SyncTabs);
+        let _ = proxy_for_new_window.send_event(UserEvent::SwitchTab {
+            win_id,
+            id: new_id,
+            url: nav_url,
+        });
+        let _ = proxy_for_new_window.send_event(UserEvent::SyncTabs(win_id));
         wry::NewWindowResponse::Deny
     });
 
@@ -151,37 +160,44 @@ pub fn build_tab_webview(
 
     // Native File Download Handlers (Desktop WebView2 / WebKit)
     let proxy_for_dl_start = event_proxy.clone();
+    let state_for_dl = Arc::clone(app_state);
     builder = builder.with_download_started_handler(move |_url, dest_path| {
         let suggested = dest_path
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("download.bin");
-        let final_path = unique_download_path(suggested);
+        let custom_dir = state_for_dl.lock_safe().config.downloads_dir.clone();
+        let base_dir = resolved_downloads_dir(&custom_dir);
+        let final_path = unique_download_path_in(&base_dir, suggested);
         let display_name = final_path
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("file")
             .to_string();
         *dest_path = final_path;
-        let _ = proxy_for_dl_start
-            .send_event(UserEvent::Toast(format!("Downloading {}", display_name)));
+        let _ = proxy_for_dl_start.send_event(UserEvent::DownloadUpdate {
+            name: display_name,
+            status: "downloading".to_string(),
+        });
         true
     });
 
     let proxy_for_dl_done = event_proxy.clone();
     builder = builder.with_download_completed_handler(move |_url, path_opt, success| {
-        if success {
-            let name = path_opt
-                .as_ref()
-                .and_then(|p| p.file_name())
-                .and_then(|s| s.to_str())
-                .unwrap_or("file");
-            let _ = proxy_for_dl_done
-                .send_event(UserEvent::Toast(format!("Saved {} to Downloads", name)));
-        } else {
-            let _ = proxy_for_dl_done
-                .send_event(UserEvent::Toast("Download cancelled or failed".to_string()));
-        }
+        let name = path_opt
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+            .unwrap_or("file")
+            .to_string();
+        let _ = proxy_for_dl_done.send_event(UserEvent::DownloadUpdate {
+            name,
+            status: if success {
+                "completed".to_string()
+            } else {
+                "failed".to_string()
+            },
+        });
     });
 
     // Restore per-tab reading scroll depth & reveal pending tabs after page load finishes
@@ -196,6 +212,7 @@ pub fn build_tab_webview(
             let tid = tab_id_for_load.load(Ordering::Acquire);
             if tid != 0 {
                 let _ = proxy_for_load.send_event(UserEvent::PageFinished {
+                    win_id,
                     tab_id: tid,
                     url: norm,
                 });
@@ -284,6 +301,7 @@ pub fn build_tab_webview(
             }
             let origin = req.uri().to_string();
             handle_ipc_message(
+                win_id,
                 tid,
                 &origin,
                 req.body(),
@@ -307,8 +325,23 @@ pub fn build_tab_webview(
     #[cfg(not(target_os = "windows"))]
     let webview = builder.build(window)?;
 
+    let tab_id_for_win = Arc::clone(&bound_tab_id);
+    let proxy_for_win = event_proxy.clone();
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = (&tab_id_for_win, &proxy_for_win);
+
     #[cfg(target_os = "windows")]
-    adblock::attach_windows_adblock(&webview, &adblock_cfg);
+    {
+        adblock::attach_windows_adblock(&webview, &adblock_cfg);
+        adblock::attach_windows_resilience(
+            &webview,
+            incognito,
+            win_id,
+            tab_id_for_win,
+            proxy_for_win,
+        );
+    }
 
     if (default_zoom - 1.0).abs() > 0.01 {
         let _ = webview.zoom(default_zoom);

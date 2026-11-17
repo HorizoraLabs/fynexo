@@ -295,6 +295,13 @@
                     ['ellipse', { cx: '8', cy: '8', rx: '2.4', ry: '5.5', stroke: 'currentColor', 'stroke-width': '1.5' }]
                 ]);
                 break;
+            case 'alert':
+                svg = buildSvg(14, 14, '0 0 16 16', [
+                    ['path', { d: 'M8 2.2L1.8 13h12.4L8 2.2z', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linejoin': 'round' }],
+                    ['path', { d: 'M8 6.2v3.3', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round' }],
+                    ['circle', { cx: '8', cy: '11.3', r: '0.8', fill: 'currentColor' }]
+                ]);
+                break;
             case 'fileText':
                 svg = buildSvg(14, 14, '0 0 16 16', [
                     ['path', { d: 'M4.5 2.2h4.8l3.2 3.2v8.4a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V3.2a1 1 0 0 1 1-1z', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linejoin': 'round' }],

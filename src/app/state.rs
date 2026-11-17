@@ -2,9 +2,9 @@ use std::time::SystemTime;
 
 use crate::adblock::{self, AdblockConfig};
 use crate::config::{
-    data_dir_display, load_all_themes, themes_dir_display, themes_stamp, AppConfig,
-    ComponentStyles, KeybindsConfig, RuntimePayload, SiteRule, SiteRulesStore, ThemeColors,
-    ThemePreset, UserData,
+    data_dir_display, load_all_themes, now_unix_secs, themes_dir_display, themes_stamp, AppConfig,
+    ComponentStyles, DownloadEntry, KeybindsConfig, RuntimePayload, SiteRule, SiteRulesStore,
+    ThemeColors, ThemePreset, UserData,
 };
 
 pub struct AppState {
@@ -15,6 +15,7 @@ pub struct AppState {
     pub site_rules: Vec<SiteRule>,
     pub adblock: AdblockConfig,
     pub keybinds: KeybindsConfig,
+    pub recent_downloads: Vec<DownloadEntry>,
     pub config_mtime: Option<SystemTime>,
     pub styles_mtime: Option<SystemTime>,
     pub shortcuts_mtime: Option<SystemTime>,
@@ -44,6 +45,7 @@ impl AppState {
             site_rules,
             adblock: adblock_cfg,
             keybinds,
+            recent_downloads: Vec::new(),
             config_mtime: AppConfig::mtime(),
             styles_mtime: ComponentStyles::mtime(),
             shortcuts_mtime: UserData::shortcuts_mtime(),
@@ -51,6 +53,30 @@ impl AppState {
             adblock_mtime: AdblockConfig::mtime(),
             keybinds_mtime: KeybindsConfig::mtime(),
             themes_stamp: themes_stamp(),
+        }
+    }
+
+    pub fn record_download(&mut self, name: String, status: String) {
+        let now = now_unix_secs();
+        if let Some(pos) = self.recent_downloads.iter().position(|d| d.name == name) {
+            self.recent_downloads[pos].status = status;
+            self.recent_downloads[pos].updated_at = now;
+            if pos > 0 {
+                let item = self.recent_downloads.remove(pos);
+                self.recent_downloads.insert(0, item);
+            }
+        } else {
+            self.recent_downloads.insert(
+                0,
+                DownloadEntry {
+                    name,
+                    status,
+                    updated_at: now,
+                },
+            );
+            if self.recent_downloads.len() > 15 {
+                self.recent_downloads.truncate(15);
+            }
         }
     }
 
@@ -185,6 +211,8 @@ impl AppState {
             bookmarks: &self.userdata.bookmarks,
             history: history_slice,
             tabs,
+            mode_themes: crate::config::collect_mode_themes(&self.config, &self.themes),
+            downloads: &self.recent_downloads,
         };
         serde_json::to_string(&slim)
     }

@@ -27,6 +27,7 @@ __FNX_NEWTAB_CSS__
                         <span id="ntShieldText">Adblock active</span>
                     </button>
                     <button type="button" class="nt-pill" id="btnLangPill" title="切换语言 / Switch language">中文</button>
+                    <button type="button" class="nt-pill" id="btnTipsPill" title="上手技巧 / Quick Tips">?</button>
                     <button type="button" class="nt-pill" id="btnPrefsPill" title="偏好设置 / Preferences">⚙</button>
                 </div>
             </header>
@@ -45,7 +46,7 @@ __FNX_NEWTAB_CSS__
                 <div class="nt-search-wrap">
                     <div class="nt-search-box" id="ntSearchBox">
                         <button type="button" class="nt-engine-btn" id="ntEngineBtn" aria-haspopup="listbox" aria-expanded="false" title="Choose search engine">Google</button>
-                        <input type="text" id="ntSearchInput" class="nt-search-input" autocomplete="off" spellcheck="false" autocapitalize="off" enterkeyhint="go" placeholder="Search Google, type !gh / !yt, or enter URL...">
+                        <input type="text" id="ntSearchInput" class="nt-search-input" autocomplete="off" spellcheck="false" autocapitalize="off" enterkeyhint="go" placeholder="Search Google, >cmd, math, !gh / !yt, or enter URL...">
                         <button type="button" class="nt-clear-btn" id="ntClearBtn" title="Clear">
                             <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" fill="currentColor" fill-opacity="0.18"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
                         </button>
@@ -55,6 +56,10 @@ __FNX_NEWTAB_CSS__
                         </button>
                     </div>
                     <div class="nt-bang-bar" id="ntBangBar"></div>
+                    <div class="nt-tips-card" id="ntTipsCard" style="display: none;">
+                        <div class="nt-tips-body" id="ntTipsList"></div>
+                        <button type="button" class="nt-tips-dismiss" id="btnDismissTips">知道了</button>
+                    </div>
                     <div class="nt-engine-menu" id="ntEngineMenu" role="listbox" aria-label="Search engines"></div>
                     <div class="nt-suggest" id="ntSuggestList"></div>
                 </div>

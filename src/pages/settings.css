@@ -1059,6 +1059,145 @@
             background: color-mix(in srgb, var(--fnx-accent) 12%, transparent);
         }
 
+        /* Performance & RAM Estimation Dashboard */
+        .perf-ram-hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+            gap: 14px;
+            padding: 15px 16px;
+            margin: 8px 0 14px;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline);
+            border-top-color: var(--fnx-btn-top);
+            border-radius: 10px;
+        }
+        .perf-hero-col {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
+        .perf-hero-col.live {
+            padding-left: 14px;
+            border-left: 1px solid var(--fnx-divider);
+            justify-content: space-between;
+        }
+        .perf-hero-kicker {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--fnx-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .perf-hero-value {
+            font-size: 21px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: var(--fnx-fg);
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+        }
+        .perf-hero-sub {
+            font-size: 11.5px;
+            color: var(--fnx-secondary);
+            line-height: 1.45;
+        }
+        .perf-meter-track {
+            width: 100%;
+            height: 7px;
+            border-radius: 999px;
+            background: var(--fnx-btn-bg);
+            border: 1px solid var(--fnx-hairline);
+            overflow: hidden;
+            margin-top: 2px;
+        }
+        .perf-meter-fill {
+            height: 100%;
+            width: 28%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #10B981, var(--fnx-accent));
+            transition: width 0.25s ease, background 0.25s ease;
+        }
+        .perf-presets-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 9px;
+            margin: 8px 0 14px;
+        }
+        .perf-preset-card {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            text-align: left;
+            gap: 6px;
+            padding: 12px 12px;
+            border-radius: 9px;
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-hairline);
+            border-top-color: var(--fnx-btn-top);
+            cursor: pointer;
+            transition: border-color 0.14s ease, background 0.14s ease, transform 0.12s ease;
+            color: var(--fnx-fg);
+            min-width: 0;
+        }
+        .perf-preset-card:hover {
+            background: var(--fnx-elevated);
+            border-color: var(--fnx-hairline-hover);
+        }
+        .perf-preset-card.active {
+            border-color: var(--fnx-accent);
+            background: color-mix(in srgb, var(--fnx-accent) 10%, var(--fnx-surface));
+            box-shadow: 0 0 0 1px color-mix(in srgb, var(--fnx-accent) 30%, transparent);
+        }
+        .perf-preset-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            gap: 6px;
+        }
+        .perf-preset-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--fnx-fg);
+        }
+        .perf-preset-tag {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 1px 6px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--fnx-accent) 16%, transparent);
+            color: var(--fnx-accent);
+            border: 1px solid color-mix(in srgb, var(--fnx-accent) 35%, transparent);
+            white-space: nowrap;
+        }
+        .perf-preset-ram {
+            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #34D399;
+        }
+        .perf-preset-desc {
+            font-size: 11px;
+            line-height: 1.4;
+            color: var(--fnx-muted);
+        }
+        .perf-custom-note {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            font-size: 11.5px;
+            color: var(--fnx-secondary);
+            background: color-mix(in srgb, var(--fnx-accent) 8%, var(--fnx-surface));
+            border: 1px solid color-mix(in srgb, var(--fnx-accent) 30%, transparent);
+        }
+        .perf-custom-note.visible { display: flex; }
+
         .cloud-toolbar {
             display: flex;
             align-items: center;
@@ -1190,7 +1329,9 @@
             .set-ctrl { justify-content: flex-start; flex-wrap: wrap; max-width: 100% !important; }
             .set-ctrl-col { width: 100%; align-items: flex-start; }
             .preset-row { justify-content: flex-start; }
-            .domain-split, .editor-2col { grid-template-columns: minmax(0, 1fr); }
+            .domain-split, .editor-2col, .perf-ram-hero { grid-template-columns: minmax(0, 1fr); }
+            .perf-hero-col.live { padding-left: 0; padding-top: 12px; border-left: none; border-top: 1px solid var(--fnx-divider); }
+            .perf-presets-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .rc-mid { flex-direction: column; align-items: flex-start; gap: 2px; }
             .rc-name { max-width: 100%; }
             .rc-add-row { flex-wrap: wrap; gap: 8px; padding: 10px; }

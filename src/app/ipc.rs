@@ -13,12 +13,11 @@ use crate::tabs::TabManager;
 use crate::util::LockExt;
 
 use super::events::UserEvent;
-#[cfg(target_os = "windows")]
-use super::memory::get_current_process_memory_mb;
 use super::state::AppState;
 use super::url::normalize_logical_url;
 
 pub fn handle_ipc_message(
+    source_win_id: usize,
     source_tab_id: usize,
     origin: &str,
     body: &str,
@@ -38,10 +37,16 @@ pub fn handle_ipc_message(
 
     match val["type"].as_str() {
         Some("BOOT_SYNC") => {
-            let _ = proxy.send_event(UserEvent::BootSync(source_tab_id));
+            let _ = proxy.send_event(UserEvent::BootSync {
+                win_id: source_win_id,
+                tab_id: source_tab_id,
+            });
         }
         Some("TAB_PAINT_READY") => {
-            let _ = proxy.send_event(UserEvent::TabPaintReady(source_tab_id));
+            let _ = proxy.send_event(UserEvent::TabPaintReady {
+                win_id: source_win_id,
+                tab_id: source_tab_id,
+            });
         }
         Some("NAVIGATE") => {
             if let Some(raw_url) = val["url"].as_str() {
@@ -86,10 +91,95 @@ pub fn handle_ipc_message(
                 };
                 if is_active_source {
                     adblock::set_active_page_url(&formatted_url);
-                    let _ = proxy.send_event(UserEvent::Navigate(formatted_url));
+                    let _ = proxy.send_event(UserEvent::Navigate {
+                        win_id: source_win_id,
+                        url: formatted_url,
+                    });
                 }
-                let _ = proxy.send_event(UserEvent::SyncTabs);
+                let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
             }
+        }
+        Some("NEW_WINDOW") => {
+            let (is_multi, homepage) = {
+                let st = app_state.lock_safe();
+                (st.config.is_multi_window(), st.config.homepage.clone())
+            };
+            let want_incog = val["incognito"].as_bool().unwrap_or(false);
+            let target_opt = val["url"]
+                .as_str()
+                .map(|s| normalize_logical_url(s.trim()))
+                .filter(|u| !u.is_empty() && super::security::is_safe_navigation_target(u));
+
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if is_multi {
+                let _ = proxy.send_event(UserEvent::NewWindow {
+                    url: target_opt,
+                    incognito: want_incog,
+                });
+                return;
+            }
+            let _ = (is_multi, want_incog);
+            let fallback_url = target_opt.unwrap_or(homepage);
+            adblock::set_active_page_url(&fallback_url);
+            let (new_id, nav_url) = tab_manager.lock_safe().new_tab(&fallback_url);
+            let _ = proxy.send_event(UserEvent::SwitchTab {
+                win_id: source_win_id,
+                id: new_id,
+                url: nav_url,
+            });
+            let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
+            let _ = proxy.send_event(UserEvent::Toast(
+                "Single-window mode: opened in current window".to_string(),
+            ));
+        }
+        Some("DETACH_TAB") => {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            {
+                let (is_multi, default_url) = {
+                    let st = app_state.lock_safe();
+                    (st.config.is_multi_window(), st.config.homepage.clone())
+                };
+                if !is_multi {
+                    let _ = proxy.send_event(UserEvent::Toast(
+                        "Switch to Multi-Window mode in Settings to detach tabs".to_string(),
+                    ));
+                    return;
+                }
+                let target_tid = val["id"]
+                    .as_u64()
+                    .map(|n| n as usize)
+                    .unwrap_or(source_tab_id);
+                let (tab_url, tab_incog, can_close) = {
+                    let tm = tab_manager.lock_safe();
+                    let url = tm.url_and_scroll_for(target_tid).0;
+                    (url, tm.is_incognito(), tm.tabs.len() > 1)
+                };
+                if can_close {
+                    let outcome =
+                        tab_manager
+                            .lock_safe()
+                            .close_tab(target_tid, &default_url, true);
+                    if let Ok(Some(next_url)) = outcome {
+                        let next_id = tab_manager.lock_safe().active_id;
+                        if next_id != target_tid {
+                            let _ = proxy.send_event(UserEvent::SwitchTab {
+                                win_id: source_win_id,
+                                id: next_id,
+                                url: next_url,
+                            });
+                        }
+                    }
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
+                }
+                let _ = proxy.send_event(UserEvent::NewWindow {
+                    url: Some(tab_url),
+                    incognito: tab_incog,
+                });
+            }
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            let _ = proxy.send_event(UserEvent::Toast(
+                "Multi-window tab detach is desktop-only".to_string(),
+            ));
         }
         Some("NEW_TAB") => {
             let homepage = app_state.lock_safe().config.homepage.clone();
@@ -118,7 +208,7 @@ pub fn handle_ipc_message(
                         tm.update_tab_info(new_id, Some(t), None);
                     }
                 }
-                let _ = proxy.send_event(UserEvent::SyncTabs);
+                let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                 let _ = proxy.send_event(UserEvent::Toast("Opened in background tab".to_string()));
             } else {
                 adblock::set_active_page_url(&target);
@@ -131,10 +221,11 @@ pub fn handle_ipc_message(
                     (id, url)
                 };
                 let _ = proxy.send_event(UserEvent::SwitchTab {
+                    win_id: source_win_id,
                     id: new_id,
                     url: nav_url,
                 });
-                let _ = proxy.send_event(UserEvent::SyncTabs);
+                let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
             }
         }
         Some("REORDER_TAB") => {
@@ -145,7 +236,7 @@ pub fn handle_ipc_message(
                     .lock_safe()
                     .reorder_tab(from_id as usize, to_id as usize)
                 {
-                    let _ = proxy.send_event(UserEvent::SyncTabs);
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                 }
             }
         }
@@ -156,10 +247,11 @@ pub fn handle_ipc_message(
                 {
                     adblock::set_active_page_url(&target_url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
+                        win_id: source_win_id,
                         id: id as usize,
                         url: target_url,
                     });
-                    let _ = proxy.send_event(UserEvent::SyncTabs);
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                 }
             }
         }
@@ -168,7 +260,7 @@ pub fn handle_ipc_message(
                 if let Some(pinned) =
                     tab_manager.lock_safe().toggle_pin_tab(id as usize)
                 {
-                    let _ = proxy.send_event(UserEvent::SyncTabs);
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                     let _ = proxy.send_event(UserEvent::Toast(
                         if pinned {
                             "Tab pinned".to_string()
@@ -184,7 +276,7 @@ pub fn handle_ipc_message(
                 if let Some(active) =
                     tab_manager.lock_safe().toggle_background_play(id as usize)
                 {
-                    let _ = proxy.send_event(UserEvent::SyncTabs);
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                     let _ = proxy.send_event(UserEvent::Toast(
                         if active {
                             "Background running active (Never resets)".to_string()
@@ -193,6 +285,7 @@ pub fn handle_ipc_message(
                         },
                     ));
                     let _ = proxy.send_event(UserEvent::ToggleBackgroundPlay {
+                        win_id: source_win_id,
                         id: id as usize,
                         active,
                     });
@@ -204,8 +297,9 @@ pub fn handle_ipc_message(
                 if let Some(muted) =
                     tab_manager.lock_safe().toggle_mute_tab(id as usize)
                 {
-                    let _ = proxy.send_event(UserEvent::SyncTabs);
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                     let _ = proxy.send_event(UserEvent::ToggleTabMute {
+                        win_id: source_win_id,
                         id: id as usize,
                         muted,
                     });
@@ -220,20 +314,10 @@ pub fn handle_ipc_message(
             }
         }
         Some("GET_RESOURCE_USAGE") => {
-            #[cfg(target_os = "windows")]
-            {
-                let (ws_mb, commit_mb) = get_current_process_memory_mb();
-                let btok = serde_json::to_string(super::security::bridge_token())
-                    .unwrap_or_else(|_| "\"\"".to_string());
-                let script = format!(
-                    "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({{ host_mb: {:.1}, commit_mb: {:.1} }}, {});",
-                    ws_mb, commit_mb, btok
-                );
-                let _ = proxy.send_event(UserEvent::EvalScript(script));
-            }
+            let _ = proxy.send_event(UserEvent::RequestResourceUsage(source_win_id));
         }
         Some("FORCE_TRIM_MEMORY") => {
-            let _ = proxy.send_event(UserEvent::TrimWorkingSet);
+            let _ = proxy.send_event(UserEvent::TrimWorkingSet(source_win_id));
         }
         Some("SAVE_WORKSPACE") => {
             if let Some(name) = val["name"].as_str() {
@@ -252,10 +336,11 @@ pub fn handle_ipc_message(
                     let next_id = tab_manager.lock_safe().active_id;
                     adblock::set_active_page_url(&target_url);
                     let _ = proxy.send_event(UserEvent::ResetWorkspace {
+                        win_id: source_win_id,
                         active_id: next_id,
                         active_url: target_url,
                     });
-                    let _ = proxy.send_event(UserEvent::SyncTabs);
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                     let _ = proxy.send_event(UserEvent::Toast(format!("Workspace '{}' restored", name)));
                 }
             }
@@ -283,17 +368,21 @@ pub fn handle_ipc_message(
                         let next_id = tab_manager.lock_safe().active_id;
                         adblock::set_active_page_url(&next_url);
                         if next_id == closed_id {
-                            let _ = proxy.send_event(UserEvent::Navigate(next_url));
+                            let _ = proxy.send_event(UserEvent::Navigate {
+                                win_id: source_win_id,
+                                url: next_url,
+                            });
                         } else {
                             let _ = proxy.send_event(UserEvent::SwitchTab {
+                                win_id: source_win_id,
                                 id: next_id,
                                 url: next_url,
                             });
                         }
-                        let _ = proxy.send_event(UserEvent::SyncTabs);
+                        let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                     }
                     Ok(None) => {
-                        let _ = proxy.send_event(UserEvent::SyncTabs);
+                        let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                     }
                     Err(msg) => {
                         let _ = proxy.send_event(UserEvent::Toast(msg.to_string()));
@@ -308,10 +397,11 @@ pub fn handle_ipc_message(
                 {
                     adblock::set_active_page_url(&nav_url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
+                        win_id: source_win_id,
                         id: new_id,
                         url: nav_url,
                     });
-                    let _ = proxy.send_event(UserEvent::SyncTabs);
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                 }
             }
         }
@@ -325,11 +415,12 @@ pub fn handle_ipc_message(
                     let next_id = tab_manager.lock_safe().active_id;
                     adblock::set_active_page_url(&url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
+                        win_id: source_win_id,
                         id: next_id,
                         url,
                     });
                 }
-                let _ = proxy.send_event(UserEvent::SyncTabs);
+                let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
             }
         }
         Some("CLOSE_TABS_TO_RIGHT") => {
@@ -342,11 +433,12 @@ pub fn handle_ipc_message(
                     let next_id = tab_manager.lock_safe().active_id;
                     adblock::set_active_page_url(&url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
+                        win_id: source_win_id,
                         id: next_id,
                         url,
                     });
                 }
-                let _ = proxy.send_event(UserEvent::SyncTabs);
+                let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
             }
         }
         Some("CLOSE_ALL_TABS") => {
@@ -355,10 +447,11 @@ pub fn handle_ipc_message(
             let next_id = tab_manager.lock_safe().active_id;
             adblock::set_active_page_url(&nav_url);
             let _ = proxy.send_event(UserEvent::SwitchTab {
+                win_id: source_win_id,
                 id: next_id,
                 url: nav_url,
             });
-            let _ = proxy.send_event(UserEvent::SyncTabs);
+            let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
         }
         Some("REOPEN_CLOSED_TAB") => {
             if let Some((url, _scroll_y)) =
@@ -367,10 +460,11 @@ pub fn handle_ipc_message(
                 let next_id = tab_manager.lock_safe().active_id;
                 adblock::set_active_page_url(&url);
                 let _ = proxy.send_event(UserEvent::SwitchTab {
+                    win_id: source_win_id,
                     id: next_id,
                     url,
                 });
-                let _ = proxy.send_event(UserEvent::SyncTabs);
+                let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                 let _ = proxy.send_event(UserEvent::Toast("Reopened closed tab".to_string()));
             } else {
                 let _ = proxy.send_event(UserEvent::Toast(
@@ -384,10 +478,10 @@ pub fn handle_ipc_message(
             if matches!(norm_url.as_deref(), Some("about:blank") | Some("")) {
                 return;
             }
-            let (changed, is_active_source) = {
+            let (changed, is_active_source, tab_incog) = {
                 let mut tm = tab_manager.lock_safe();
                 let ch = tm.update_tab_info(source_tab_id, title, norm_url.as_deref());
-                (ch, tm.active_id == source_tab_id)
+                (ch, tm.active_id == source_tab_id, tm.is_incognito())
             };
             if is_active_source {
                 if let Some(ref u) = norm_url {
@@ -395,13 +489,18 @@ pub fn handle_ipc_message(
                 }
             }
             if changed {
-                let _ = proxy.send_event(UserEvent::SyncTabs);
-                let _ = proxy.send_event(UserEvent::SyncNavState(source_tab_id));
+                let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
+                let _ = proxy.send_event(UserEvent::SyncNavState {
+                    win_id: source_win_id,
+                    tab_id: source_tab_id,
+                });
             }
-            if let (Some(t), Some(u)) = (title, norm_url.as_deref()) {
-                let mut st = app_state.lock_safe();
-                if !st.config.incognito {
-                    st.userdata.record_visit(t, u);
+            if !tab_incog {
+                if let (Some(t), Some(u)) = (title, norm_url.as_deref()) {
+                    let mut st = app_state.lock_safe();
+                    if !st.config.incognito {
+                        st.userdata.record_visit(t, u);
+                    }
                 }
             }
         }
@@ -411,7 +510,7 @@ pub fn handle_ipc_message(
                     .lock_safe()
                     .set_tab_playing_audio(source_tab_id, playing)
                 {
-                    let _ = proxy.send_event(UserEvent::SyncTabs);
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                 }
             }
         }
@@ -425,7 +524,10 @@ pub fn handle_ipc_message(
         }
         Some("TOGGLE_FULLSCREEN") => {
             let explicit = val.get("force").and_then(|v| v.as_bool());
-            let _ = proxy.send_event(UserEvent::ToggleFullscreen(explicit));
+            let _ = proxy.send_event(UserEvent::ToggleFullscreen {
+                win_id: source_win_id,
+                explicit,
+            });
         }
         Some("SET_ZOOM") => {
             let new_zoom = {
@@ -451,7 +553,7 @@ pub fn handle_ipc_message(
             )));
         }
         Some("CLEAR_SITE_DATA") => {
-            let _ = proxy.send_event(UserEvent::ClearSiteData);
+            let _ = proxy.send_event(UserEvent::ClearSiteData(source_win_id));
             let _ = proxy.send_event(UserEvent::Toast(
                 "Cleared WebView cache & site data".to_string(),
             ));
@@ -858,6 +960,7 @@ pub fn handle_ipc_message(
                             locked.force_reload();
                         }
                         tab_manager.lock_safe().set_incognito(incog);
+                    let _ = proxy.send_event(UserEvent::SyncAutofill(!incog));
 
                         let _ = proxy.send_event(UserEvent::SyncAdblockFilters);
                         let _ = proxy.send_event(UserEvent::ApplyZoom(zoom));
@@ -883,19 +986,33 @@ pub fn handle_ipc_message(
             let _ = proxy.send_event(UserEvent::SyncConfig);
             let _ = proxy.send_event(UserEvent::Toast("Browsing history cleared".to_string()));
         }
+        Some("DELETE_HISTORY_ITEM") => {
+            if let Some(u) = val["url"].as_str() {
+                let removed = app_state.lock_safe().userdata.remove_history_item(u);
+                if removed {
+                    let _ = proxy.send_event(UserEvent::SyncConfig);
+                }
+            }
+        }
         Some("OPEN_DATA_DIR") => {
             #[cfg(target_os = "windows")]
             adblock::open_folder_in_explorer(data_dir());
         }
         Some("OPEN_DOWNLOADS_DIR") => {
             #[cfg(target_os = "windows")]
-            adblock::open_folder_in_explorer(&crate::config::downloads_dir());
+            {
+                let custom = app_state.lock_safe().config.downloads_dir.clone();
+                let dir = crate::config::resolved_downloads_dir(&custom);
+                adblock::open_folder_in_explorer(&dir);
+            }
         }
         Some("OPEN_DOWNLOAD_FILE") => {
             if let Some(fname) = val["filename"].as_str() {
                 #[cfg(target_os = "windows")]
                 {
-                    if !adblock::open_download_file(&crate::config::downloads_dir(), fname) {
+                    let custom = app_state.lock_safe().config.downloads_dir.clone();
+                    let dir = crate::config::resolved_downloads_dir(&custom);
+                    if !adblock::open_download_file(&dir, fname) {
                         let _ = proxy.send_event(UserEvent::Toast(
                             "File not found in Downloads".to_string(),
                         ));
@@ -906,7 +1023,7 @@ pub fn handle_ipc_message(
             }
         }
         Some("GET_TABS") => {
-            let _ = proxy.send_event(UserEvent::SyncTabs);
+            let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
         }
         Some("PATCH_HUD_PREFS") => {
             let mut config_dirty = false;
@@ -926,6 +1043,12 @@ pub fn handle_ipc_message(
                     if locked.config.adblock != v {
                         locked.config.adblock = v;
                         adblock::set_enabled(v);
+                        config_dirty = true;
+                    }
+                }
+                if let Some(v) = val["https_first"].as_bool() {
+                    if locked.config.https_first != v {
+                        locked.config.https_first = v;
                         config_dirty = true;
                     }
                 }
@@ -951,6 +1074,17 @@ pub fn handle_ipc_message(
                     let norm_mode = raw_mode.trim().to_ascii_lowercase();
                     if !norm_mode.is_empty() && locked.config.active_mode != norm_mode {
                         locked.config.active_mode = norm_mode;
+                        config_dirty = true;
+                    }
+                }
+                if let Some(raw_wmode) = val["window_mode"].as_str() {
+                    let norm_wm = if raw_wmode.trim().eq_ignore_ascii_case("single") {
+                        "single"
+                    } else {
+                        "multi"
+                    };
+                    if locked.config.window_mode != norm_wm {
+                        locked.config.window_mode = norm_wm.to_string();
                         config_dirty = true;
                     }
                 }
@@ -1018,6 +1152,39 @@ pub fn handle_ipc_message(
                                 config_dirty = true;
                             }
                         }
+                    }
+                }
+                if let Some(preset_raw) = val["perf_preset"].as_str() {
+                    let norm_p = AppConfig::normalize_perf_preset(preset_raw);
+                    if norm_p != "custom" {
+                        locked.config.apply_perf_preset(norm_p);
+                        config_dirty = true;
+                    } else if locked.config.perf_preset != "custom" {
+                        locked.config.perf_preset = "custom".to_string();
+                        config_dirty = true;
+                    }
+                }
+                let perf_bools: [ConfigBoolSlot; 5] = [
+                    ("efficiency_mode", |c| &mut c.efficiency_mode),
+                    ("auto_trim_ram", |c| &mut c.auto_trim_ram),
+                    ("enforce_perf", |c| &mut c.enforce_perf),
+                    ("reduce_animations", |c| &mut c.reduce_animations),
+                    ("hw_accel", |c| &mut c.hw_accel),
+                ];
+                for (key, slot) in perf_bools {
+                    if let Some(v) = val[key].as_bool() {
+                        let target = slot(&mut locked.config);
+                        if *target != v {
+                            *target = v;
+                            config_dirty = true;
+                        }
+                    }
+                }
+                if let Some(mins) = val["tab_sleep_minutes"].as_u64() {
+                    let clamped = (mins as u32).min(240);
+                    if locked.config.tab_sleep_minutes != clamped {
+                        locked.config.tab_sleep_minutes = clamped;
+                        config_dirty = true;
                     }
                 }
                 if let Some(mode_raw) = val["tab_cache_mode"].as_str() {
@@ -1140,6 +1307,7 @@ pub fn handle_ipc_message(
 
             if let Some(incog) = next_incognito {
                 tab_manager.lock_safe().set_incognito(incog);
+                let _ = proxy.send_event(UserEvent::SyncAutofill(!incog));
             }
             if config_dirty || styles_dirty || rules_dirty {
                 let _ = proxy.send_event(UserEvent::SyncConfig);
@@ -1151,8 +1319,7 @@ pub fn handle_ipc_message(
                     serde_json::from_value::<AppConfig>(cfg_val.clone())
                 {
                     new_cfg.default_zoom = new_cfg.default_zoom.clamp(0.5, 2.5);
-                    new_cfg.tab_cache_mode =
-                        AppConfig::normalize_tab_cache_mode(&new_cfg.tab_cache_mode).to_string();
+                    new_cfg.sanitize_perf_fields();
                     adblock::set_enabled(new_cfg.adblock);
                     let zoom = new_cfg.default_zoom;
                     let ua = new_cfg.resolved_user_agent();
@@ -1165,6 +1332,7 @@ pub fn handle_ipc_message(
                     drop(locked);
 
                     tab_manager.lock_safe().set_incognito(incog);
+                    let _ = proxy.send_event(UserEvent::SyncAutofill(!incog));
                     let _ = proxy.send_event(UserEvent::ApplyZoom(zoom));
                     let _ = proxy.send_event(UserEvent::UpdateUserAgent(ua));
                     let _ = proxy.send_event(UserEvent::SyncConfig);
@@ -1203,35 +1371,41 @@ pub fn handle_ipc_message(
             let _ = proxy.send_event(UserEvent::SyncConfig);
         }
         Some("WINDOW_DRAG") => {
-            let _ = proxy.send_event(UserEvent::WindowDrag);
+            let _ = proxy.send_event(UserEvent::WindowDrag(source_win_id));
         }
         Some("WINDOW_MINIMIZE") => {
-            let _ = proxy.send_event(UserEvent::WindowMinimize);
+            let _ = proxy.send_event(UserEvent::WindowMinimize(source_win_id));
         }
         Some("WINDOW_MAXIMIZE") => {
-            let _ = proxy.send_event(UserEvent::WindowMaximize);
+            let _ = proxy.send_event(UserEvent::WindowMaximize(source_win_id));
         }
         Some("WINDOW_CLOSE") => {
-            let _ = proxy.send_event(UserEvent::WindowClose);
+            let _ = proxy.send_event(UserEvent::WindowClose(source_win_id));
         }
         Some("GO_BACK") => {
-            let _ = proxy.send_event(UserEvent::GoBack);
+            let _ = proxy.send_event(UserEvent::GoBack(source_win_id));
         }
         Some("GO_FORWARD") => {
-            let _ = proxy.send_event(UserEvent::GoForward);
+            let _ = proxy.send_event(UserEvent::GoForward(source_win_id));
         }
         Some("SYNC_NAV_STATE") => {
-            let _ = proxy.send_event(UserEvent::SyncNavState(source_tab_id));
+            let _ = proxy.send_event(UserEvent::SyncNavState {
+                win_id: source_win_id,
+                tab_id: source_tab_id,
+            });
         }
         Some("RELOAD") => {
-            let _ = proxy.send_event(UserEvent::Reload);
+            let _ = proxy.send_event(UserEvent::Reload(source_win_id));
         }
         Some("OPEN_DEVTOOLS") => {
-            let _ = proxy.send_event(UserEvent::OpenDevtools);
+            let _ = proxy.send_event(UserEvent::OpenDevtools(source_win_id));
         }
         Some("RELOAD_TAB") => {
             if let Some(id) = val["id"].as_u64() {
-                let _ = proxy.send_event(UserEvent::ReloadTab(id as usize));
+                let _ = proxy.send_event(UserEvent::ReloadTab {
+                    win_id: source_win_id,
+                    id: id as usize,
+                });
             }
         }
         _ => {}
@@ -1247,13 +1421,18 @@ fn export_json_with_toast(
     match export_json_to_downloads(filename, json) {
         Ok(saved_path) => {
             #[cfg(target_os = "android")]
-            let _ = proxy.send_event(UserEvent::EvalScript(
-                "if(window.__fynexo_android__&&typeof window.__fynexo_android__.flushPendingExports==='function'){window.__fynexo_android__.flushPendingExports();}".to_string(),
-            ));
+            let _ = proxy.send_event(UserEvent::EvalScript {
+                win_id: 1,
+                script: "if(window.__fynexo_android__&&typeof window.__fynexo_android__.flushPendingExports==='function'){window.__fynexo_android__.flushPendingExports();}".to_string(),
+            });
             let name_only = saved_path
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or(filename);
+            let _ = proxy.send_event(UserEvent::DownloadUpdate {
+                name: name_only.to_string(),
+                status: "completed".to_string(),
+            });
             let _ = proxy.send_event(UserEvent::Toast(format!(
                 "{} {} to Downloads",
                 action_label, name_only
