@@ -21,6 +21,10 @@ __FNX_SETTINGS_CSS__
                     <button type="button" class="action-btn compact" id="btnSettingsLang" title="切换界面语言 / Switch UI language" style="margin-left: auto;">中文 · EN</button>
                 </div>
 
+                <div style="padding: 0 4px;">
+                    <input type="text" id="inputSettingsSearch" class="text-input" placeholder="🔍 搜索设置项..." style="width: 100%; height: 30px; font-size: 12px;">
+                </div>
+
                 <nav class="nav-list" id="sidebarNav" aria-label="Settings sections">
                     <div class="nav-group-label">Interface</div>
                     <button type="button" class="nav-link active" data-sec="sec-appearance">
@@ -36,6 +40,10 @@ __FNX_SETTINGS_CSS__
                     <button type="button" class="nav-link" data-sec="sec-general">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="5.5" cy="4.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="8" r="1.2" fill="currentColor"/><circle cx="6.5" cy="11.5" r="1.2" fill="currentColor"/></svg>
                         <span>Browsing &amp; tabs</span>
+                    </button>
+                    <button type="button" class="nav-link" data-sec="sec-modes">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.35"/><path d="M9 4.8h4.5M2.5 11.2H7M9 11.2h4.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/><circle cx="11.2" cy="4.8" r="1.3" fill="currentColor"/></svg>
+                        <span>Contextual modes</span>
                     </button>
                     <button type="button" class="nav-link" data-sec="sec-search">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7.2" cy="7.2" r="4.4" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5L13.6 13.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -195,6 +203,44 @@ __FNX_SETTINGS_CSS__
                             <button type="button" id="btnRestoreToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Restore session"></button>
                         </div>
                     </div>
+                    <div class="set-block" style="border-top: 1px solid var(--fnx-hairline); margin-top: 8px; padding-top: 12px;">
+                        <div class="set-block-head">
+                            <div>
+                                <div class="set-label" id="lblWorkspaces">Workspace snapshots</div>
+                                <div class="set-hint" id="hintWorkspaces">Save all open tabs as a named snapshot and restore it anytime.</div>
+                            </div>
+                        </div>
+                        <div class="rc-table">
+                            <div class="rc-rows" id="workspacesTable"></div>
+                            <div class="rc-add-row">
+                                <input type="text" id="inputWsName" class="text-input" placeholder="Snapshot name..." maxlength="64">
+                                <button type="button" class="action-btn compact" id="btnSaveWorkspace">Save current tabs</button>
+                            </div>
+                        </div>
+                    </div>                </section>
+
+                <!-- 2B. Contextual Modes & Auto-Triggers -->
+                <section class="sec-block" id="sec-modes">
+                    <div class="sec-header">
+                        <div>
+                            <h2 class="sec-title">Contextual Modes &amp; Auto-Triggers</h2>
+                            <p class="sec-desc">Configure per-mode feature switches and auto-trigger domain patterns (e.g. auto-enter Developer Mode on localhost).</p>
+                        </div>
+                        <div class="sec-actions">
+                            <button type="button" class="action-btn compact" id="btnResetModeProfiles">Reset defaults</button>
+                            <button type="button" class="action-btn compact" id="btnAddModeProfile">+ New Mode</button>
+                        </div>
+                    </div>
+
+                    <div class="set-row align-top">
+                        <div class="set-meta">
+                            <div class="set-label" id="lblActiveModeStrat">Mode Activation Strategy</div>
+                            <div class="set-hint" id="hintActiveModeStrat">Auto switches modes automatically when entering matching sites; or lock onto a single mode globally.</div>
+                        </div>
+                        <div class="set-ctrl" id="activeModeSelectGroup" style="max-width: 440px; flex-wrap: wrap; justify-content: flex-end;"></div>
+                    </div>
+
+                    <div id="modeProfilesContainer" style="display: flex; flex-direction: column; gap: 14px; margin-top: 12px;"></div>
                 </section>
 
                 <!-- 3. Search & !Bangs (Raycast Inline Compact Tables) -->

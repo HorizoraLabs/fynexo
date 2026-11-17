@@ -20,7 +20,9 @@
             ['preferences', 'Toggle Preferences', 'Jump to or leave Preferences', '打开偏好设置', '一键进入浏览器设置界面'],
             ['zoom_in', 'Zoom in', 'Increase page scale by 10%', '放大网页文字与画面', '整体缩放比例 +10%'],
             ['zoom_out', 'Zoom out', 'Decrease page scale by 10%', '缩小网页文字与画面', '整体缩放比例 -10%'],
-            ['zoom_reset', 'Reset zoom (100%)', 'Restore default 100% scale', '恢复默认缩放 (100%)', '重置回原始网页大小']
+            ['zoom_reset', 'Reset zoom (100%)', 'Restore default 100% scale', '恢复默认缩放 (100%)', '重置回原始网页大小'],
+            ['devtools', 'Open native DevTools', 'Open browser F12 inspector window', '打开原生开发者工具 (F12)', '呼出系统 WebView 完整调试窗口'],
+            ['dev_drawer', 'Toggle Fynexo DevDrawer', 'Open built-in Console, Network, Storage & DOM drawer', '开关内置开发者抽屉', '呼出内置控制台、网络耗时、存储与源码调试面板']
         ];
         const COLOR_TOKEN_DEFS = [
             ['bg', 'Canvas bg', '全局底色'],
@@ -1816,6 +1818,14 @@
                 descZh: '设置新标签页打开地址、网页默认大小、设备伪装，以及重启是否恢复网页。',
                 descEn: 'Homepage, User-Agent spoofing, page zoom, Zero-FX rendering, and session restore.'
             },
+            'sec-modes': {
+                navZh: '场景模式与自动切换',
+                navEn: 'Contextual modes',
+                titleZh: '场景模式与网站自动切换',
+                titleEn: 'Contextual Modes & Auto-Triggers',
+                descZh: '为开发、学习、影音等不同场景定制专属功能开关，并设定进入哪些网站（如 localhost）时自动切换到该模式。',
+                descEn: 'Configure per-mode feature switches and auto-trigger domain patterns (e.g. auto-enter Developer Mode on localhost).'
+            },
             'sec-search': {
                 navZh: '搜索与 !指令',
                 navEn: 'Search & !bangs',
@@ -2074,6 +2084,265 @@
             showToast(zh ? `已填入积木：${block.nameZh}` : `Added block: ${block.nameEn}`);
         }
 
+        const MODE_FEATURE_DEFS = [
+            ['adblock', '🛡️ 广告拦截', '🛡️ Adblock Shield'],
+            ['force_dark', '🌙 智能夜间', '🌙 Force Dark'],
+            ['ext_side_panel', '📑 侧边栏工具', '📑 Side Panel'],
+            ['ext_reader_mode', '📖 纯净阅读', '📖 Reader Mode'],
+            ['ext_gh_harmonizer', '🐙 GitHub 美化', '🐙 GitHub Fix'],
+            ['ext_yt_ad_skipper', '▶️ YT 去广告', '▶️ YT Ad Skip'],
+            ['ext_media_booster', '🔊 音量增强', '🔊 Audio Boost'],
+            ['ext_userscript_engine', '📜 油猴脚本', '📜 ScriptForge'],
+            ['ext_mouse_gestures', '🖱️ 鼠标手势', '🖱️ Gestures'],
+            ['dev_drawer_access', '🛠️ 开发者抽屉菜单', '🛠️ DevDrawer Menu'],
+            ['fps_hud', '📊 FPS 帧率监视', '📊 FPS Overlay']
+        ];
+
+        function ensureModeProfilesList() {
+            if (!Array.isArray(config.mode_profiles) || config.mode_profiles.length === 0) {
+                const defs = typeof DEFAULT_MODE_PROFILES !== 'undefined' ? DEFAULT_MODE_PROFILES : [];
+                config.mode_profiles = JSON.parse(JSON.stringify(defs));
+            }
+            return config.mode_profiles;
+        }
+
+        function renderModeProfilesSection() {
+            const zh = isZh();
+            const stratEl = document.getElementById('activeModeSelectGroup');
+            const listEl = document.getElementById('modeProfilesContainer');
+            if (!stratEl || !listEl) return;
+
+            setPlainRowI18n(document.getElementById('lblActiveModeStrat'), '当前模式触发策略', 'Mode Activation Strategy');
+            setPlainRowI18n(document.getElementById('hintActiveModeStrat'), '选“自动切换”后，进入对应模式配置的域名时将自动启用；也可以全局强制锁定在单一模式。', 'Auto switches modes automatically when entering matching sites; or lock onto a single mode globally.');
+            setPlainRowI18n(document.getElementById('btnAddModeProfile'), '+ 新建自定义模式', '+ New Mode');
+            setPlainRowI18n(document.getElementById('btnResetModeProfiles'), '恢复默认模式', 'Reset defaults');
+
+            const profiles = ensureModeProfilesList();
+            const curPref = String(config.active_mode || 'auto').toLowerCase();
+
+            stratEl.textContent = '';
+            const stratItems = [
+                { id: 'auto', label: zh ? '✨ 自动按网站切换 (推荐)' : '✨ Auto by Site' },
+                { id: 'default', label: zh ? '日常标准 (无特殊模式)' : 'Standard (No Mode)' }
+            ];
+            profiles.forEach((p) => {
+                if (!p || !p.id) return;
+                const nm = zh ? (p.name_zh || p.name_en) : (p.name_en || p.name_zh);
+                stratItems.push({ id: p.id, label: (p.icon ? p.icon + ' ' : '') + nm });
+            });
+            stratItems.forEach((it) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = curPref === String(it.id).toLowerCase() ? 'preset-chip active' : 'preset-chip';
+                btn.style.fontWeight = curPref === String(it.id).toLowerCase() ? '600' : '500';
+                if (curPref === String(it.id).toLowerCase()) {
+                    btn.style.borderColor = 'var(--fnx-accent)';
+                    btn.style.color = 'var(--fnx-fg)';
+                }
+                btn.textContent = it.label;
+                btn.onclick = () => {
+                    config.active_mode = it.id;
+                    renderModeProfilesSection();
+                    saveConfig((zh ? '模式切换：' : 'Active mode: ') + it.label);
+                };
+                stratEl.appendChild(btn);
+            });
+
+            listEl.textContent = '';
+            const frag = document.createDocumentFragment();
+            profiles.forEach((p, idx) => {
+                const card = document.createElement('div');
+                card.className = 'set-block';
+                card.style.cssText = 'border: 1px solid var(--fnx-hairline); border-radius: 12px; padding: 14px; background: var(--fnx-surface); gap: 12px;';
+
+                const headRow = document.createElement('div');
+                headRow.className = 'set-block-head';
+                headRow.style.gap = '10px';
+                headRow.style.flexWrap = 'wrap';
+
+                const titleWrap = document.createElement('div');
+                titleWrap.style.cssText = 'display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px;';
+                const iconInp = document.createElement('input');
+                iconInp.type = 'text';
+                iconInp.className = 'text-input';
+                iconInp.style.cssText = 'width: 44px; text-align: center; padding: 4px;';
+                iconInp.value = p.icon || '✨';
+                iconInp.onchange = () => {
+                    p.icon = iconInp.value.trim() || '✨';
+                    renderModeProfilesSection();
+                    saveConfig(zh ? '已更新模式图标' : 'Updated mode icon');
+                };
+                const nameInp = document.createElement('input');
+                nameInp.type = 'text';
+                nameInp.className = 'text-input';
+                nameInp.style.cssText = 'max-width: 220px; font-weight: 600;';
+                nameInp.value = zh ? (p.name_zh || p.name_en) : (p.name_en || p.name_zh);
+                nameInp.onchange = () => {
+                    const v = nameInp.value.trim();
+                    if (!v) return;
+                    if (zh) p.name_zh = v;
+                    else p.name_en = v;
+                    renderModeProfilesSection();
+                    saveConfig((zh ? '已重命名模式：' : 'Renamed mode: ') + v);
+                };
+                const idTag = document.createElement('span');
+                idTag.className = 'field-tag';
+                idTag.textContent = p.id;
+                titleWrap.appendChild(iconInp);
+                titleWrap.appendChild(nameInp);
+                titleWrap.appendChild(idTag);
+                headRow.appendChild(titleWrap);
+
+                if (profiles.length > 1) {
+                    const delModeBtn = document.createElement('button');
+                    delModeBtn.type = 'button';
+                    delModeBtn.className = 'action-btn compact';
+                    delModeBtn.textContent = zh ? '删除模式' : 'Remove';
+                    delModeBtn.onclick = () => {
+                        if (String(config.active_mode || '').toLowerCase() === String(p.id).toLowerCase()) {
+                            config.active_mode = 'auto';
+                        }
+                        config.mode_profiles.splice(idx, 1);
+                        renderModeProfilesSection();
+                        saveConfig(zh ? '已删除场景模式' : 'Removed mode profile');
+                    };
+                    headRow.appendChild(delModeBtn);
+                }
+                card.appendChild(headRow);
+
+                // Feature toggle chips (11 toggles)
+                const featBox = document.createElement('div');
+                featBox.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
+                const featLbl = document.createElement('div');
+                featLbl.className = 'set-hint';
+                featLbl.textContent = zh ? '该模式下启用的功能（点击随时自由调整开启/关闭）：' : 'Features active in this mode (click to customize):';
+                const featChips = document.createElement('div');
+                featChips.className = 'preset-chips';
+                MODE_FEATURE_DEFS.forEach(([key, zhL, enL]) => {
+                    const on = !!p[key];
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'preset-chip';
+                    b.textContent = (on ? '✓ ' : '✕ ') + (zh ? zhL : enL);
+                    b.style.borderColor = on ? 'var(--fnx-accent)' : 'var(--fnx-hairline)';
+                    b.style.color = on ? 'var(--fnx-fg)' : 'var(--fnx-secondary)';
+                    b.style.opacity = on ? '1' : '0.62';
+                    b.onclick = () => {
+                        p[key] = !on;
+                        renderModeProfilesSection();
+                        saveConfig(`${zh ? zhL : enL}: ${p[key] ? (zh ? '已开启' : 'ON') : (zh ? '已关闭' : 'OFF')}`);
+                    };
+                    featChips.appendChild(b);
+                });
+                featBox.appendChild(featLbl);
+                featBox.appendChild(featChips);
+                card.appendChild(featBox);
+
+                // Contextual theme & topbar layout binding
+                const skinRow = document.createElement('div');
+                skinRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding-top: 6px; border-top: 1px solid var(--fnx-hairline);';
+                const mkSelect = (labelZh, labelEn, options, cur, onPick) => {
+                    const wrap = document.createElement('label');
+                    wrap.style.cssText = 'display: inline-flex; align-items: center; gap: 8px;';
+                    const sp = document.createElement('span');
+                    sp.className = 'set-hint';
+                    sp.textContent = zh ? labelZh : labelEn;
+                    const sel = document.createElement('select');
+                    sel.className = 'text-input';
+                    sel.style.cssText = 'max-width: 190px;';
+                    options.forEach(([val, zhT, enT]) => {
+                        const o = document.createElement('option');
+                        o.value = val;
+                        o.textContent = zh ? zhT : enT;
+                        if (val === (cur || '')) o.selected = true;
+                        sel.appendChild(o);
+                    });
+                    sel.onchange = () => onPick(sel.value);
+                    wrap.appendChild(sp);
+                    wrap.appendChild(sel);
+                    return wrap;
+                };
+                const themeOpts = [['', '跟随全局', 'Follow global']];
+                if (typeof BUILTIN_THEME_COLORS !== 'undefined') {
+                    themes.forEach((th) => {
+                        if (th && th.id && BUILTIN_THEME_COLORS[th.id]) themeOpts.push([th.id, th.name || th.id, th.name || th.id]);
+                    });
+                }
+                skinRow.appendChild(mkSelect('专属主题', 'Theme', themeOpts, p.theme, (v) => {
+                    p.theme = v;
+                    saveConfig(zh ? '已更新模式专属主题' : 'Updated mode theme');
+                }));
+                skinRow.appendChild(mkSelect('专属顶栏布局', 'Topbar layout', [
+                    ['', '跟随全局', 'Follow global'],
+                    ['deck', '双层', 'Deck'],
+                    ['compact', '单行紧凑', 'Compact'],
+                    ['vertical', '左侧竖排', 'Vertical']
+                ], p.layout, (v) => {
+                    p.layout = v;
+                    saveConfig(zh ? '已更新模式专属顶栏布局' : 'Updated mode layout');
+                }));
+                card.appendChild(skinRow);
+                // Auto-trigger domains chips + add input
+                const domBox = document.createElement('div');
+                domBox.style.cssText = 'display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid var(--fnx-hairline);';
+                const domLbl = document.createElement('div');
+                domLbl.className = 'set-hint';
+                domLbl.textContent = zh ? '进入以下网站时自动切换到该模式（点击 × 移除，支持 localhost / *.github.com 等）：' : 'Auto-activate when visiting domains (supports localhost, *.github.com, etc.):';
+                const domChips = document.createElement('div');
+                domChips.className = 'preset-chips';
+                const domList = Array.isArray(p.auto_domains) ? p.auto_domains : (p.auto_domains = []);
+                domList.forEach((d, dIdx) => {
+                    const dc = document.createElement('button');
+                    dc.type = 'button';
+                    dc.className = 'preset-chip mono';
+                    dc.textContent = `${d} ×`;
+                    dc.title = zh ? '点击移除该网站匹配规则' : 'Click to remove domain';
+                    dc.onclick = () => {
+                        domList.splice(dIdx, 1);
+                        renderModeProfilesSection();
+                        saveConfig(zh ? `已移除自动触发域名：${d}` : `Removed ${d}`);
+                    };
+                    domChips.appendChild(dc);
+                });
+                const domAddRow = document.createElement('div');
+                domAddRow.className = 'rc-add-row';
+                domAddRow.style.padding = '4px 0 0 0';
+                const domInp = document.createElement('input');
+                domInp.type = 'text';
+                domInp.className = 'text-input mono';
+                domInp.style.maxWidth = '240px';
+                domInp.placeholder = zh ? '例如 localhost 或 *.bilibili.com' : 'e.g. localhost or *.github.com';
+                const domAddBtn = document.createElement('button');
+                domAddBtn.type = 'button';
+                domAddBtn.className = 'action-btn compact';
+                domAddBtn.textContent = zh ? '+ 添加匹配网站' : '+ Add Site';
+                const addDomFn = () => {
+                    const clean = domInp.value.trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
+                    if (!clean) return;
+                    if (!domList.includes(clean)) domList.push(clean);
+                    domInp.value = '';
+                    renderModeProfilesSection();
+                    saveConfig((zh ? '已添加到模式触发域名：' : 'Added trigger domain: ') + clean);
+                };
+                domAddBtn.onclick = addDomFn;
+                domInp.onkeydown = (ev) => {
+                    if (ev.key === 'Enter') {
+                        ev.preventDefault();
+                        addDomFn();
+                    }
+                };
+                domAddRow.appendChild(domInp);
+                domAddRow.appendChild(domAddBtn);
+                domBox.appendChild(domLbl);
+                domBox.appendChild(domChips);
+                domBox.appendChild(domAddRow);
+                card.appendChild(domBox);
+
+                frag.appendChild(card);
+            });
+            listEl.appendChild(frag);
+        }
+
         function setPlainRowI18n(el, zhText, enText) {
             if (!el) return;
             if (!el.dataset.enText) el.dataset.enText = el.textContent;
@@ -2088,6 +2357,12 @@
             const langBtn = document.getElementById('btnSettingsLang');
             if (langBtn) {
                 langBtn.textContent = zh ? '中文 · 切换 EN' : 'EN · 切换中文';
+            }
+            const searchInp = document.getElementById('inputSettingsSearch');
+            if (searchInp) {
+                searchInp.placeholder = zh
+                    ? '🔍 搜索设置 (深色 / 端口 / 手势)...'
+                    : '🔍 Search settings...';
             }
 
             const navGroups = document.querySelectorAll('.nav-group-label');
@@ -2982,12 +3257,63 @@
         // Cursor-style Real Single-View Switching
         const navLinks = Array.from(document.querySelectorAll('.nav-link'));
         const viewBlocks = Array.from(document.querySelectorAll('.sec-block'));
+        const settingsSearchInp = document.getElementById('inputSettingsSearch');
 
-        function switchSettingsView(secId, updateHash) {
+        function applySettingsSearchFilter(rawQ) {
+            const q = String(rawQ || '').trim().toLowerCase();
+            if (!q) {
+                viewBlocks.forEach(sec => {
+                    sec.querySelectorAll('.set-row').forEach(r => { r.style.display = ''; });
+                });
+                const activeNav = navLinks.find(l => l.classList.contains('active'));
+                switchSettingsView((activeNav && activeNav.dataset.sec) || 'sec-appearance', false, true);
+                return;
+            }
+            viewBlocks.forEach(sec => {
+                const rows = Array.from(sec.querySelectorAll('.set-row'));
+                let anyMatch = false;
+                if (rows.length > 0) {
+                    rows.forEach(r => {
+                        const hit = (r.textContent || '').toLowerCase().includes(q);
+                        r.style.display = hit ? '' : 'none';
+                        if (hit) anyMatch = true;
+                    });
+                } else {
+                    anyMatch = (sec.textContent || '').toLowerCase().includes(q);
+                }
+                if (!anyMatch) {
+                    const secTitle = (sec.querySelector('.sec-title')?.textContent || '').toLowerCase();
+                    if (secTitle.includes(q)) {
+                        anyMatch = true;
+                        rows.forEach(r => { r.style.display = ''; });
+                    }
+                }
+                sec.classList.toggle('active', anyMatch);
+            });
+        }
+        if (settingsSearchInp) {
+            settingsSearchInp.addEventListener('input', () => {
+                applySettingsSearchFilter(settingsSearchInp.value);
+            });
+        }
+
+        function switchSettingsView(secId, updateHash, keepSearch) {
+            if (!keepSearch && settingsSearchInp && settingsSearchInp.value) {
+                settingsSearchInp.value = '';
+                viewBlocks.forEach(sec => {
+                    sec.querySelectorAll('.set-row').forEach(r => { r.style.display = ''; });
+                });
+            }
             const target = viewBlocks.find(v => v.id === secId) || viewBlocks[0];
             if (!target) return;
             viewBlocks.forEach(v => v.classList.toggle('active', v === target));
             navLinks.forEach(l => l.classList.toggle('active', l.dataset.sec === target.id));
+            const activeLink = navLinks.find(l => l.dataset.sec === target.id);
+            if (activeLink && typeof activeLink.scrollIntoView === 'function') {
+                try {
+                    activeLink.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                } catch (_) {}
+            }
             window.scrollTo(0, 0);
             if (updateHash && history && history.replaceState) {
                 history.replaceState(null, '', '#' + target.id);
@@ -3075,9 +3401,102 @@
         document.getElementById('inputCloudSearch').oninput = () => renderCloudExtensions();
         document.getElementById('selectCloudCategory').onchange = () => renderCloudExtensions();
 
+        document.getElementById('btnAddModeProfile').onclick = () => {
+            const profiles = ensureModeProfilesList();
+            const zh = isZh();
+            const n = profiles.length + 1;
+            const slug = 'custom-' + (Date.now() % 10000);
+            profiles.push({
+                id: slug,
+                name_zh: `自定义模式 ${n}`,
+                name_en: `Custom Mode ${n}`,
+                icon: '⚡',
+                auto_domains: [],
+                adblock: true,
+                force_dark: false,
+                ext_side_panel: false,
+                ext_reader_mode: false,
+                ext_yt_ad_skipper: false,
+                ext_gh_harmonizer: false,
+                ext_media_booster: false,
+                ext_userscript_engine: true,
+                ext_mouse_gestures: true,
+                dev_drawer_access: true,
+                fps_hud: false
+            });
+            renderModeProfilesSection();
+            saveConfig(zh ? '已新建自定义场景模式' : 'Created new mode profile');
+        };
+        document.getElementById('btnResetModeProfiles').onclick = () => {
+            const defs = typeof DEFAULT_MODE_PROFILES !== 'undefined' ? DEFAULT_MODE_PROFILES : [];
+            config.mode_profiles = JSON.parse(JSON.stringify(defs));
+            config.active_mode = 'auto';
+            renderModeProfilesSection();
+            saveConfig(isZh() ? '已恢复默认场景模式配置' : 'Reset mode profiles to defaults');
+        };
+
+        let workspaces = Array.isArray(boot.workspaces) ? boot.workspaces : [];
+        function renderWorkspacesTable() {
+            const zh = isZh();
+            const box = document.getElementById('workspacesTable');
+            if (!box) return;
+            setPlainRowI18n(document.getElementById('lblWorkspaces'), '标签页工作区快照', 'Workspace snapshots');
+            setPlainRowI18n(document.getElementById('hintWorkspaces'), '把当前所有标签页保存为命名快照，随时一键恢复（例如“工作”“学习”）。', 'Save all open tabs as a named snapshot and restore it anytime.');
+            setPlainRowI18n(document.getElementById('btnSaveWorkspace'), '保存当前标签页', 'Save current tabs');
+            const inp = document.getElementById('inputWsName');
+            if (inp) inp.placeholder = zh ? '快照名称…' : 'Snapshot name...';
+            box.textContent = '';
+            if (!workspaces.length) {
+                const empty = document.createElement('div');
+                empty.className = 'set-hint';
+                empty.style.padding = '8px 2px';
+                empty.textContent = zh ? '暂无快照' : 'No snapshots yet';
+                box.appendChild(empty);
+                return;
+            }
+            workspaces.forEach((w) => {
+                if (!w || !w.name) return;
+                const row = document.createElement('div');
+                row.className = 'rc-row';
+                const nm = document.createElement('span');
+                nm.className = 'rc-cell';
+                nm.style.flex = '1';
+                const count = Array.isArray(w.tabs) ? w.tabs.length : 0;
+                nm.textContent = w.name + '  ·  ' + count + (zh ? ' 个标签页' : ' tabs');
+                const restore = document.createElement('button');
+                restore.type = 'button';
+                restore.className = 'action-btn compact';
+                restore.textContent = zh ? '恢复' : 'Restore';
+                restore.onclick = () => sendIpc({ type: 'LOAD_WORKSPACE', name: w.name });
+                const del = document.createElement('button');
+                del.type = 'button';
+                del.className = 'action-btn compact';
+                del.textContent = zh ? '删除' : 'Delete';
+                del.onclick = () => sendIpc({ type: 'DELETE_WORKSPACE', name: w.name });
+                row.appendChild(nm);
+                row.appendChild(restore);
+                row.appendChild(del);
+                box.appendChild(row);
+            });
+        }
+        (function () {
+            const saveBtn = document.getElementById('btnSaveWorkspace');
+            const inp = document.getElementById('inputWsName');
+            if (!saveBtn || !inp) return;
+            const doSave = () => {
+                const name = inp.value.trim();
+                if (!name) return;
+                sendIpc({ type: 'SAVE_WORKSPACE', name: name });
+                inp.value = '';
+            };
+            saveBtn.onclick = doSave;
+            inp.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); doSave(); } };
+        })();
         function renderAllSections() {
+            renderWorkspacesTable();
             renderThemeGrid();
             renderColorTokensStudio();
+            renderModeProfilesSection();
             renderEngineTable();
             renderBangsTable();
             renderShortcutsTable();
@@ -3102,6 +3521,7 @@
             if (payload.active_theme) activeTheme = payload.active_theme;
             if (Array.isArray(payload.themes)) themes = payload.themes;
             if (Array.isArray(payload.bookmarks)) bookmarks = payload.bookmarks;
+            if (Array.isArray(payload.workspaces)) workspaces = payload.workspaces;
             if (Array.isArray(payload.site_rules)) siteRules = payload.site_rules;
             if (payload.adblock) adblockCfg = payload.adblock;
             if (payload.keybinds) keybinds = Object.assign({}, DEFAULT_KEYBINDS, payload.keybinds);

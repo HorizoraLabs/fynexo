@@ -29,7 +29,7 @@ WRY_ANDROID_KOTLIN_FILES_OUT_DIR = "<android-project-dir>/app/src/main/kotlin/co
 
 [dependencies]
 tao = "0.37.2"
-wry = "0.57.1"
+wry = { version = "0.57.1", features = ["devtools"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 

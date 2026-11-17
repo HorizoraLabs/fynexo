@@ -552,6 +552,9 @@
                     position: fixed !important;
                     z-index: 2147483647 !important;
                     max-width: calc(100vw - 16px);
+                    max-height: calc(100dvh - 64px);
+                    overflow-y: auto;
+                    overscroll-behavior: contain;
                     background: var(--fnx-panel);
                     border: 1px solid var(--fnx-border-hover);
                     border-radius: 10px;
@@ -561,10 +564,10 @@
                     flex-direction: column;
                     padding: 4px;
                     color: var(--fnx-fg);
-                    animation: fnxPopoverIn 0.1s cubic-bezier(0.16, 1, 0.3, 1);
+                    animation: fnxPopoverIn 0.14s cubic-bezier(0.22, 1, 0.36, 1);
                 }
                 .fnx-nav-popover--up {
-                    animation: fnxPopoverUpIn 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+                    animation: fnxPopoverUpIn 0.14s cubic-bezier(0.22, 1, 0.36, 1);
                 }
                 .fnx-nav-popover--panel {
                     padding: 0;

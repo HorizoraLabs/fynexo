@@ -103,6 +103,162 @@ fn default_language() -> String {
     "zh".to_string()
 }
 
+fn default_active_mode() -> String {
+    "auto".to_string()
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct BrowserModeProfile {
+    pub id: String,
+    pub name_zh: String,
+    pub name_en: String,
+    pub icon: String,
+    pub auto_domains: Vec<String>,
+    pub adblock: bool,
+    pub force_dark: bool,
+    pub ext_side_panel: bool,
+    pub ext_reader_mode: bool,
+    pub ext_yt_ad_skipper: bool,
+    pub ext_gh_harmonizer: bool,
+    pub ext_media_booster: bool,
+    pub ext_userscript_engine: bool,
+    pub ext_mouse_gestures: bool,
+    #[serde(default = "default_true")]
+    pub dev_drawer_access: bool,
+    #[serde(default)]
+    pub fps_hud: bool,
+    #[serde(default)]
+    pub theme: String,
+    #[serde(default)]
+    pub layout: String,
+}
+
+impl Default for BrowserModeProfile {
+    fn default() -> Self {
+        Self {
+            id: "custom".to_string(),
+            name_zh: "自定义模式".to_string(),
+            name_en: "Custom Mode".to_string(),
+            icon: "✨".to_string(),
+            auto_domains: Vec::new(),
+            adblock: true,
+            force_dark: false,
+            ext_side_panel: false,
+            ext_reader_mode: false,
+            ext_yt_ad_skipper: false,
+            ext_gh_harmonizer: false,
+            ext_media_booster: false,
+            ext_userscript_engine: true,
+            ext_mouse_gestures: true,
+            dev_drawer_access: true,
+            fps_hud: false,
+            theme: String::new(),
+            layout: String::new(),
+        }
+    }
+}
+
+pub fn default_mode_profiles() -> Vec<BrowserModeProfile> {
+    let s = |v: &str| v.to_string();
+    vec![
+        BrowserModeProfile {
+            id: s("developer"),
+            name_zh: s("开发者模式"),
+            name_en: s("Developer Mode"),
+            icon: s("🛠️"),
+            auto_domains: vec![
+                s("localhost"),
+                s("127.0.0.1"),
+                s("0.0.0.0"),
+                s("*.local"),
+                s("*.test"),
+                s("github.com"),
+                s("gitlab.com"),
+                s("stackoverflow.com"),
+                s("crates.io"),
+                s("docs.rs"),
+                s("npmjs.com"),
+                s("developer.mozilla.org"),
+            ],
+            adblock: false,
+            force_dark: false,
+            ext_side_panel: true,
+            ext_reader_mode: false,
+            ext_yt_ad_skipper: false,
+            ext_gh_harmonizer: true,
+            ext_media_booster: false,
+            ext_userscript_engine: true,
+            ext_mouse_gestures: true,
+            dev_drawer_access: true,
+            fps_hud: false,
+            theme: String::new(),
+            layout: String::new(),
+        },
+        BrowserModeProfile {
+            id: s("study"),
+            name_zh: s("学习与阅读模式"),
+            name_en: s("Study & Focus Mode"),
+            icon: s("📚"),
+            auto_domains: vec![
+                s("*.wikipedia.org"),
+                s("zhihu.com"),
+                s("*.zhihu.com"),
+                s("arxiv.org"),
+                s("leetcode.com"),
+                s("leetcode.cn"),
+                s("scholar.google.com"),
+                s("notion.so"),
+                s("coursera.org"),
+                s("edx.org"),
+            ],
+            adblock: true,
+            force_dark: false,
+            ext_side_panel: true,
+            ext_reader_mode: true,
+            ext_yt_ad_skipper: false,
+            ext_gh_harmonizer: false,
+            ext_media_booster: false,
+            ext_userscript_engine: true,
+            ext_mouse_gestures: true,
+            dev_drawer_access: false,
+            fps_hud: false,
+            theme: String::new(),
+            layout: String::new(),
+        },
+        BrowserModeProfile {
+            id: s("media"),
+            name_zh: s("影音娱乐模式"),
+            name_en: s("Media & Cinema Mode"),
+            icon: s("🎬"),
+            auto_domains: vec![
+                s("youtube.com"),
+                s("*.youtube.com"),
+                s("bilibili.com"),
+                s("*.bilibili.com"),
+                s("netflix.com"),
+                s("twitch.tv"),
+                s("spotify.com"),
+                s("v.qq.com"),
+                s("iqiyi.com"),
+            ],
+            adblock: true,
+            force_dark: true,
+            ext_side_panel: false,
+            ext_reader_mode: false,
+            ext_yt_ad_skipper: true,
+            ext_gh_harmonizer: false,
+            ext_media_booster: true,
+            ext_userscript_engine: true,
+            ext_mouse_gestures: true,
+            dev_drawer_access: false,
+            fps_hud: false,
+            theme: String::new(),
+            layout: String::new(),
+        },
+    ]
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct SiteOverride {
@@ -151,6 +307,10 @@ pub struct AppConfig {
     pub ext_userscript_engine: bool,
     #[serde(default = "default_true")]
     pub ext_mouse_gestures: bool,
+    #[serde(default = "default_active_mode")]
+    pub active_mode: String,
+    #[serde(default = "default_mode_profiles")]
+    pub mode_profiles: Vec<BrowserModeProfile>,
     #[serde(default)]
     pub site_overrides: std::collections::BTreeMap<String, SiteOverride>,
     pub search_engine: String,
@@ -182,6 +342,8 @@ impl Default for AppConfig {
             ext_media_booster: false,
             ext_userscript_engine: true,
             ext_mouse_gestures: true,
+            active_mode: default_active_mode(),
+            mode_profiles: default_mode_profiles(),
             site_overrides: std::collections::BTreeMap::new(),
             search_engine: "google".to_string(),
             homepage: "fynexo://newtab".to_string(),
@@ -245,6 +407,9 @@ impl AppConfig {
                     if config.search_engines.is_empty() {
                         config.search_engines = default_search_engines();
                     }
+                    if config.mode_profiles.is_empty() {
+                        config.mode_profiles = default_mode_profiles();
+                    }
                     if !config.default_zoom.is_finite() || config.default_zoom < 0.3 {
                         config.default_zoom = 1.0;
                     } else {
@@ -276,6 +441,35 @@ impl AppConfig {
 mod tests {
     use super::*;
 
+    #[test]
+    fn default_mode_profiles_are_sane() {
+        let p = default_mode_profiles();
+        let ids: Vec<&str> = p.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["developer", "study", "media"]);
+        assert!(p[0].auto_domains.iter().any(|d| d == "localhost"));
+        assert!(p.iter().all(|m| m.theme.is_empty() && m.layout.is_empty()));
+    }
+
+    #[test]
+    fn mode_profile_roundtrip_keeps_theme_and_layout() {
+        let m = BrowserModeProfile {
+            theme: "nord".to_string(),
+            layout: "vertical".to_string(),
+            ..BrowserModeProfile::default()
+        };
+        let json = serde_json::to_string(&m).unwrap();
+        let back: BrowserModeProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn legacy_mode_profile_without_theme_layout_still_loads() {
+        let back: BrowserModeProfile =
+            serde_json::from_str(r#"{"id":"x","name_zh":"x","name_en":"x"}"#).unwrap();
+        assert_eq!(back.id, "x");
+        assert!(back.theme.is_empty() && back.layout.is_empty());
+        assert!(back.dev_drawer_access);
+    }
     #[test]
     fn tab_cache_mode_normalization_and_limits() {
         let mut cfg = AppConfig::default();

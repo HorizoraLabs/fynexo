@@ -242,6 +242,7 @@ pub fn handle_ipc_message(
                     return;
                 }
                 tab_manager.lock_safe().save_workspace(&clean_name);
+                let _ = proxy.send_event(UserEvent::SyncConfig);
                 let _ = proxy.send_event(UserEvent::Toast(format!("Workspace '{}' saved", clean_name)));
             }
         }
@@ -262,6 +263,7 @@ pub fn handle_ipc_message(
         Some("DELETE_WORKSPACE") => {
             if let Some(name) = val["name"].as_str() {
                 if TabManager::delete_workspace(name) {
+                    let _ = proxy.send_event(UserEvent::SyncConfig);
                     let _ = proxy.send_event(UserEvent::Toast(format!("Workspace '{}' deleted", name)));
                 }
             }
@@ -942,6 +944,13 @@ pub fn handle_ipc_message(
                     };
                     if locked.config.language != norm_lang {
                         locked.config.language = norm_lang.to_string();
+                        config_dirty = true;
+                    }
+                }
+                if let Some(raw_mode) = val["active_mode"].as_str() {
+                    let norm_mode = raw_mode.trim().to_ascii_lowercase();
+                    if !norm_mode.is_empty() && locked.config.active_mode != norm_mode {
+                        locked.config.active_mode = norm_mode;
                         config_dirty = true;
                     }
                 }

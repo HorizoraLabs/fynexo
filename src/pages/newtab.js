@@ -241,7 +241,11 @@
                 }
             }
             if (/^https?:\/\//i.test(raw)) return raw;
-            if (/^(localhost|127\.0\.0\.1)(:\d+)?/i.test(raw)) return 'http://' + raw;
+            if (/^:(\d{2,5})(?:[/?#].*)?$/.test(raw)) return 'http://localhost' + raw;
+            if (/^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:localhost|local|test)|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)(?::\d+)?(?:[/?#].*)?$/i.test(raw)) {
+                return 'http://' + raw;
+            }
+            if (/^[a-z0-9.-]+:\d{2,5}(?:[/?#].*)?$/i.test(raw)) return 'http://' + raw;
             if (raw.includes('.') && !raw.includes(' ')) return 'https://' + raw;
             const q = encodeURIComponent(raw);
             const engObj = currentEngineObj(engine);
@@ -406,6 +410,24 @@
             document.getElementById('ntShieldText').textContent = zh
                 ? (adOn ? (blockedAds > 0 ? `已拦截 · ${blockedAds}` : '广告拦截已开启') : '广告拦截已暂停')
                 : (adOn ? (blockedAds > 0 ? `Adblock · ${blockedAds}` : 'Adblock active') : 'Adblock paused');
+
+            const modeBtn = document.getElementById('btnModePill');
+            const modeTxt = document.getElementById('ntModeText');
+            if (modeBtn && modeTxt) {
+                const curMode = String(config.active_mode || 'auto').toLowerCase();
+                const profiles = Array.isArray(config.mode_profiles) ? config.mode_profiles : [];
+                const found = profiles.find(p => p && String(p.id || '').toLowerCase() === curMode);
+                modeBtn.classList.toggle('active', curMode !== 'default');
+                if (found) {
+                    const nm = zh ? (found.name_zh || found.name_en) : (found.name_en || found.name_zh);
+                    modeTxt.textContent = (found.icon ? found.icon + ' ' : '') + nm;
+                } else if (curMode === 'default') {
+                    modeTxt.textContent = zh ? '日常标准' : 'Standard';
+                } else {
+                    modeTxt.textContent = zh ? '✨ 自动模式' : '✨ Auto mode';
+                }
+                modeBtn.title = zh ? '点击循环切换场景模式（在设置页可自由定制）' : 'Click to cycle browser mode (customize in Settings)';
+            }
 
             const incogBtn = document.getElementById('btnIncogPill');
             const incogTxt = document.getElementById('ntIncogText');
@@ -652,6 +674,78 @@
         let ntSuggestItems = [];
         let ntSuggestIdx = -1;
 
+        function evalSafeMathExpr(raw) {
+            const src = String(raw || '').trim().replace(/×/g, '*').replace(/÷/g, '/');
+            if (!src || src.length > 80 || !/^[0-9+\-*/().%\s^,]+$/.test(src)) return null;
+            if (!/[0-9]/.test(src) || !/[+\-*/%^]/.test(src.replace(/^\s*-/, ''))) return null;
+            const toks = src.replace(/,/g, '').replace(/\*\*/g, '^').match(/\d+\.?\d*|\.\d+|[+\-*/%^()]/g);
+            if (!toks || toks.join('').length < src.replace(/[\s,]/g, '').replace(/\*\*/g, '^').length) return null;
+            let pos = 0;
+            let guard = 0;
+            const peek = () => toks[pos];
+            function parseExpr() {
+                let v = parseTerm();
+                while (peek() === '+' || peek() === '-') {
+                    const op = toks[pos++];
+                    const r = parseTerm();
+                    v = op === '+' ? v + r : v - r;
+                }
+                return v;
+            }
+            function parseTerm() {
+                let v = parsePow();
+                while (peek() === '*' || peek() === '/' || peek() === '%') {
+                    const op = toks[pos++];
+                    const r = parsePow();
+                    v = op === '*' ? v * r : op === '/' ? v / r : v % r;
+                }
+                return v;
+            }
+            function parsePow() {
+                const base = parseUnary();
+                if (peek() === '^') { pos++; return Math.pow(base, parsePow()); }
+                return base;
+            }
+            function parseUnary() {
+                if (++guard > 200) throw new Error('deep');
+                if (peek() === '-') { pos++; return -parseUnary(); }
+                if (peek() === '+') { pos++; return parseUnary(); }
+                if (peek() === '(') {
+                    pos++;
+                    const v = parseExpr();
+                    if (peek() !== ')') throw new Error('paren');
+                    pos++;
+                    return v;
+                }
+                const n = parseFloat(toks[pos++]);
+                if (!isFinite(n)) throw new Error('num');
+                return n;
+            }
+            try {
+                const v = parseExpr();
+                if (pos !== toks.length || !isFinite(v)) return null;
+                const rounded = Math.round(v * 1e10) / 1e10;
+                return { value: rounded, text: rounded.toLocaleString('en-US', { maximumFractionDigits: 10 }) };
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function ntPaletteCommands() {
+            const zh = isZh();
+            const setMode = (id) => () => {
+                config.active_mode = id;
+                sendIpc({ type: 'PATCH_HUD_PREFS', active_mode: id });
+            };
+            return [
+                ['切换到自动场景模式', 'Mode: Auto by site', 'auto 自动 模式', setMode('auto')],
+                ['切换开发者模式', 'Mode: Developer', 'developer dev 开发者 模式', setMode('developer')],
+                ['切换学习模式', 'Mode: Study', 'study 学习 模式', setMode('study')],
+                ['切换影音模式', 'Mode: Media', 'media 影音 模式', setMode('media')],
+                ['切换标准模式', 'Mode: Standard', 'default standard 标准 模式', setMode('default')],
+                ['打开偏好设置', 'Open Preferences', 'settings preferences 设置 偏好', () => sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings' })]
+            ].map((c) => ({ kind: 'cmd', title: '> ' + (zh ? c[0] : c[1]), kw: (c[0] + ' ' + c[1] + ' ' + c[2]).toLowerCase(), url: zh ? '回车执行' : 'Enter to run', tag: zh ? '命令' : 'Command', run: c[3] }));
+        }
         function renderSuggestions() {
             const rawTrim = searchInput.value.trim();
             const q = rawTrim.toLowerCase();
@@ -669,6 +763,26 @@
 
             const matches = [];
             const seen = Object.create(null);
+
+            const calc = evalSafeMathExpr(rawTrim);
+            if (calc) {
+                matches.push({
+                    kind: 'calc',
+                    title: '= ' + calc.text,
+                    url: isZh() ? '点击或回车复制结果' : 'Click or Enter to copy',
+                    tag: isZh() ? '计算' : 'Calc',
+                    run: () => {
+                        try { navigator.clipboard.writeText(String(calc.value)); } catch (_) {}
+                        const tagEl = suggestEl.querySelector('.nt-suggest-item .nt-suggest-tag');
+                        if (tagEl) tagEl.textContent = isZh() ? '已复制 ✓' : 'Copied ✓';
+                    }
+                });
+            }
+            const isPalette = q.startsWith('>');
+            if (isPalette) {
+                const needle = q.slice(1).trim();
+                ntPaletteCommands().forEach((c) => { if (!needle || c.kw.includes(needle)) matches.push(c); });
+            }
 
             if (q.startsWith('!')) {
                 const tok = q.split(' ')[0];
@@ -698,8 +812,8 @@
                 }
             });
 
-            ntSuggestItems = matches.slice(0, 6);
-            ntSuggestIdx = -1;
+            ntSuggestItems = matches.slice(0, isPalette ? 10 : 6);
+            ntSuggestIdx = calc || (isPalette && ntSuggestItems.length) ? 0 : -1;
 
             if (ntSuggestItems.length === 0) {
                 suggestEl.style.display = 'none';
@@ -714,6 +828,7 @@
                 btn.className = 'nt-suggest-item';
                 btn.dataset.idx = String(idx);
                 btn.onclick = () => {
+                    if (it.kind === 'calc' || it.kind === 'cmd') { it.run(); return; }
                     if (it.kind === 'bang' && !searchInput.value.trim().includes(' ')) {
                         searchInput.value = it.trigger + ' ';
                         searchInput.focus();
@@ -724,12 +839,12 @@
                     sendIpc({ type: 'NAVIGATE', url: target });
                 };
 
-                if (it.kind === 'bang') {
+                if (it.kind === 'bang' || it.kind === 'calc' || it.kind === 'cmd') {
                     const mono = document.createElement('span');
                     mono.className = 'nt-emblem';
                     const fb = document.createElement('span');
                     fb.className = 'nt-emblem-fallback nt-emblem-fallback--mono';
-                    fb.textContent = '!';
+                    fb.textContent = it.kind === 'calc' ? '=' : it.kind === 'cmd' ? '>' : '!';
                     fb.style.color = 'var(--nt-accent)';
                     mono.appendChild(fb);
                     btn.appendChild(mono);
@@ -744,7 +859,7 @@
                 t.textContent = it.title;
                 const u = document.createElement('span');
                 u.className = 'nt-suggest-url';
-                u.textContent = it.kind === 'bang' ? it.url : formatHost(it.url);
+                u.textContent = it.kind === 'bang' || it.kind === 'calc' || it.kind === 'cmd' ? it.url : formatHost(it.url);
                 meta.appendChild(t);
                 meta.appendChild(u);
 
@@ -757,6 +872,7 @@
                 frag.appendChild(btn);
             });
             suggestEl.appendChild(frag);
+            syncSuggestSelection();
         }
 
         function syncSuggestSelection() {
@@ -768,6 +884,7 @@
         function submitHeroSearch() {
             if (ntSuggestIdx >= 0 && ntSuggestItems[ntSuggestIdx]) {
                 const it = ntSuggestItems[ntSuggestIdx];
+                if (it.kind === 'calc' || it.kind === 'cmd') { it.run(); return; }
                 if (it.kind === 'bang' && !searchInput.value.trim().includes(' ')) {
                     searchInput.value = it.trigger + ' ';
                     renderSuggestions();
@@ -932,6 +1049,19 @@
             e.stopPropagation();
             toggleEngineMenu();
         };
+
+        const btnModePillEl = document.getElementById('btnModePill');
+        if (btnModePillEl) {
+            btnModePillEl.onclick = () => {
+                const profiles = Array.isArray(config.mode_profiles) ? config.mode_profiles : [];
+                const cycle = ['auto', 'default'].concat(profiles.map(p => p && p.id).filter(Boolean));
+                const cur = String(config.active_mode || 'auto').toLowerCase();
+                const idx = cycle.findIndex(id => String(id).toLowerCase() === cur);
+                config.active_mode = cycle[(idx + 1) % cycle.length];
+                applySurface();
+                sendIpc({ type: 'PATCH_HUD_PREFS', active_mode: config.active_mode });
+            };
+        }
 
         document.getElementById('btnIncogPill').onclick = () => {
             config.incognito = !config.incognito;

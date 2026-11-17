@@ -141,6 +141,25 @@
             color: var(--nt-fg);
         }
 
+        html.has-wallpaper .nt-pill,
+        html.has-wallpaper .nt-bang-chip,
+        html.has-wallpaper .bm-card,
+        html.has-wallpaper .hist-row {
+            background: color-mix(in srgb, var(--nt-surface) 78%, transparent);
+            border-color: rgba(255, 255, 255, 0.14);
+        }
+        html.has-wallpaper .nt-pill:hover,
+        html.has-wallpaper .nt-bang-chip:hover,
+        html.has-wallpaper .bm-card:hover,
+        html.has-wallpaper .hist-row:hover {
+            background: color-mix(in srgb, var(--nt-elevated) 90%, transparent);
+        }
+        html.has-wallpaper .nt-sec-label,
+        html.has-wallpaper .nt-mini-btn,
+        html.has-wallpaper .nt-brand-quiet {
+            color: rgba(244, 244, 245, 0.85);
+        }
+
         .nt-dot {
             width: 5px;
             height: 5px;

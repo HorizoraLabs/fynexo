@@ -275,7 +275,7 @@ pub fn build_tab_webview(
     let tab_id_for_ipc = Arc::clone(&bound_tab_id);
 
     let builder = builder
-        .with_devtools(cfg!(debug_assertions))
+        .with_devtools(true)
         .with_initialization_script_for_main_only(&initial_script, true)
         .with_ipc_handler(move |req| {
             let tid = tab_id_for_ipc.load(Ordering::Acquire);

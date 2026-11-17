@@ -56,6 +56,8 @@ pub struct RuntimePayload {
     pub adblock: AdblockConfig,
     pub keybinds: KeybindsConfig,
     pub blocked_ads: usize,
+    #[serde(default)]
+    pub workspaces: Vec<crate::tabs::WorkspaceSnapshot>,
 }
 
 /// Slim boot payload injected into external webpages (`hud.rs`) so disabled rules, inactive `.json`

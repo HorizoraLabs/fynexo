@@ -455,13 +455,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             Event::UserEvent(UserEvent::OpenDevtools) => {
-                #[cfg(all(not(target_os = "android"), debug_assertions))]
+                #[cfg(not(target_os = "android"))]
                 if let Some(fg) = pool.get_webview(active_tab_id) {
                     fg.open_devtools();
                 }
-                #[cfg(not(all(not(target_os = "android"), debug_assertions)))]
+                #[cfg(target_os = "android")]
                 let _ = event_proxy_for_run.send_event(UserEvent::Toast(
-                    "DevTools unavailable in this build".to_string(),
+                    "Native DevTools only supported on Desktop".to_string(),
                 ));
             }
             Event::UserEvent(UserEvent::ReloadTab(id)) => {

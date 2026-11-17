@@ -122,6 +122,11 @@
          ext_media_booster: false,
          ext_userscript_engine: true,
          ext_mouse_gestures: true,
+         active_mode: 'auto',
+         mode_profiles:
+            typeof DEFAULT_MODE_PROFILES !== 'undefined'
+               ? DEFAULT_MODE_PROFILES
+               : [],
          site_overrides: {},
          search_engine: 'google',
          homepage: 'fynexo://newtab',
@@ -130,6 +135,18 @@
       },
       bootPayload.config || {},
    );
+   if (!Array.isArray(config.mode_profiles) || config.mode_profiles.length === 0) {
+      config.mode_profiles =
+         typeof DEFAULT_MODE_PROFILES !== 'undefined'
+            ? DEFAULT_MODE_PROFILES
+            : [];
+   }
+   let rawBaseConfig = Object.assign({}, config);
+   let activeModeMatch = null;
+   let modeLayoutBackup = null;
+   let modeThemeBackup = null;
+   let pageManualFeatureOverrides = Object.create(null);
+   let userFpsHudOverride = null;
    function isZh() {
       return String(config.language || 'zh').toLowerCase() !== 'en';
    }
@@ -224,6 +241,335 @@
    let openPromptModalRef = null;
    let closePromptModalRef = null;
    let isPromptOpenRef = null;
+   let toggleDevDrawerRef = null;
+   let startVisualElementPickerRef = null;
+   let isDevDrawerOpenRef = null;
+   let renderDevConsoleRef = null;
+   let renderDevNetworkRef = null;
+   let toggleDevFpsHudRef = null;
+   let syncMainMenuUIRef = null;
+   const DEV_NET_MAX = 60;
+   let devNetSeq = 1;
+   const devNetworkLogs = [];
+   const DEV_CONSOLE_MAX = 200;
+   const devConsoleLogs = [];
+   function formatDevConsoleArg(a) {
+      if (a === undefined) return 'undefined';
+      if (a === null) return 'null';
+      if (typeof a === 'string') return a;
+      if (a instanceof Error) {
+         return (a.name || 'Error') + ': ' + (a.message || '');
+      }
+      try {
+         const seen = new WeakSet();
+         return JSON.stringify(a, (_k, v) => {
+            if (typeof v === 'object' && v !== null) {
+               if (seen.has(v)) return '[Circular]';
+               seen.add(v);
+            }
+            return v;
+         });
+      } catch (_) {
+         return String(a);
+      }
+   }
+   function pushDevConsoleEntry(level, argsLike) {
+      try {
+         const d = new Date();
+         const pad2 = (n) => (n < 10 ? '0' + n : String(n));
+         const time =
+            pad2(d.getHours()) +
+            ':' +
+            pad2(d.getMinutes()) +
+            ':' +
+            pad2(d.getSeconds());
+         const parts = [];
+         for (let i = 0; i < argsLike.length; i++) {
+            parts.push(formatDevConsoleArg(argsLike[i]));
+         }
+         devConsoleLogs.push({
+            level: level || 'log',
+            time: time,
+            text: parts.join(' '),
+         });
+         if (devConsoleLogs.length > DEV_CONSOLE_MAX) {
+            devConsoleLogs.splice(0, devConsoleLogs.length - DEV_CONSOLE_MAX);
+         }
+         if (typeof renderDevConsoleRef === 'function') {
+            renderDevConsoleRef();
+         }
+      } catch (_) {}
+   }
+   if (!window.__fnx_console_hooked__) {
+      window.__fnx_console_hooked__ = true;
+      try {
+         ['log', 'info', 'warn', 'error'].forEach((lvl) => {
+            const orig = console[lvl];
+            if (typeof orig !== 'function') return;
+            console[lvl] = function () {
+               pushDevConsoleEntry(lvl, arguments);
+               return orig.apply(console, arguments);
+            };
+         });
+         window.addEventListener('error', (ev) => {
+            const loc = ev.filename
+               ? ' (' + ev.filename.split('/').pop() + ':' + (ev.lineno || 0) + ')'
+               : '';
+            pushDevConsoleEntry('error', [
+               (ev.message || 'Uncaught Error') + loc,
+            ]);
+         });
+         window.addEventListener('unhandledrejection', (ev) => {
+            pushDevConsoleEntry('error', [
+               'Unhandled Promise Rejection:',
+               ev.reason,
+            ]);
+         });
+      } catch (_) {}
+   }
+
+   function pushDevNetworkEntry(entry) {
+      try {
+         const d = new Date();
+         const pad2 = (n) => (n < 10 ? '0' + n : String(n));
+         entry.id = devNetSeq++;
+         entry.time =
+            pad2(d.getHours()) +
+            ':' +
+            pad2(d.getMinutes()) +
+            ':' +
+            pad2(d.getSeconds());
+         devNetworkLogs.push(entry);
+         if (devNetworkLogs.length > DEV_NET_MAX) {
+            devNetworkLogs.splice(0, devNetworkLogs.length - DEV_NET_MAX);
+         }
+         if (typeof renderDevNetworkRef === 'function') {
+            renderDevNetworkRef();
+         }
+      } catch (_) {}
+   }
+   function truncateDevPayload(val) {
+      if (val === null || val === undefined) return '';
+      if (typeof val === 'string') {
+         return val.length > 12000 ? val.slice(0, 12000) + '\n... (truncated)' : val;
+      }
+      if (typeof FormData !== 'undefined' && val instanceof FormData) {
+         return '[FormData]';
+      }
+      if (typeof Blob !== 'undefined' && val instanceof Blob) {
+         return `[Blob ${val.size} bytes]`;
+      }
+      if (val instanceof ArrayBuffer || ArrayBuffer.isView(val)) {
+         return `[Binary ${val.byteLength || 0} bytes]`;
+      }
+      try {
+         const s = String(val);
+         return s.length > 12000 ? s.slice(0, 12000) + '\n... (truncated)' : s;
+      } catch (_) {
+         return '[Payload]';
+      }
+   }
+   if (!window.__fnx_net_hooked__) {
+      window.__fnx_net_hooked__ = true;
+      try {
+         if (typeof window.fetch === 'function') {
+            const origFetch = window.fetch.bind(window);
+            window.fetch = function (input, init) {
+               const t0 = performance.now ? performance.now() : Date.now();
+               let reqUrl = '';
+               let method = 'GET';
+               const reqHeaders = Object.create(null);
+               let reqBody = '';
+               try {
+                  if (typeof input === 'string') {
+                     reqUrl = input;
+                  } else if (input && typeof input.url === 'string') {
+                     reqUrl = input.url;
+                     method = input.method || method;
+                  }
+                  if (init && init.method) method = String(init.method);
+                  method = method.toUpperCase();
+                  const hSrc = (init && init.headers) || (input && input.headers);
+                  if (hSrc) {
+                     if (typeof hSrc.forEach === 'function') {
+                        hSrc.forEach((v, k) => {
+                           reqHeaders[String(k)] = String(v);
+                        });
+                     } else if (Array.isArray(hSrc)) {
+                        hSrc.forEach((pair) => {
+                           if (pair && pair.length >= 2) {
+                              reqHeaders[String(pair[0])] = String(pair[1]);
+                           }
+                        });
+                     } else if (typeof hSrc === 'object') {
+                        Object.keys(hSrc).forEach((k) => {
+                           reqHeaders[k] = String(hSrc[k]);
+                        });
+                     }
+                  }
+                  if (init && init.body !== undefined) {
+                     reqBody = truncateDevPayload(init.body);
+                  }
+               } catch (_) {}
+
+               const absUrl = (() => {
+                  try {
+                     return new URL(reqUrl, window.location.href).href;
+                  } catch (_) {
+                     return reqUrl;
+                  }
+               })();
+               const shouldTrack =
+                  /^https?:/i.test(absUrl) && !absUrl.includes('fynexo.localhost');
+
+               return origFetch(input, init).then(
+                  (res) => {
+                     if (shouldTrack) {
+                        const dur = Math.max(
+                           0,
+                           Math.round((performance.now ? performance.now() : Date.now()) - t0),
+                        );
+                        const ct = String(
+                           (res.headers && res.headers.get && res.headers.get('content-type')) || '',
+                        ).toLowerCase();
+                        const canReadText =
+                           !ct ||
+                           ct.includes('json') ||
+                           ct.includes('text') ||
+                           ct.includes('xml') ||
+                           ct.includes('javascript') ||
+                           ct.includes('form');
+                        if (canReadText && typeof res.clone === 'function') {
+                           res.clone()
+                              .text()
+                              .then((txt) => {
+                                 pushDevNetworkEntry({
+                                    kind: 'fetch',
+                                    method: method,
+                                    url: absUrl,
+                                    status: res.status || 0,
+                                    duration: dur,
+                                    reqHeaders: reqHeaders,
+                                    reqBody: reqBody,
+                                    resBody: truncateDevPayload(txt),
+                                 });
+                              })
+                              .catch(() => {
+                                 pushDevNetworkEntry({
+                                    kind: 'fetch',
+                                    method: method,
+                                    url: absUrl,
+                                    status: res.status || 0,
+                                    duration: dur,
+                                    reqHeaders: reqHeaders,
+                                    reqBody: reqBody,
+                                    resBody: '',
+                                 });
+                              });
+                        } else {
+                           pushDevNetworkEntry({
+                              kind: 'fetch',
+                              method: method,
+                              url: absUrl,
+                              status: res.status || 0,
+                              duration: dur,
+                              reqHeaders: reqHeaders,
+                              reqBody: reqBody,
+                              resBody: ct ? `[${ct}]` : '[Binary Response]',
+                           });
+                        }
+                     }
+                     return res;
+                  },
+                  (err) => {
+                     if (shouldTrack) {
+                        pushDevNetworkEntry({
+                           kind: 'fetch',
+                           method: method,
+                           url: absUrl,
+                           status: 0,
+                           duration: Math.max(
+                              0,
+                              Math.round((performance.now ? performance.now() : Date.now()) - t0),
+                           ),
+                           reqHeaders: reqHeaders,
+                           reqBody: reqBody,
+                           resBody: 'Network Error: ' + (err && err.message ? err.message : String(err)),
+                        });
+                     }
+                     throw err;
+                  },
+               );
+            };
+         }
+         if (typeof window.XMLHttpRequest === 'function') {
+            const xp = window.XMLHttpRequest.prototype;
+            const origOpen = xp.open;
+            const origSetHdr = xp.setRequestHeader;
+            const origSend = xp.send;
+            xp.open = function (method, url) {
+               this.__fnx_xhr = {
+                  method: String(method || 'GET').toUpperCase(),
+                  url: String(url || ''),
+                  reqHeaders: Object.create(null),
+                  reqBody: '',
+                  t0: 0,
+               };
+               return origOpen.apply(this, arguments);
+            };
+            xp.setRequestHeader = function (k, v) {
+               if (this.__fnx_xhr) {
+                  this.__fnx_xhr.reqHeaders[String(k)] = String(v);
+               }
+               return origSetHdr.apply(this, arguments);
+            };
+            xp.send = function (body) {
+               const meta = this.__fnx_xhr;
+               if (meta) {
+                  meta.t0 = performance.now ? performance.now() : Date.now();
+                  meta.reqBody = truncateDevPayload(body);
+                  let absUrl = meta.url;
+                  try {
+                     absUrl = new URL(meta.url, window.location.href).href;
+                  } catch (_) {}
+                  if (/^https?:/i.test(absUrl) && !absUrl.includes('fynexo.localhost')) {
+                     this.addEventListener(
+                        'loadend',
+                        () => {
+                           const dur = Math.max(
+                              0,
+                              Math.round((performance.now ? performance.now() : Date.now()) - meta.t0),
+                           );
+                           let resText = '';
+                           try {
+                              if (!this.responseType || this.responseType === 'text') {
+                                 resText = truncateDevPayload(this.responseText || '');
+                              } else if (this.responseType === 'json') {
+                                 resText = truncateDevPayload(JSON.stringify(this.response, null, 2));
+                              } else {
+                                 resText = `[responseType: ${this.responseType}]`;
+                              }
+                           } catch (_) {}
+                           pushDevNetworkEntry({
+                              kind: 'xhr',
+                              method: meta.method,
+                              url: absUrl,
+                              status: this.status || 0,
+                              duration: dur,
+                              reqHeaders: meta.reqHeaders,
+                              reqBody: meta.reqBody,
+                              resBody: resText,
+                           });
+                        },
+                        { once: true },
+                     );
+                  }
+               }
+               return origSend.apply(this, arguments);
+            };
+         }
+      } catch (_) {}
+   }
    let readerFontPx = 18;
    let readerWide = false;
    let readerSavedScroll = 0;
@@ -310,6 +656,56 @@
       const u = canonicalCurrentUrl();
       if (!u) return;
       copyTextToClipboard(u, 'URL copied');
+   }
+
+   function performHardCacheBustReload() {
+      try {
+         showHudToast(
+            isZh()
+               ? '已清理 CacheStorage 与 ServiceWorker 并硬刷新'
+               : 'Cleared CacheStorage & ServiceWorkers, hard reloading...',
+         );
+      } catch (_) {}
+      const ops = [];
+      try {
+         if (
+            navigator.serviceWorker &&
+            typeof navigator.serviceWorker.getRegistrations === 'function'
+         ) {
+            ops.push(
+               navigator.serviceWorker
+                  .getRegistrations()
+                  .then((regs) =>
+                     Promise.all(
+                        regs.map((r) => r.unregister().catch(() => false)),
+                     ),
+                  )
+                  .catch(() => {}),
+            );
+         }
+      } catch (_) {}
+      try {
+         if (window.caches && typeof window.caches.keys === 'function') {
+            ops.push(
+               window.caches
+                  .keys()
+                  .then((keys) =>
+                     Promise.all(
+                        keys.map((k) => window.caches.delete(k).catch(() => false)),
+                     ),
+                  )
+                  .catch(() => {}),
+            );
+         }
+      } catch (_) {}
+      triggerProgress();
+      Promise.all(ops).finally(() => {
+         try {
+            window.location.reload();
+         } catch (_) {
+            sendIpc({ type: 'RELOAD' });
+         }
+      });
    }
 
    function sendIpc(data) {
@@ -413,6 +809,31 @@
       return window.location.href || '';
    }
 
+   function isLocalDevHost(rawHost) {
+      const h = String(rawHost || '')
+         .trim()
+         .toLowerCase();
+      if (!h || h === 'fynexo.localhost') return false;
+      if (
+         h === 'localhost' ||
+         h === '0.0.0.0' ||
+         h === '[::1]' ||
+         h === '::1' ||
+         /^127\.\d+\.\d+\.\d+$/.test(h) ||
+         /\.(?:localhost|local|test)$/.test(h)
+      ) {
+         return true;
+      }
+      if (
+         /^10\.\d+\.\d+\.\d+$/.test(h) ||
+         /^192\.168\.\d+\.\d+$/.test(h) ||
+         /^172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(h)
+      ) {
+         return true;
+      }
+      return false;
+   }
+
    function formatHostLabel(rawUrl) {
       if (!rawUrl && isInternalNewtab()) return 'Search or enter URL';
       if (!rawUrl && isInternalSettings()) return 'Preferences';
@@ -421,7 +842,12 @@
       if (!rawUrl || rawUrl === 'about:blank') return 'Search or enter URL';
       try {
          const parsed = new URL(rawUrl);
-         return parsed.hostname.replace(/^www\./, '') || rawUrl;
+         const cleanHost = parsed.hostname.replace(/^www\./, '');
+         const hostWithPort = parsed.port ? `${cleanHost}:${parsed.port}` : cleanHost;
+         if (!hostWithPort) return rawUrl;
+         return isLocalDevHost(parsed.hostname)
+            ? `⚡ ${hostWithPort}`
+            : hostWithPort;
       } catch (_) {
          return rawUrl;
       }
@@ -431,7 +857,11 @@
       if (isInternalNewtab(rawUrl)) return '✦';
       if (!rawUrl || isInternalSettings(rawUrl)) return '⚙';
       try {
-         const host = new URL(rawUrl).hostname.replace(/^(www|m)\./, '');
+         const parsed = new URL(rawUrl);
+         const host = parsed.hostname.replace(/^(www|m)\./, '');
+         if (parsed.port && isLocalDevHost(host)) {
+            return ':' + parsed.port.slice(-2);
+         }
          if (host) return host.charAt(0).toUpperCase();
       } catch (_) {}
       const clean = (title || '').trim();
@@ -442,12 +872,16 @@
       if (isInternalNewtab(rawUrl)) return 'var(--fnx-accent)';
       if (!rawUrl || isInternalSettings(rawUrl)) return 'var(--fnx-secondary)';
       let host = '';
+      let hostKey = '';
       try {
-         host = new URL(rawUrl).hostname
+         const parsed = new URL(rawUrl);
+         host = parsed.hostname
             .replace(/^(www|m)\./, '')
             .toLowerCase();
+         hostKey = parsed.port ? `${host}:${parsed.port}` : host;
       } catch (_) {
          host = String(rawUrl).toLowerCase();
+         hostKey = host;
       }
       if (
          host.includes('youtube') ||
@@ -493,8 +927,8 @@
          '#a78bfa',
       ];
       let h = 0;
-      for (let i = 0; i < host.length; i++) {
-         h = (h << 5) - h + host.charCodeAt(i);
+      for (let i = 0; i < hostKey.length; i++) {
+         h = (h << 5) - h + hostKey.charCodeAt(i);
          h |= 0;
       }
       return palette[Math.abs(h) % palette.length];
@@ -617,9 +1051,15 @@
 
    function resolveSiteOverrideKey() {
       if (isInternalAny()) return '';
-      return String(window.location.hostname || '')
+      const hostname = String(window.location.hostname || '')
          .trim()
          .toLowerCase();
+      if (!hostname) return '';
+      const port = String(window.location.port || '').trim();
+      if (port && (isLocalDevHost(hostname) || (port !== '80' && port !== '443'))) {
+         return `${hostname}:${port}`;
+      }
+      return hostname;
    }
 
    function getCurrentSiteOverride() {
@@ -681,6 +1121,11 @@
          .trim()
          .toLowerCase();
       if (!p || p === '*') return true;
+      if (p.includes(':')) {
+         const curHostPort = String(window.location.host || hostname || '').toLowerCase();
+         const normP = p.replace(/^www\./, '');
+         return curHostPort === normP || curHostPort.replace(/^www\./, '') === normP;
+      }
       const clean = p.startsWith('*.') ? p.slice(2) : p.replace(/^www\./, '');
       const h = String(hostname || '').toLowerCase();
       return h === clean || h.endsWith('.' + clean);
@@ -1312,6 +1757,7 @@
          }
       } catch (_) {}
 
+      const isLocalDev = !isInt && isLocalDevHost(window.location.hostname || '');
       const siteDm =
          siteOv && siteOv.dark_mode
             ? String(siteOv.dark_mode).toLowerCase()
@@ -1320,7 +1766,7 @@
       const wantForceDark =
          siteDm === 'on'
             ? true
-            : siteDm === 'off'
+            : siteDm === 'off' || (isLocalDev && siteDm === 'auto')
               ? false
               : !!config.force_dark;
       const forceDarkCss =
@@ -1346,7 +1792,7 @@
             : '';
 
       const adblockCss =
-         config.adblock !== false && !isInternalAny()
+         config.adblock !== false && !isInternalAny() && !isLocalDev
             ? `
             ins.adsbygoogle,
             [id^="div-gpt-ad"],
@@ -2055,7 +2501,107 @@
       bmList.appendChild(frag);
    }
 
+   const MODE_BOOL_KEYS = [
+      'adblock',
+      'force_dark',
+      'ext_side_panel',
+      'ext_reader_mode',
+      'ext_yt_ad_skipper',
+      'ext_gh_harmonizer',
+      'ext_media_booster',
+      'ext_userscript_engine',
+      'ext_mouse_gestures',
+   ];
+
+   function resolveActiveModeProfile() {
+      if (isInternalAny()) return null;
+      const modePref = String(rawBaseConfig.active_mode || 'auto')
+         .trim()
+         .toLowerCase();
+      const profiles = Array.isArray(rawBaseConfig.mode_profiles)
+         ? rawBaseConfig.mode_profiles
+         : [];
+      if (modePref === 'default' || modePref === 'off') return null;
+      if (modePref === 'auto') {
+         const curHost = String(window.location.hostname || '').trim();
+         if (!curHost) return null;
+         for (let i = 0; i < profiles.length; i++) {
+            const p = profiles[i];
+            if (!p || !Array.isArray(p.auto_domains)) continue;
+            for (let j = 0; j < p.auto_domains.length; j++) {
+               const pat = String(p.auto_domains[j] || '').trim().toLowerCase();
+               if (!pat) continue;
+               if (
+                  domainMatchesRule(curHost, pat) ||
+                  (pat === 'localhost' && isLocalDevHost(curHost))
+               ) {
+                  return { profile: p, auto: true };
+               }
+            }
+         }
+         return null;
+      }
+      for (let i = 0; i < profiles.length; i++) {
+         const p = profiles[i];
+         if (p && String(p.id || '').toLowerCase() === modePref) {
+            return { profile: p, auto: false };
+         }
+      }
+      return null;
+   }
+
+   function applyModeOverlayToConfig() {
+      for (let i = 0; i < MODE_BOOL_KEYS.length; i++) {
+         const k = MODE_BOOL_KEYS[i];
+         if (Object.prototype.hasOwnProperty.call(rawBaseConfig, k)) {
+            config[k] = rawBaseConfig[k];
+         }
+      }
+      activeModeMatch = resolveActiveModeProfile();
+      if (activeModeMatch && activeModeMatch.profile) {
+         const p = activeModeMatch.profile;
+         for (let i = 0; i < MODE_BOOL_KEYS.length; i++) {
+            const k = MODE_BOOL_KEYS[i];
+            if (typeof p[k] === 'boolean') {
+               config[k] = p[k];
+            }
+         }
+      }
+      const mp = activeModeMatch && activeModeMatch.profile;
+      const wantLayout = mp && ['deck', 'compact', 'vertical'].indexOf(String(mp.layout || '')) >= 0 ? mp.layout : '';
+      if (wantLayout) {
+         if (modeLayoutBackup === null) modeLayoutBackup = styles.topbar.layout || 'deck';
+         styles.topbar.layout = wantLayout;
+      } else if (modeLayoutBackup !== null) {
+         styles.topbar.layout = modeLayoutBackup;
+         modeLayoutBackup = null;
+      }
+      const wantTheme = mp && mp.theme && typeof BUILTIN_THEME_COLORS !== 'undefined' ? BUILTIN_THEME_COLORS[mp.theme] : null;
+      if (wantTheme) {
+         if (modeThemeBackup === null) modeThemeBackup = Object.assign({}, activeTheme);
+         activeTheme = Object.assign({}, modeThemeBackup, wantTheme);
+      } else if (modeThemeBackup !== null) {
+         activeTheme = modeThemeBackup;
+         modeThemeBackup = null;
+      }
+
+      for (let i = 0; i < manualKeys.length; i++) {
+         const mk = manualKeys[i];
+         config[mk] = pageManualFeatureOverrides[mk];
+      }
+      if (
+         userFpsHudOverride === null &&
+         typeof toggleDevFpsHudRef === 'function'
+      ) {
+         toggleDevFpsHudRef(
+            !!(activeModeMatch && activeModeMatch.profile && activeModeMatch.profile.fps_hud),
+            true,
+         );
+      }
+   }
+
    function syncAllStyles() {
+      applyModeOverlayToConfig();
       applyPageRules();
       applySiteRules();
       applyShadowStyles();
@@ -2064,6 +2610,7 @@
       renderBookmarksBar();
       updateAddressLabels();
       if (typeof syncExtensionsRef === 'function') syncExtensionsRef();
+      if (typeof syncMainMenuUIRef === 'function') syncMainMenuUIRef();
    }
 
    function showHudToast(text) {
@@ -3489,10 +4036,18 @@
             }, 30);
          },
       });
+      entries.push({
+         label: isZh() ? '开发者调试抽屉' : 'Developer Drawer',
+         shortcut: keybinds.dev_drawer || 'Ctrl+Shift+J',
+         icon: 'code',
+         onClick: () => {
+            if (typeof toggleDevDrawerRef === 'function') toggleDevDrawerRef(true);
+         },
+      });
       if (!isMobilePlatform()) {
          entries.push({
-            label: 'Inspect',
-            shortcut: 'F12',
+            label: isZh() ? '检查元素 (DevTools)' : 'Inspect',
+            shortcut: keybinds.devtools || 'F12',
             icon: 'code',
             onClick: () => sendIpc({ type: 'OPEN_DEVTOOLS' }),
          });
@@ -3744,6 +4299,124 @@
       }
    }
 
+   function evalSafeMathExpr(raw) {
+      const src = String(raw || '').trim().replace(/×/g, '*').replace(/÷/g, '/');
+      if (!src || src.length > 80 || !/^[0-9+\-*/().%\s^,]+$/.test(src)) return null;
+      if (!/[0-9]/.test(src) || !/[+\-*/%^]/.test(src.replace(/^\s*-/, ''))) return null;
+      const toks = src.replace(/,/g, '').replace(/\*\*/g, '^').match(/\d+\.?\d*|\.\d+|[+\-*/%^()]/g);
+      if (!toks || toks.join('').length < src.replace(/[\s,]/g, '').replace(/\*\*/g, '^').length) return null;
+      let pos = 0;
+      let guard = 0;
+      function peek() { return toks[pos]; }
+      function parseExpr() {
+         let v = parseTerm();
+         while (peek() === '+' || peek() === '-') {
+            const op = toks[pos++];
+            const r = parseTerm();
+            v = op === '+' ? v + r : v - r;
+         }
+         return v;
+      }
+      function parseTerm() {
+         let v = parsePow();
+         while (peek() === '*' || peek() === '/' || peek() === '%') {
+            const op = toks[pos++];
+            const r = parsePow();
+            v = op === '*' ? v * r : op === '/' ? v / r : v % r;
+         }
+         return v;
+      }
+      function parsePow() {
+         const base = parseUnary();
+         if (peek() === '^') {
+            pos++;
+            return Math.pow(base, parsePow());
+         }
+         return base;
+      }
+      function parseUnary() {
+         if (++guard > 200) throw new Error('deep');
+         if (peek() === '-') { pos++; return -parseUnary(); }
+         if (peek() === '+') { pos++; return parseUnary(); }
+         if (peek() === '(') {
+            pos++;
+            const v = parseExpr();
+            if (peek() !== ')') throw new Error('paren');
+            pos++;
+            return v;
+         }
+         const n = parseFloat(toks[pos++]);
+         if (!isFinite(n)) throw new Error('num');
+         return n;
+      }
+      try {
+         const v = parseExpr();
+         if (pos !== toks.length || !isFinite(v)) return null;
+         const rounded = Math.round(v * 1e10) / 1e10;
+         return { value: rounded, text: rounded.toLocaleString('en-US', { maximumFractionDigits: 10 }) };
+      } catch (_) {
+         return null;
+      }
+   }
+
+   function getPaletteCommands() {
+      const zh = isZh();
+      const setMode = (id, label) => () => {
+         rawBaseConfig.active_mode = id;
+         config.active_mode = id;
+         pageManualFeatureOverrides = Object.create(null);
+         userFpsHudOverride = null;
+         sendIpc({ type: 'PATCH_HUD_PREFS', active_mode: id });
+         syncAllStyles();
+         showHudToast((zh ? '模式已切换：' : 'Mode: ') + label);
+      };
+      const cmds = [
+         { zh: '切换到自动场景模式', en: 'Mode: Auto by site', kw: 'auto mode 自动 模式', run: setMode('auto', zh ? '自动' : 'Auto') },
+         { zh: '切换开发者模式', en: 'Mode: Developer', kw: 'developer dev 开发者 模式', run: setMode('developer', zh ? '开发者' : 'Developer') },
+         { zh: '切换学习模式', en: 'Mode: Study', kw: 'study learn 学习 阅读 模式', run: setMode('study', zh ? '学习' : 'Study') },
+         { zh: '切换影音模式', en: 'Mode: Media', kw: 'media video 影音 模式', run: setMode('media', zh ? '影音' : 'Media') },
+         { zh: '切换标准模式（无特殊模式）', en: 'Mode: Standard', kw: 'default standard 标准 模式', run: setMode('default', zh ? '标准' : 'Standard') },
+         {
+            zh: '开关智能夜间深色', en: 'Toggle Smart Force Dark', kw: 'dark night 夜间 深色',
+            run: () => {
+               config.force_dark = !config.force_dark;
+               sendIpc({ type: 'PATCH_HUD_PREFS', force_dark: config.force_dark });
+               applyPageRules();
+               showHudToast(config.force_dark ? (zh ? '智能夜间已开启' : 'Smart Force Dark on') : (zh ? '智能夜间已关闭' : 'Smart Force Dark off'));
+            },
+         },
+         {
+            zh: '开关无痕模式', en: 'Toggle Private mode', kw: 'private incognito 无痕 隐私',
+            run: () => {
+               config.incognito = !config.incognito;
+               sendIpc({ type: 'PATCH_HUD_PREFS', incognito: config.incognito });
+               syncBookmarkButtons();
+               showHudToast(config.incognito ? (zh ? '无痕模式已开启' : 'Private mode on') : (zh ? '无痕模式已关闭' : 'Private mode off'));
+            },
+         },
+         { zh: '打开开发者调试抽屉', en: 'Open Developer Drawer', kw: 'dev drawer console network 调试 开发者 抽屉', run: () => { if (typeof toggleDevDrawerRef === 'function') toggleDevDrawerRef(true); } },
+         { zh: '点选隐藏页面元素', en: 'Pick element to hide', kw: 'pick hide element 点选 隐藏 元素', run: () => { if (typeof startVisualElementPickerRef === 'function') startVisualElementPickerRef(); } },
+         {
+            zh: '保存当前标签组为工作区', en: 'Save tabs as workspace', kw: 'workspace snapshot save 工作区 快照 保存',
+            run: () => {
+               if (!openPromptModalRef) return;
+               openPromptModalRef(
+                  {
+                     title: zh ? '保存工作区' : 'Save workspace',
+                     badge: 'Session',
+                     description: zh ? '把当前所有标签页保存为命名工作区（例如 工作、学习）。' : 'Save all open tabs into a named workspace.',
+                     placeholder: zh ? '工作区名称…' : 'Workspace name...',
+                     confirmText: zh ? '保存' : 'Save workspace',
+                  },
+                  (name) => { if (name && name.trim()) sendIpc({ type: 'SAVE_WORKSPACE', name: name.trim() }); },
+               );
+            },
+         },
+         { zh: '硬刷新并清理缓存', en: 'Hard reload & clear cache', kw: 'reload refresh cache 刷新 缓存', run: () => performHardCacheBustReload() },
+         { zh: '打开偏好设置', en: 'Open Preferences', kw: 'settings preferences 设置 偏好', run: () => togglePreferences() },
+      ];
+      return cmds.map((c) => ({ kind: 'cmd', title: '> ' + (zh ? c.zh : c.en), kw: (c.zh + ' ' + c.en + ' ' + c.kw).toLowerCase(), hint: zh ? '回车执行' : 'Enter to run', badge: zh ? '命令' : 'Command', run: c.run }));
+   }
    function renderOmniboxSuggestions(rawQuery, listEl, inputEl, closeFn) {
       if (!shadowRoot || !listEl) return;
       listEl.textContent = '';
@@ -3757,12 +4430,32 @@
          const key =
             item.kind === 'tab'
                ? 'tab:' + item.tabId
-               : item.kind === 'bang'
-                 ? 'bang:' + item.trigger
-                 : normalizeUrlKey(item.url);
+               : item.kind === 'calc' || item.kind === 'cmd'
+                 ? item.kind + ':' + item.title
+                 : item.kind === 'bang'
+                   ? 'bang:' + item.trigger
+                   : normalizeUrlKey(item.url);
          if (!key || seen[key]) return;
          seen[key] = true;
          results.push(item);
+      }
+
+      const calc = evalSafeMathExpr(trimmed);
+      if (calc) {
+         pushCandidate({
+            kind: 'calc',
+            title: '= ' + calc.text,
+            hint: isZh() ? '点击或回车复制结果' : 'Click or Enter to copy',
+            badge: isZh() ? '计算' : 'Calc',
+            run: () => copyTextToClipboard(String(calc.value), (isZh() ? '已复制：' : 'Copied: ') + calc.text),
+         });
+      }
+      const isPalette = q.startsWith('>');
+      if (isPalette) {
+         const needle = q.slice(1).trim();
+         getPaletteCommands().forEach((c) => {
+            if (!needle || c.kw.includes(needle)) pushCandidate(c);
+         });
       }
 
       // 0. Bang Shortcuts when starting with '!'
@@ -3855,8 +4548,8 @@
          }
       }
 
-      suggestItems = results.slice(0, 6);
-      suggestIndex = -1;
+      suggestItems = results.slice(0, isPalette ? 12 : 6);
+      suggestIndex = calc || (isPalette && suggestItems.length) ? 0 : -1;
 
       if (suggestItems.length === 0) {
          listEl.style.display = 'none';
@@ -3879,9 +4572,11 @@
                ? 'starFilled'
                : item.kind === 'history'
                  ? 'history'
-                 : item.kind === 'bang'
-                   ? 'search'
-                   : 'go';
+                  : item.kind === 'bang'
+                    ? 'search'
+                    : item.kind === 'cmd' || item.kind === 'calc'
+                      ? 'settings'
+                      : 'go';
          iconWrap.appendChild(createIcon(iconName));
          if (item.kind === 'bookmark' || item.kind === 'bang')
             iconWrap.style.color = 'var(--fnx-accent)';
@@ -3894,7 +4589,11 @@
          const uSpan = document.createElement('span');
          uSpan.className = 'fnx-suggest-url';
          uSpan.textContent =
-            item.kind === 'bang' ? item.url : formatHostLabel(item.url);
+             item.kind === 'calc' || item.kind === 'cmd'
+                ? item.hint
+                : item.kind === 'bang'
+                  ? item.url
+                  : formatHostLabel(item.url);
          textWrap.appendChild(tSpan);
          textWrap.appendChild(uSpan);
 
@@ -3907,7 +4606,12 @@
          row.appendChild(tag);
 
          row.onclick = () => {
-            if (item.kind === 'bang') {
+             if (item.kind === 'calc' || item.kind === 'cmd') {
+                if (item.kind === 'cmd' && closeFn) closeFn();
+                item.run();
+                return;
+             }
+             if (item.kind === 'bang') {
                const cur = inputEl.value.trim();
                if (!cur.includes(' ')) {
                   inputEl.value = item.trigger + ' ';
@@ -4104,7 +4808,12 @@
             e.preventDefault();
             if (suggestIndex >= 0 && suggestItems[suggestIndex]) {
                const item = suggestItems[suggestIndex];
-               if (item.kind === 'bang') {
+                if (item.kind === 'calc' || item.kind === 'cmd') {
+                   if (item.kind === 'cmd' && closeFn) closeFn();
+                   item.run();
+                   return;
+                }
+                if (item.kind === 'bang') {
                   const cur = inputEl.value.trim();
                   if (!cur.includes(' ')) {
                      inputEl.value = item.trigger + ' ';
@@ -4187,7 +4896,15 @@
       }
 
       if (/^https?:\/\//i.test(raw)) return raw;
-      if (/^(localhost|127\.0\.0\.1)(:\d+)?/i.test(raw)) return 'http://' + raw;
+      if (/^:(\d{2,5})(?:[/?#].*)?$/.test(raw)) return 'http://localhost' + raw;
+      if (
+         /^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:localhost|local|test)|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)(?::\d+)?(?:[/?#].*)?$/i.test(
+            raw,
+         )
+      ) {
+         return 'http://' + raw;
+      }
+      if (/^[a-z0-9.-]+:\d{2,5}(?:[/?#].*)?$/i.test(raw)) return 'http://' + raw;
       if (raw.includes('.') && !raw.includes(' ')) return 'https://' + raw;
 
       const q = encodeURIComponent(raw);
@@ -4403,8 +5120,15 @@
    // Combined Single-Eval Boot Sync (token-authenticated & locked against page tampering)
    exposeBridge('__fynexo_boot_sync__', function (rtPayload, tabsPayload) {
       if (rtPayload) {
-         if (rtPayload.config) config = Object.assign(config, rtPayload.config);
-         if (rtPayload.styles) styles = mergeStyles(rtPayload.styles);
+         if (rtPayload.config) {
+            rawBaseConfig = Object.assign({}, rawBaseConfig, rtPayload.config);
+            config = Object.assign(config, rtPayload.config);
+         }
+         if (rtPayload.styles) {
+            styles = mergeStyles(rtPayload.styles);
+            modeLayoutBackup = null;
+         }
+         if (rtPayload.active_theme) modeThemeBackup = null;
          if (rtPayload.active_theme)
             activeTheme = Object.assign(activeTheme, rtPayload.active_theme);
          if (rtPayload.keybinds)
@@ -4436,8 +5160,15 @@
 
    exposeBridge('__fynexo_set_runtime__', function (payload) {
       if (!payload) return;
-      if (payload.config) config = Object.assign(config, payload.config);
-      if (payload.styles) styles = mergeStyles(payload.styles);
+      if (payload.config) {
+         rawBaseConfig = Object.assign({}, rawBaseConfig, payload.config);
+         config = Object.assign(config, payload.config);
+      }
+      if (payload.styles) {
+         styles = mergeStyles(payload.styles);
+         modeLayoutBackup = null;
+      }
+      if (payload.active_theme) modeThemeBackup = null;
       if (payload.active_theme)
          activeTheme = Object.assign(activeTheme, payload.active_theme);
       if (payload.keybinds)
@@ -5241,6 +5972,19 @@
          btnDownloads.appendChild(dlBadge);
          rightZone.appendChild(btnDownloads);
 
+         // 3.8 Active Mode Indicator Pill (shows only when a mode profile is active)
+         const modeTopPill = document.createElement('button');
+         modeTopPill.id = '__fynexo_mode_pill__';
+         modeTopPill.type = 'button';
+         modeTopPill.className = 'fnx-studio-pill';
+         modeTopPill.style.cssText =
+            'display: none; height: 24px; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 600; gap: 4px; border-color: var(--fnx-accent); background: var(--fnx-accent-bg); color: var(--fnx-fg);';
+         modeTopPill.onclick = (e) => {
+            if (e && e.stopPropagation) e.stopPropagation();
+            toggleMainMenu();
+         };
+         rightZone.appendChild(modeTopPill);
+
          // 4. Adblock & Privacy Shield (Always visible)
          const btnShield = makeDesktopIconBtn(
             'shield',
@@ -5374,7 +6118,7 @@
          mainMenuEl = document.createElement('div');
          mainMenuEl.id = '__fynexo_main_menu__';
          mainMenuEl.className = 'fnx-nav-popover';
-         mainMenuEl.style.width = '238px';
+         mainMenuEl.style.width = '260px';
 
          const menuI18nEntries = [];
          function addMenuItem(iconName, label, shortcut, onClick, zhLabel) {
@@ -5523,6 +6267,32 @@
             zoomValSpan.textContent =
                Math.round((Number(config.default_zoom) || 1.0) * 100) + '%';
             const internal = isInternalAny();
+            if (typeof devDrawerMenuItem !== 'undefined' && devDrawerMenuItem) {
+               const showDevItem =
+                  !activeModeMatch ||
+                  !activeModeMatch.profile ||
+                  activeModeMatch.profile.dev_drawer_access !== false;
+               devDrawerMenuItem.style.display = showDevItem ? '' : 'none';
+            }
+            if (typeof renderMenuModesRow === 'function') {
+               renderMenuModesRow();
+            }
+            if (typeof modeTopPill !== 'undefined' && modeTopPill) {
+               if (!internal && activeModeMatch && activeModeMatch.profile) {
+                  const pr = activeModeMatch.profile;
+                  const nm = zh ? pr.name_zh || pr.name_en : pr.name_en || pr.name_zh;
+                  modeTopPill.textContent = (pr.icon ? pr.icon + ' ' : '') + nm.slice(0, 6);
+                  modeTopPill.title =
+                     (zh ? '当前模式：' : 'Active Mode: ') +
+                     nm +
+                     (activeModeMatch.auto
+                        ? (zh ? '（自动匹配，点击切换）' : ' (Auto, click to switch)')
+                        : (zh ? '（手动锁定，点击切换）' : ' (Locked, click to switch)'));
+                  modeTopPill.style.display = 'inline-flex';
+               } else {
+                  modeTopPill.style.display = 'none';
+               }
+            }
             mobShieldStatus.textContent = internal
                ? (zh ? '无需拦截' : 'Exempt')
                : config.adblock !== false
@@ -5539,9 +6309,12 @@
                mobMediaItem.style.display = 'none';
             }
          }
+         syncMainMenuUIRef = syncMainMenuUI;
          darkItem.onclick = (e) => {
             e.stopPropagation();
             config.force_dark = !config.force_dark;
+            rawBaseConfig.force_dark = config.force_dark;
+            pageManualFeatureOverrides.force_dark = config.force_dark;
             sendIpc({ type: 'PATCH_HUD_PREFS', force_dark: config.force_dark });
             applyPageRules();
             syncBookmarkButtons();
@@ -5561,6 +6334,85 @@
             }
          };
          mainMenuEl.appendChild(darkItem);
+
+         // Contextual Mode Switcher Strip
+         const modeBox = document.createElement('div');
+         modeBox.style.cssText =
+            'display: flex; flex-direction: column; gap: 5px; padding: 6px 9px; margin-top: 2px; border-top: 1px solid var(--fnx-border);';
+         const modeHeadRow = document.createElement('div');
+         modeHeadRow.style.cssText =
+            'display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--fnx-secondary);';
+         const modeTitleLbl = document.createElement('span');
+         const modeActiveSub = document.createElement('span');
+         modeActiveSub.style.cssText = 'color: var(--fnx-accent); font-weight: 600;';
+         modeHeadRow.appendChild(modeTitleLbl);
+         modeHeadRow.appendChild(modeActiveSub);
+         const modePillsRow = document.createElement('div');
+         modePillsRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px;';
+         modeBox.appendChild(modeHeadRow);
+         modeBox.appendChild(modePillsRow);
+         mainMenuEl.appendChild(modeBox);
+
+         function renderMenuModesRow() {
+            const zh = isZh();
+            const pref = String(rawBaseConfig.active_mode || 'auto').toLowerCase();
+            modeTitleLbl.textContent = zh ? '场景模式' : 'Browser mode';
+            if (activeModeMatch && activeModeMatch.profile) {
+               const pr = activeModeMatch.profile;
+               const nm = zh ? pr.name_zh || pr.name_en : pr.name_en || pr.name_zh;
+               modeActiveSub.textContent =
+                  (pr.icon ? pr.icon + ' ' : '') +
+                  nm +
+                  (activeModeMatch.auto ? (zh ? ' (自动)' : ' (Auto)') : '');
+            } else {
+               modeActiveSub.textContent =
+                  pref === 'default'
+                     ? (zh ? '日常标准' : 'Standard')
+                     : (zh ? '自动 · 标准' : 'Auto · Standard');
+            }
+            modePillsRow.textContent = '';
+            const items = [
+               { id: 'auto', text: zh ? '✨ 自动' : '✨ Auto' },
+               { id: 'default', text: zh ? '标准' : 'Std' },
+            ];
+            const profiles = Array.isArray(rawBaseConfig.mode_profiles)
+               ? rawBaseConfig.mode_profiles
+               : [];
+            for (let i = 0; i < profiles.length; i++) {
+               const pr = profiles[i];
+               if (!pr || !pr.id) continue;
+               const nm = zh ? pr.name_zh || pr.name_en : pr.name_en || pr.name_zh;
+               items.push({
+                  id: pr.id,
+                  text: (pr.icon ? pr.icon + ' ' : '') + nm.slice(0, 6),
+                  full: nm,
+               });
+            }
+            for (let i = 0; i < items.length; i++) {
+               const it = items[i];
+               const btn = document.createElement('button');
+               btn.type = 'button';
+               btn.className = 'fnx-pop-seg-btn';
+               const active = pref === String(it.id).toLowerCase();
+               if (active) btn.classList.add('active');
+               btn.style.cssText = 'padding: 2px 7px; height: 22px; font-size: 11px;';
+               btn.textContent = it.text;
+               btn.title = it.full || it.text;
+               btn.onclick = (ev) => {
+                  ev.stopPropagation();
+                  rawBaseConfig.active_mode = it.id;
+                  config.active_mode = it.id;
+                  pageManualFeatureOverrides = Object.create(null);
+                  userFpsHudOverride = null;
+                  sendIpc({ type: 'PATCH_HUD_PREFS', active_mode: it.id });
+                  syncAllStyles();
+                  syncMainMenuUI();
+                  showHudToast((zh ? '模式已切换：' : 'Mode: ') + (it.full || it.text));
+               };
+               modePillsRow.appendChild(btn);
+            }
+         }
+         renderMenuModesRow();
 
          addMenuSep();
 
@@ -5727,6 +6579,19 @@
             '打开下载文件夹',
          );
          downloadsDirMenuItem.classList.add('fnx-desktop-only-row');
+
+         // Built-in Developer Drawer
+         const devDrawerMenuItem = addMenuItem(
+            'code',
+            'Developer Drawer',
+            keybinds.dev_drawer || 'Ctrl+Shift+J',
+            () => {
+               if (typeof toggleDevDrawerRef === 'function') {
+                  toggleDevDrawerRef();
+               }
+            },
+            '开发者调试抽屉',
+         );
 
          // Popover 2: Media Control & Audio Booster (>100% Volume)
          mediaPopoverEl = document.createElement('div');
@@ -6775,6 +7640,7 @@
             }
          }
 
+         startVisualElementPickerRef = startVisualElementPicker;
          btnPickElement.onclick = (e) => {
             e.stopPropagation();
             startVisualElementPicker();
@@ -6812,15 +7678,22 @@
                manageSpan.textContent = zh ? '管理规则与白名单' : 'Manage rules & whitelist';
             }
 
+            const localDev = !internal && isLocalDevHost(window.location.hostname || '');
+            const displayHost =
+               (window.location.host || window.location.hostname || '').replace(
+                  /^www\./,
+                  '',
+               );
             shieldHostSub.textContent = internal
                ? (zh ? '系统页面 · 无需拦截' : 'System page · Exempt')
-               : (window.location.hostname || '').replace(/^www\./, '') ||
-                 (zh ? '当前页面' : 'this page');
+               : displayHost || (zh ? '当前页面' : 'this page');
             shieldStatusMeta.textContent = internal
                ? (zh ? '已豁免' : 'Exempt')
-               : adOn
-                 ? (zh ? '65+ 拦截规则' : '65+ domain rules')
-                 : (zh ? '已暂停' : 'Paused');
+               : localDev
+                 ? (zh ? '本地开发 · 免误拦/免反色' : 'Local Dev · Auto-exempt')
+                 : adOn
+                   ? (zh ? '65+ 拦截规则' : '65+ domain rules')
+                   : (zh ? '已暂停' : 'Paused');
             shieldSwitch.disabled = internal;
             shieldSwitch.classList.toggle('on', !internal && adOn);
             shieldSwitch.setAttribute(
@@ -6948,6 +7821,8 @@
             e.stopPropagation();
             if (isInternalAny()) return;
             config.adblock = config.adblock === false;
+            rawBaseConfig.adblock = config.adblock;
+            pageManualFeatureOverrides.adblock = config.adblock;
             sendIpc({ type: 'PATCH_HUD_PREFS', adblock: config.adblock });
             applyPageRules();
             syncShieldPopoverUI();
@@ -6961,6 +7836,9 @@
             e.stopPropagation();
             if (isInternalAny()) return;
             config.ext_userscript_engine = config.ext_userscript_engine === false;
+            rawBaseConfig.ext_userscript_engine = config.ext_userscript_engine;
+            pageManualFeatureOverrides.ext_userscript_engine =
+               config.ext_userscript_engine;
             sendIpc({
                type: 'PATCH_HUD_PREFS',
                ext_userscript_engine: config.ext_userscript_engine,
@@ -6992,6 +7870,7 @@
          shieldPopoverEl.appendChild(btnOpenAdbStudio);
 
          function getDetectedAdCount() {
+            if (isLocalDevHost(window.location.hostname || '')) return 0;
             const ads = document.querySelectorAll(
                'ins.adsbygoogle, [id^="div-gpt-ad"], [id^="google_ads_iframe"], iframe[src*="doubleclick.net"], iframe[src*="googlesyndication.com"]',
             );
@@ -7934,10 +8813,13 @@
                return btn;
             }
 
-            const btnSpWeb = makeSpTab('globe', 'Web Panel', true);
-            const btnSpNotes = makeSpTab('fileText', 'Quick Notes', false);
+            const zh = isZh();
+            const btnSpWeb = makeSpTab('globe', zh ? '小窗网页' : 'Web Panel', true);
+            const btnSpNotes = makeSpTab('fileText', zh ? '随手便签' : 'Quick Notes', false);
+            const btnSpDev = makeSpTab('code', zh ? '开发工具' : 'Dev Tools', false);
             spTabsWrap.appendChild(btnSpWeb);
             spTabsWrap.appendChild(btnSpNotes);
+            spTabsWrap.appendChild(btnSpDev);
             spHeader.appendChild(spTabsWrap);
 
             const btnSpClose = document.createElement('button');
@@ -8035,21 +8917,282 @@
             };
             spBodyNotes.appendChild(spTextarea);
 
-            btnSpWeb.onclick = () => {
-               btnSpWeb.classList.add('active');
-               btnSpNotes.classList.remove('active');
-               spBodyWeb.classList.remove('hidden');
-               spBodyNotes.classList.add('hidden');
+            const spBodyDev = document.createElement('div');
+            spBodyDev.className = 'fnx-sp-body hidden';
+            spBodyDev.style.cssText =
+               'padding: 10px; gap: 8px; overflow-y: auto;';
+            const devIn = document.createElement('textarea');
+            devIn.className = 'fnx-sp-textarea';
+            devIn.style.cssText =
+               'flex: none; height: 112px; min-height: 82px; padding: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; border: 1px solid var(--fnx-border); border-radius: 8px; background: var(--fnx-surface);';
+            devIn.placeholder = isZh()
+               ? '粘贴 JSON / Base64 / URL / Unix 时间戳 (秒或毫秒)...'
+               : 'Paste JSON / Base64 / URL / Unix timestamp...';
+
+            const devBtnGrid = document.createElement('div');
+            devBtnGrid.style.cssText =
+               'display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;';
+            const devOut = document.createElement('textarea');
+            devOut.className = 'fnx-sp-textarea';
+            devOut.readOnly = true;
+            devOut.style.cssText =
+               'flex: 1; min-height: 120px; padding: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; border: 1px solid var(--fnx-border); border-radius: 8px; background: var(--fnx-surface);';
+            devOut.placeholder = isZh()
+               ? '转换 / 格式化输出结果将显示在这里...'
+               : 'Formatted output appears here...';
+
+            function makeDevToolBtn(zhLbl, enLbl, fn) {
+               const b = document.createElement('button');
+               b.type = 'button';
+               b.className = 'fnx-pop-btn';
+               b.style.cssText = 'height: 29px; font-size: 11.5px;';
+               b.textContent = isZh() ? zhLbl : enLbl;
+               b.onclick = () => {
+                  try {
+                     fn();
+                  } catch (err) {
+                     devOut.value = 'Error: ' + (err && err.message ? err.message : String(err));
+                  }
+               };
+               return b;
+            }
+
+            function hexToRgbStr(hex) {
+               const h = String(hex || '').replace('#', '');
+               if (h.length !== 6) return '';
+               const r = parseInt(h.slice(0, 2), 16);
+               const g = parseInt(h.slice(2, 4), 16);
+               const bl = parseInt(h.slice(4, 6), 16);
+               return `rgb(${r}, ${g}, ${bl})`;
+            }
+
+            const fallbackColorInp = document.createElement('input');
+            fallbackColorInp.type = 'color';
+            fallbackColorInp.style.cssText = 'position: fixed; opacity: 0; pointer-events: none; width: 0; height: 0;';
+            fallbackColorInp.oninput = () => {
+               const hex = fallbackColorInp.value.toUpperCase();
+               devOut.value = `${hex}\n${hexToRgbStr(hex)}`;
             };
-            btnSpNotes.onclick = () => {
-               btnSpNotes.classList.add('active');
-               btnSpWeb.classList.remove('active');
-               spBodyNotes.classList.remove('hidden');
-               spBodyWeb.classList.add('hidden');
-            };
+            spBodyDev.appendChild(fallbackColorInp);
+
+            devBtnGrid.appendChild(
+               makeDevToolBtn('JSON 格式化', 'Format JSON', () => {
+                  devOut.value = JSON.stringify(JSON.parse(devIn.value), null, 2);
+               }),
+            );
+            devBtnGrid.appendChild(
+               makeDevToolBtn('JSON 压缩', 'Minify JSON', () => {
+                  devOut.value = JSON.stringify(JSON.parse(devIn.value));
+               }),
+            );
+            devBtnGrid.appendChild(
+               makeDevToolBtn('Base64 编码', 'Base64 Encode', () => {
+                  const bytes = new TextEncoder().encode(devIn.value);
+                  let bin = '';
+                  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+                  devOut.value = btoa(bin);
+               }),
+            );
+            devBtnGrid.appendChild(
+               makeDevToolBtn('Base64 解码', 'Base64 Decode', () => {
+                  const bin = atob(devIn.value.trim());
+                  const bytes = new Uint8Array(bin.length);
+                  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                  devOut.value = new TextDecoder().decode(bytes);
+               }),
+            );
+            devBtnGrid.appendChild(
+               makeDevToolBtn('URL 编码', 'URL Encode', () => {
+                  devOut.value = encodeURIComponent(devIn.value);
+               }),
+            );
+            devBtnGrid.appendChild(
+               makeDevToolBtn('URL 解码', 'URL Decode', () => {
+                  devOut.value = decodeURIComponent(devIn.value);
+               }),
+            );
+            devBtnGrid.appendChild(
+               makeDevToolBtn('⏱️ 时间戳转换', '⏱️ Timestamp', () => {
+                  const raw = devIn.value.trim();
+                  let d;
+                  if (!raw) {
+                     d = new Date();
+                  } else if (/^-?\d+(\.\d+)?$/.test(raw)) {
+                     const n = Number(raw);
+                     d = new Date(Math.abs(n) < 1e11 ? n * 1000 : n);
+                  } else {
+                     d = new Date(raw);
+                  }
+                  if (Number.isNaN(d.getTime())) {
+                     throw new Error('Invalid date / timestamp');
+                  }
+                  const sec = Math.floor(d.getTime() / 1000);
+                  devOut.value = [
+                     `Unix (s):  ${sec}`,
+                     `Unix (ms): ${d.getTime()}`,
+                     `Local:     ${d.toLocaleString()}`,
+                     `ISO-8601:  ${d.toISOString()}`,
+                  ].join('\n');
+               }),
+            );
+            devBtnGrid.appendChild(
+               makeDevToolBtn('🎨 屏幕取色器', '🎨 EyeDropper', () => {
+                  if (typeof window.EyeDropper === 'function') {
+                     new window.EyeDropper()
+                        .open()
+                        .then((res) => {
+                           const hex = String(res.sRGBHex || '').toUpperCase();
+                           const out = `${hex}\n${hexToRgbStr(hex)}`;
+                           devOut.value = out;
+                           if (navigator.clipboard && navigator.clipboard.writeText) {
+                              navigator.clipboard.writeText(hex).catch(() => {});
+                           }
+                           showHudToast((isZh() ? '已取色并复制：' : 'Picked color: ') + hex);
+                        })
+                        .catch(() => {});
+                  } else {
+                     fallbackColorInp.click();
+                  }
+               }),
+            );
+            devBtnGrid.appendChild(
+               makeDevToolBtn('🪪 JWT 解码', '🪪 JWT Decode', () => {
+                  const raw = devIn.value.trim();
+                  const parts = raw.split('.');
+                  if (parts.length < 2) {
+                     throw new Error('Invalid JWT (expected header.payload.sig)');
+                  }
+                  const decodeB64Url = (s) => {
+                     const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+                     const pad = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+                     const bin = atob(pad);
+                     const bytes = new Uint8Array(bin.length);
+                     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                     return new TextDecoder().decode(bytes);
+                  };
+                  const hdr = JSON.parse(decodeB64Url(parts[0]));
+                  const pay = JSON.parse(decodeB64Url(parts[1]));
+                  let statusLine = 'Token Status: No exp claim';
+                  if (typeof pay.exp === 'number') {
+                     const diffSec = Math.round(pay.exp - Date.now() / 1000);
+                     const expDate = new Date(pay.exp * 1000).toLocaleString();
+                     statusLine =
+                        diffSec >= 0
+                           ? `✅ Valid (${Math.ceil(diffSec / 60)} min left · exp ${expDate})`
+                           : `❌ EXPIRED (${Math.abs(Math.floor(diffSec / 60))} min ago · exp ${expDate})`;
+                  }
+                  if (typeof pay.iat === 'number') {
+                     statusLine += `\nIssued (iat): ${new Date(pay.iat * 1000).toLocaleString()}`;
+                  }
+                  devOut.value = [
+                     statusLine,
+                     '',
+                     '--- HEADER ---',
+                     JSON.stringify(hdr, null, 2),
+                     '',
+                     '--- PAYLOAD ---',
+                     JSON.stringify(pay, null, 2),
+                  ].join('\n');
+               }),
+            );
+            devBtnGrid.appendChild(
+               makeDevToolBtn('#️⃣ UUID / SHA256', '#️⃣ UUID / SHA256', () => {
+                  const raw = devIn.value;
+                  if (!raw.trim()) {
+                     const uuid =
+                        window.crypto && typeof window.crypto.randomUUID === 'function'
+                           ? window.crypto.randomUUID()
+                           : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                                const r = (Math.random() * 16) | 0;
+                                return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+                             });
+                     devOut.value = `UUID v4:\n${uuid}`;
+                     return;
+                  }
+                  if (!window.crypto || !window.crypto.subtle) {
+                     throw new Error('SubtleCrypto SHA-256 requires secure context');
+                  }
+                  const bytes = new TextEncoder().encode(raw);
+                  window.crypto.subtle.digest('SHA-256', bytes).then((buf) => {
+                     const arr = Array.from(new Uint8Array(buf));
+                     const hex = arr.map((b) => b.toString(16).padStart(2, '0')).join('');
+                     devOut.value = `SHA-256 (${bytes.length} bytes):\n${hex}`;
+                  });
+               }),
+            );
+            devBtnGrid.appendChild(
+               makeDevToolBtn('🔎 正则测试', '🔎 Regex Test', () => {
+                  const lines = devIn.value.split(/\r?\n/);
+                  const first = (lines[0] || '').trim();
+                  if (!first) {
+                     throw new Error('Line 1: /pattern/flags, remaining lines: test text');
+                  }
+                  const body = lines.slice(1).join('\n');
+                  let pat = first;
+                  let flags = 'g';
+                  const m = first.match(/^\/(.*)\/([gimsuy]*)$/);
+                  if (m) {
+                     pat = m[1];
+                     flags = m[2].includes('g') ? m[2] : m[2] + 'g';
+                  }
+                  const re = new RegExp(pat, flags);
+                  const hits = [];
+                  let mt;
+                  while ((mt = re.exec(body)) !== null && hits.length < 100) {
+                     hits.push(
+                        `#${hits.length + 1} @${mt.index}: ${JSON.stringify(mt[0])}` +
+                           (mt.length > 1 ? `  groups=${JSON.stringify(mt.slice(1))}` : ''),
+                     );
+                     if (mt[0].length === 0) re.lastIndex += 1;
+                  }
+                  devOut.value = hits.length
+                     ? `Matched ${hits.length} time(s):\n${hits.join('\n')}`
+                     : 'No matches found (Line 1 is /regex/flags, Line 2+ is test text).';
+               }),
+            );
+
+            const devBottomRow = document.createElement('div');
+            devBottomRow.style.cssText = 'display: flex; gap: 6px;';
+            const btnDevCopy = makeDevToolBtn('📋 复制输出', '📋 Copy Output', () => {
+               if (!devOut.value) return;
+               if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(devOut.value).catch(() => {});
+               }
+               showHudToast(isZh() ? '已复制输出内容' : 'Output copied');
+            });
+            const btnDevSwap = makeDevToolBtn('⇅ 移入输入框', '⇅ Move to Input', () => {
+               if (!devOut.value) return;
+               devIn.value = devOut.value;
+               devOut.value = '';
+            });
+            devBottomRow.appendChild(btnDevCopy);
+            devBottomRow.appendChild(btnDevSwap);
+
+            spBodyDev.appendChild(devIn);
+            spBodyDev.appendChild(devBtnGrid);
+            spBodyDev.appendChild(devOut);
+            spBodyDev.appendChild(devBottomRow);
+
+            function selectSpTab(activeKey) {
+               const map = [
+                  ['web', btnSpWeb, spBodyWeb],
+                  ['notes', btnSpNotes, spBodyNotes],
+                  ['dev', btnSpDev, spBodyDev],
+               ];
+               for (let i = 0; i < map.length; i++) {
+                  const [k, btnEl, bodyEl] = map[i];
+                  const on = k === activeKey;
+                  btnEl.classList.toggle('active', on);
+                  bodyEl.classList.toggle('hidden', !on);
+               }
+            }
+            btnSpWeb.onclick = () => selectSpTab('web');
+            btnSpNotes.onclick = () => selectSpTab('notes');
+            btnSpDev.onclick = () => selectSpTab('dev');
 
             sidePanelEl.appendChild(spBodyWeb);
             sidePanelEl.appendChild(spBodyNotes);
+            sidePanelEl.appendChild(spBodyDev);
             shell.appendChild(sidePanelEl);
             sidePanelRefs = { spIframe, spBodyWeb, loadSpUrl };
             return sidePanelRefs;
@@ -8120,6 +9263,1251 @@
          }
          closeSidePanelRef = () => toggleSidePanel(false);
          isSidePanelOpenRef = () => isSidePanelOpen;
+
+         // 3.5b Built-in Fynexo DevDrawer (Console / Network / Storage / DOM + Debug Switches)
+         let isDevDrawerOpen = false;
+         let devDrawerEl = null;
+         let devActiveTab = 'console';
+         let devConsoleFilter = 'all';
+         let devStorageKind = 'local';
+         let devDesignModeOn = false;
+         let devWireframeOn = false;
+         let devViewportIdx = 0;
+         const DEV_VIEWPORTS = [0, 375, 768, 1280];
+         let devDrawerRefs = null;
+         let devInspectActive = false;
+         let devSelectedNetEntry = null;
+         let devFpsActive = false;
+         let devFpsEl = null;
+         let devFpsRafId = null;
+         let devFpsLastSec = 0;
+         let devFpsFrames = 0;
+
+         function toggleDevFpsHud(force, silent) {
+            const next = force !== undefined ? !!force : !devFpsActive;
+            if (!silent) {
+               userFpsHudOverride = next;
+            }
+            if (next === devFpsActive) return;
+            devFpsActive = next;
+            if (!devFpsActive) {
+               if (devFpsRafId) {
+                  cancelAnimationFrame(devFpsRafId);
+                  devFpsRafId = null;
+               }
+               if (devFpsEl && devFpsEl.isConnected) devFpsEl.style.display = 'none';
+               if (devDrawerRefs && devDrawerRefs.syncDevQuickToggles) {
+                  devDrawerRefs.syncDevQuickToggles();
+               }
+               return;
+            }
+            if (!devFpsEl) {
+               devFpsEl = document.createElement('div');
+               devFpsEl.id = '__fynexo_fps_hud__';
+               devFpsEl.style.cssText =
+                  'position: fixed; right: 14px; bottom: 64px; z-index: 2147483644; pointer-events: none; padding: 4px 10px; border-radius: 999px; background: rgba(16,16,20,0.84); border: 1px solid var(--fnx-accent, #38bdf8); color: #f4f4f6; font: 600 11px/1.35 ui-monospace, Consolas, monospace; box-shadow: 0 6px 18px rgba(0,0,0,0.35);';
+               shell.appendChild(devFpsEl);
+            }
+            devFpsEl.style.display = 'block';
+            devFpsFrames = 0;
+            devFpsLastSec = performance.now ? performance.now() : Date.now();
+            const tickFps = (now) => {
+               if (!devFpsActive) return;
+               devFpsFrames += 1;
+               const ts = now || Date.now();
+               if (ts - devFpsLastSec >= 1000) {
+                  const fps = Math.round((devFpsFrames * 1000) / Math.max(1, ts - devFpsLastSec));
+                  const domCnt = document.querySelectorAll('*').length;
+                  const heapMb =
+                     performance &&
+                     performance.memory &&
+                     performance.memory.usedJSHeapSize
+                        ? ` · ${(performance.memory.usedJSHeapSize / 1048576).toFixed(1)}MB`
+                        : '';
+                  devFpsEl.textContent = `FPS ${fps} · DOM ${domCnt}${heapMb}`;
+                  devFpsFrames = 0;
+                  devFpsLastSec = ts;
+               }
+               devFpsRafId = requestAnimationFrame(tickFps);
+            };
+            devFpsRafId = requestAnimationFrame(tickFps);
+            if (devDrawerRefs && devDrawerRefs.syncDevQuickToggles) {
+               devDrawerRefs.syncDevQuickToggles();
+            }
+         }
+         toggleDevFpsHudRef = toggleDevFpsHud;
+
+         function applyDevWireframe(on) {
+            devWireframeOn = !!on;
+            let st = document.getElementById('__fynexo_dev_wireframe__');
+            if (!devWireframeOn) {
+               if (st) st.remove();
+               return;
+            }
+            if (!st) {
+               st = document.createElement('style');
+               st.id = '__fynexo_dev_wireframe__';
+               st.textContent =
+                  '*:not(#__fynexo_host__):not(#__fynexo_host__ *) { outline: 1px solid rgba(56, 189, 248, 0.45) !important; }\n*:not(#__fynexo_host__):not(#__fynexo_host__ *):hover { outline: 1.5px solid #f43f5e !important; }';
+               (document.head || document.documentElement).appendChild(st);
+            }
+         }
+
+         function applyDevViewportWidth(px) {
+            let st = document.getElementById('__fynexo_dev_viewport__');
+            if (!px) {
+               if (st) st.remove();
+               return;
+            }
+            if (!st) {
+               st = document.createElement('style');
+               st.id = '__fynexo_dev_viewport__';
+               (document.head || document.documentElement).appendChild(st);
+            }
+            st.textContent =
+               `html { max-width: ${px}px !important; margin: 0 auto !important; box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.45), 0 0 40px rgba(0, 0, 0, 0.45) !important; min-height: 100vh !important; }`;
+         }
+
+         let devInspectOnHover = null;
+         let devInspectOnClick = null;
+         let devInspectOnKeydown = null;
+
+         function stopDevInspectPicker() {
+            if (!devInspectActive) return;
+            devInspectActive = false;
+            if (devInspectOnHover) {
+               window.removeEventListener('mousemove', devInspectOnHover, true);
+               window.removeEventListener('mouseover', devInspectOnHover, true);
+            }
+            if (devInspectOnClick) {
+               window.removeEventListener('click', devInspectOnClick, true);
+            }
+            if (devInspectOnKeydown) {
+               window.removeEventListener('keydown', devInspectOnKeydown, true);
+            }
+            if (pickerHighlightBox) pickerHighlightBox.style.display = 'none';
+            if (devDrawerRefs && devDrawerRefs.btnDomPick) {
+               devDrawerRefs.btnDomPick.style.borderColor = '';
+               devDrawerRefs.btnDomPick.style.color = '';
+            }
+         }
+
+         function renderDevConsolePanel() {
+            if (!devDrawerRefs || !isDevDrawerOpen) return;
+            const list = devDrawerRefs.consoleList;
+            list.textContent = '';
+            const frag = document.createDocumentFragment();
+            const zh = isZh();
+            let count = 0;
+            for (let i = 0; i < devConsoleLogs.length; i++) {
+               const item = devConsoleLogs[i];
+               if (
+                  devConsoleFilter !== 'all' &&
+                  item.level !== devConsoleFilter
+               ) {
+                  continue;
+               }
+               count += 1;
+               const row = document.createElement('div');
+               row.style.cssText =
+                  'display: flex; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--fnx-border); word-break: break-word; white-space: pre-wrap;';
+               const tSpan = document.createElement('span');
+               tSpan.style.cssText =
+                  'opacity: 0.55; flex-shrink: 0; font-size: 10.5px;';
+               tSpan.textContent = item.time;
+               const lSpan = document.createElement('span');
+               lSpan.style.cssText =
+                  'flex-shrink: 0; font-weight: 700; width: 42px; text-transform: uppercase; font-size: 10px;';
+               lSpan.textContent = item.level;
+               lSpan.style.color =
+                  item.level === 'error'
+                     ? '#ef4444'
+                     : item.level === 'warn'
+                       ? '#d97706'
+                       : item.level === 'info'
+                         ? '#0284c7'
+                         : 'var(--fnx-accent, #38bdf8)';
+               const txtSpan = document.createElement('span');
+               txtSpan.style.cssText = 'flex: 1; min-width: 0;';
+               if (item.level === 'error') txtSpan.style.color = '#ef4444';
+               else if (item.level === 'warn') txtSpan.style.color = '#d97706';
+               txtSpan.textContent = item.text;
+               row.appendChild(tSpan);
+               row.appendChild(lSpan);
+               row.appendChild(txtSpan);
+               frag.appendChild(row);
+            }
+            if (count === 0) {
+               const empty = document.createElement('div');
+               empty.style.cssText = 'padding: 16px; opacity: 0.6; text-align: center;';
+               empty.textContent = zh
+                  ? '暂无控制台日志（可在下方输入 JS 表达式运行）'
+                  : 'No console entries yet (run a JS expression below)';
+               list.appendChild(empty);
+            } else {
+               list.appendChild(frag);
+               list.scrollTop = list.scrollHeight;
+            }
+         }
+         renderDevConsoleRef = renderDevConsolePanel;
+
+         function buildCurlCommand(entry) {
+            const sq = (s) => "'" + String(s || '').replace(/'/g, "'\\''") + "'";
+            const parts = ['curl', '-X', sq(entry.method || 'GET'), sq(entry.url || '')];
+            if (entry.reqHeaders && typeof entry.reqHeaders === 'object') {
+               Object.keys(entry.reqHeaders).forEach((k) => {
+                  parts.push('-H', sq(k + ': ' + entry.reqHeaders[k]));
+               });
+            }
+            if (entry.reqBody && !String(entry.reqBody).startsWith('[')) {
+               parts.push('--data-raw', sq(entry.reqBody));
+            }
+            return parts.join(' ');
+         }
+
+         function renderDevNetworkPanel() {
+            if (!devDrawerRefs || !isDevDrawerOpen) return;
+            const zh = isZh();
+            const summary = devDrawerRefs.netSummary;
+            const list = devDrawerRefs.netList;
+            const detailBox = devDrawerRefs.netDetail;
+            list.textContent = '';
+
+            let nav = null;
+            try {
+               const navs = performance.getEntriesByType('navigation');
+               nav = navs && navs[0];
+            } catch (_) {}
+            const res = (() => {
+               try {
+                  return performance.getEntriesByType('resource') || [];
+               } catch (_) {
+                  return [];
+               }
+            })();
+            const domNodes = document.querySelectorAll('*').length;
+            const ttfb = nav
+               ? Math.max(0, Math.round(nav.responseStart - nav.requestStart))
+               : 0;
+            const dcl = nav ? Math.max(0, Math.round(nav.domContentLoadedEventEnd)) : 0;
+            const load = nav ? Math.max(0, Math.round(nav.loadEventEnd)) : 0;
+            summary.textContent = zh
+               ? `TTFB ${ttfb}ms · DOM Ready ${dcl}ms · Load ${load}ms · API抓包 ${devNetworkLogs.length} · 资源 ${res.length} · 节点 ${domNodes}`
+               : `TTFB ${ttfb}ms · Ready ${dcl}ms · Load ${load}ms · Fetch/XHR ${devNetworkLogs.length} · Assets ${res.length}`;
+
+            const frag = document.createDocumentFragment();
+            const liveRecent = devNetworkLogs.slice().reverse();
+            for (let i = 0; i < liveRecent.length; i++) {
+               const item = liveRecent[i];
+               const row = document.createElement('div');
+               row.style.cssText =
+                  'display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--fnx-border); font-size: 11px; cursor: pointer;';
+               if (devSelectedNetEntry && devSelectedNetEntry.id === item.id) {
+                  row.style.background = 'var(--fnx-accent-bg, rgba(56, 189, 248, 0.12))';
+               }
+               const stBadge = document.createElement('span');
+               stBadge.style.cssText =
+                  'width: 34px; flex-shrink: 0; font-weight: 700; text-align: center; font-size: 10.5px;';
+               stBadge.textContent = item.status > 0 ? String(item.status) : 'ERR';
+               stBadge.style.color =
+                  item.status >= 200 && item.status < 300
+                     ? '#34d399'
+                     : item.status >= 300 && item.status < 400
+                       ? '#38bdf8'
+                       : '#f87171';
+               const mBadge = document.createElement('span');
+               mBadge.style.cssText =
+                  'width: 44px; flex-shrink: 0; padding: 1px 4px; border-radius: 4px; background: var(--fnx-surface); text-align: center; font-size: 10px; font-weight: 600;';
+               mBadge.textContent = item.method || 'GET';
+               const urlSpan = document.createElement('span');
+               urlSpan.style.cssText =
+                  'flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+               urlSpan.textContent = String(item.url || '').replace(/^https?:\/\/[^/]+/, '') || item.url;
+               urlSpan.title = item.url || '';
+
+               const durSpan = document.createElement('span');
+               durSpan.style.cssText = 'width: 48px; flex-shrink: 0; text-align: right; color: var(--fnx-accent);';
+               durSpan.textContent = `${item.duration || 0}ms`;
+
+               const curlBtn = document.createElement('button');
+               curlBtn.type = 'button';
+               curlBtn.className = 'fnx-pop-btn';
+               curlBtn.style.cssText = 'width: auto; height: 20px; padding: 0 6px; font-size: 10px;';
+               curlBtn.textContent = 'cURL';
+               curlBtn.onclick = (ev) => {
+                  ev.stopPropagation();
+                  copyTextToClipboard(
+                     buildCurlCommand(item),
+                     zh ? '已复制为 cURL 命令' : 'Copied as cURL',
+                  );
+               };
+
+               const replayBtn = document.createElement('button');
+               replayBtn.type = 'button';
+               replayBtn.className = 'fnx-pop-btn';
+               replayBtn.style.cssText = 'width: auto; height: 20px; padding: 0 6px; font-size: 10px;';
+               replayBtn.textContent = zh ? '重发' : 'Replay';
+               replayBtn.onclick = (ev) => {
+                  ev.stopPropagation();
+                  const opts = { method: item.method || 'GET', headers: item.reqHeaders || {} };
+                  if (item.reqBody && !String(item.reqBody).startsWith('[') && opts.method !== 'GET' && opts.method !== 'HEAD') {
+                     opts.body = item.reqBody;
+                  }
+                  window.fetch(item.url, opts).catch(() => {});
+                  showHudToast(zh ? '已重新发起请求' : 'Replayed request');
+               };
+
+               row.onclick = () => {
+                  devSelectedNetEntry =
+                     devSelectedNetEntry && devSelectedNetEntry.id === item.id ? null : item;
+                  renderDevNetworkPanel();
+               };
+               row.appendChild(stBadge);
+               row.appendChild(mBadge);
+               row.appendChild(urlSpan);
+               row.appendChild(durSpan);
+               row.appendChild(curlBtn);
+               row.appendChild(replayBtn);
+               frag.appendChild(row);
+            }
+
+            if (detailBox) {
+               if (devSelectedNetEntry) {
+                  let prettyRes = devSelectedNetEntry.resBody || '';
+                  try {
+                     if (prettyRes && (prettyRes.trim().startsWith('{') || prettyRes.trim().startsWith('['))) {
+                        prettyRes = JSON.stringify(JSON.parse(prettyRes), null, 2);
+                     }
+                  } catch (_) {}
+                  detailBox.style.display = 'block';
+                  detailBox.textContent = [
+                     `${devSelectedNetEntry.method} ${devSelectedNetEntry.url}  [${devSelectedNetEntry.status} · ${devSelectedNetEntry.duration}ms]`,
+                     `Headers: ${JSON.stringify(devSelectedNetEntry.reqHeaders || {})}`,
+                     devSelectedNetEntry.reqBody ? `Payload: ${devSelectedNetEntry.reqBody}` : '',
+                     `--- Response ---\n${prettyRes || '(empty)'}`,
+                  ]
+                     .filter(Boolean)
+                     .join('\n');
+               } else {
+                  detailBox.style.display = 'none';
+                  detailBox.textContent = '';
+               }
+            }
+
+            const recent = res.slice(-60).reverse();
+            for (let i = 0; i < recent.length; i++) {
+               const r = recent[i];
+               const row = document.createElement('div');
+               row.style.cssText =
+                  'display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--fnx-border); font-size: 10.5px; opacity: 0.85;';
+               const badge = document.createElement('span');
+               badge.style.cssText =
+                  'width: 58px; flex-shrink: 0; padding: 1px 5px; border-radius: 4px; background: var(--fnx-surface); text-align: center; font-size: 9.5px; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis;';
+               badge.textContent = r.initiatorType || 'asset';
+               const urlSpan = document.createElement('span');
+               urlSpan.style.cssText =
+                  'flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;';
+               const shortName = String(r.name || '').replace(/^https?:\/\/[^/]+/, '') || r.name;
+               urlSpan.textContent = shortName;
+               urlSpan.title = (r.name || '') + (zh ? '\n点击复制完整 URL' : '\nClick to copy full URL');
+               urlSpan.onclick = () => {
+                  copyTextToClipboard(r.name || '', zh ? '已复制请求地址' : 'Copied URL');
+               };
+               const sizeBytes = Number(r.transferSize || r.encodedBodySize || 0);
+               const sizeSpan = document.createElement('span');
+               sizeSpan.style.cssText = 'width: 60px; flex-shrink: 0; text-align: right; opacity: 0.72;';
+               sizeSpan.textContent = sizeBytes > 0 ? (sizeBytes / 1024).toFixed(1) + ' KB' : '—';
+               const durSpan = document.createElement('span');
+               durSpan.style.cssText = 'width: 54px; flex-shrink: 0; text-align: right; color: var(--fnx-accent, #38bdf8);';
+               durSpan.textContent = Math.round(r.duration || 0) + ' ms';
+               row.appendChild(badge);
+               row.appendChild(urlSpan);
+               row.appendChild(sizeSpan);
+               row.appendChild(durSpan);
+               frag.appendChild(row);
+            }
+            if (liveRecent.length === 0 && recent.length === 0) {
+               const empty = document.createElement('div');
+               empty.style.cssText = 'padding: 16px; opacity: 0.6; text-align: center;';
+               empty.textContent = zh ? '暂无网络请求记录' : 'No network requests captured yet';
+               list.appendChild(empty);
+            } else {
+               list.appendChild(frag);
+            }
+         }
+         renderDevNetworkRef = renderDevNetworkPanel;
+
+         function renderDevStoragePanel() {
+            if (!devDrawerRefs) return;
+            const zh = isZh();
+            const list = devDrawerRefs.storageList;
+            list.textContent = '';
+
+            let pairs = [];
+            let errMsg = '';
+            try {
+               if (devStorageKind === 'cookies') {
+                  const raw = String(document.cookie || '');
+                  if (raw.trim()) {
+                     raw.split(/;\s*/).forEach((part) => {
+                        const eq = part.indexOf('=');
+                        if (eq > 0) {
+                           const k = decodeURIComponent(part.slice(0, eq));
+                           const v = decodeURIComponent(part.slice(eq + 1));
+                           pairs.push([k, v]);
+                        }
+                     });
+                  }
+               } else {
+                  const store =
+                     devStorageKind === 'session'
+                        ? window.sessionStorage
+                        : window.localStorage;
+                  for (let i = 0; i < store.length; i++) {
+                     const k = store.key(i);
+                     if (k !== null) pairs.push([k, store.getItem(k) || '']);
+                  }
+               }
+            } catch (err) {
+               errMsg = err && err.message ? err.message : String(err);
+            }
+
+            if (errMsg) {
+               const errDiv = document.createElement('div');
+               errDiv.style.cssText = 'padding: 16px; color: #fca5a5;';
+               errDiv.textContent = errMsg;
+               list.appendChild(errDiv);
+               return;
+            }
+            if (pairs.length === 0) {
+               const empty = document.createElement('div');
+               empty.style.cssText = 'padding: 16px; opacity: 0.6; text-align: center;';
+               empty.textContent = zh ? '当前存储为空' : 'Storage is empty';
+               list.appendChild(empty);
+               return;
+            }
+
+            const frag = document.createDocumentFragment();
+            for (let i = 0; i < pairs.length; i++) {
+               const [k, v] = pairs[i];
+               const row = document.createElement('div');
+               row.style.cssText =
+                  'display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--fnx-border); font-size: 11px;';
+               const kSpan = document.createElement('span');
+               kSpan.style.cssText =
+                  'width: 32%; max-width: 200px; flex-shrink: 0; font-weight: 600; color: var(--fnx-accent, #38bdf8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+               kSpan.textContent = k;
+               kSpan.title = k;
+               const vSpan = document.createElement('span');
+               vSpan.style.cssText =
+                  'flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.85;';
+               vSpan.textContent = v;
+               vSpan.title = v;
+               const cpBtn = document.createElement('button');
+               cpBtn.type = 'button';
+               cpBtn.className = 'fnx-pop-btn';
+               cpBtn.style.cssText = 'width: auto; height: 22px; padding: 0 7px; font-size: 10.5px;';
+               cpBtn.textContent = zh ? '复制' : 'Copy';
+               cpBtn.onclick = () => {
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                     navigator.clipboard.writeText(v).catch(() => {});
+                  }
+                  showHudToast(zh ? '已复制值' : 'Copied value');
+               };
+               const delBtn = document.createElement('button');
+               delBtn.type = 'button';
+               delBtn.className = 'fnx-pop-btn';
+               delBtn.style.cssText = 'width: auto; height: 22px; padding: 0 7px; font-size: 10.5px;';
+               delBtn.textContent = zh ? '删除' : 'Del';
+               delBtn.onclick = () => {
+                  try {
+                     if (devStorageKind === 'cookies') {
+                        document.cookie = `${encodeURIComponent(k)}=; max-age=0; path=/`;
+                     } else {
+                        const store =
+                           devStorageKind === 'session'
+                              ? window.sessionStorage
+                              : window.localStorage;
+                        store.removeItem(k);
+                     }
+                     renderDevStoragePanel();
+                  } catch (_) {}
+               };
+               row.appendChild(kSpan);
+               row.appendChild(vSpan);
+               row.appendChild(cpBtn);
+               row.appendChild(delBtn);
+               frag.appendChild(row);
+            }
+            list.appendChild(frag);
+         }
+
+         function renderDevDomInfo(targetEl) {
+            if (!devDrawerRefs) return;
+            const zh = isZh();
+            const el =
+               targetEl && targetEl.nodeType === 1
+                  ? targetEl
+                  : document.body || document.documentElement;
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+            const cs = window.getComputedStyle(el);
+            const sel =
+               typeof buildUniqueCssSelector === 'function'
+                  ? buildUniqueCssSelector(el)
+                  : el.tagName.toLowerCase();
+            devDrawerRefs.domSummary.textContent = [
+               `${zh ? '选择器' : 'Selector'}: ${sel}`,
+               `${zh ? '盒模型尺寸' : 'Box'}: ${Math.round(rect.width)} × ${Math.round(rect.height)} px  @ (${Math.round(rect.left)}, ${Math.round(rect.top)})`,
+               `display: ${cs.display} | position: ${cs.position} | z-index: ${cs.zIndex}`,
+               `margin: ${cs.margin} | padding: ${cs.padding}`,
+               `color: ${cs.color} | bg: ${cs.backgroundColor} | font: ${cs.fontSize} ${cs.fontFamily}`,
+            ].join('\n');
+            const htmlText =
+               targetEl && targetEl.nodeType === 1
+                  ? el.outerHTML
+                  : document.documentElement
+                    ? document.documentElement.outerHTML
+                    : '';
+            devDrawerRefs.domSource.value =
+               htmlText.length > 180000
+                  ? htmlText.slice(0, 180000) + '\n... (truncated for preview; Copy HTML copies full source)'
+                  : htmlText;
+         }
+
+         function ensureDevDrawerMounted() {
+            if (devDrawerRefs && devDrawerEl) return devDrawerRefs;
+            devDrawerEl = document.createElement('div');
+            devDrawerEl.id = '__fynexo_dev_drawer__';
+            devDrawerEl.style.cssText =
+               'position: fixed; left: 0; right: 0; bottom: 0; height: 340px; max-height: 82vh; z-index: 2147483646; background: var(--fnx-bg, #121215); color: var(--fnx-fg, #f4f4f6); border-top: 1px solid var(--fnx-border-hover, rgba(255,255,255,0.22)); box-shadow: 0 -12px 36px rgba(0,0,0,0.45); display: none; flex-direction: column; font: 12px/1.4 system-ui, sans-serif; pointer-events: auto;';
+
+            const resizeHandle = document.createElement('div');
+            resizeHandle.style.cssText =
+               'height: 8px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; flex-shrink: 0; touch-action: none;';
+            const resizePill = document.createElement('span');
+            resizePill.style.cssText =
+               'width: 38px; height: 3px; border-radius: 999px; background: var(--fnx-border-hover); opacity: 0.75; pointer-events: none;';
+            resizeHandle.appendChild(resizePill);
+            let dragResizing = false;
+            let dragStartY = 0;
+            let dragStartH = 340;
+            resizeHandle.addEventListener('pointerdown', (ev) => {
+               dragResizing = true;
+               dragStartY = ev.clientY || 0;
+               dragStartH = devDrawerEl.getBoundingClientRect().height || 340;
+               try { resizeHandle.setPointerCapture(ev.pointerId); } catch (_) {}
+               ev.preventDefault();
+            });
+            resizeHandle.addEventListener('pointermove', (ev) => {
+               if (!dragResizing) return;
+               const dy = dragStartY - (ev.clientY || 0);
+               const maxH = Math.round((window.innerHeight || 800) * 0.82);
+               const nextH = Math.max(180, Math.min(maxH, dragStartH + dy));
+               devDrawerEl.style.height = nextH + 'px';
+            });
+            const endResize = (ev) => {
+               if (!dragResizing) return;
+               dragResizing = false;
+               try { resizeHandle.releasePointerCapture(ev.pointerId); } catch (_) {}
+            };
+            resizeHandle.addEventListener('pointerup', endResize);
+            resizeHandle.addEventListener('pointercancel', endResize);
+            devDrawerEl.appendChild(resizeHandle);
+
+            const head = document.createElement('div');
+            head.style.cssText =
+               'display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 10px 6px; border-bottom: 1px solid var(--fnx-border); flex-wrap: wrap; flex-shrink: 0; background: var(--fnx-panel, rgba(255,255,255,0.03));';
+
+            const tabWrap = document.createElement('div');
+            tabWrap.style.cssText = 'display: flex; align-items: center; gap: 4px; flex-wrap: wrap;';
+            const rightWrap = document.createElement('div');
+            rightWrap.style.cssText = 'display: flex; align-items: center; gap: 4px; flex-wrap: wrap;';
+
+            const tabDefs = [
+               ['console', 'Console', '控制台'],
+               ['network', 'Network', '网络抓包'],
+               ['api', 'API Client', '接口调试'],
+               ['storage', 'Storage', '本地存储'],
+               ['dom', 'DOM', '元素与源码'],
+            ];
+            const tabButtons = Object.create(null);
+            const tabPanes = Object.create(null);
+
+            function selectDevTab(key) {
+               devActiveTab = key;
+               const zh = isZh();
+               for (let i = 0; i < tabDefs.length; i++) {
+                  const [k, enT, zhT] = tabDefs[i];
+                  const on = k === key;
+                  tabButtons[k].textContent = zh ? zhT : enT;
+                  tabButtons[k].style.borderColor = on ? 'var(--fnx-accent, #38bdf8)' : '';
+                  tabButtons[k].style.color = on ? 'var(--fnx-fg)' : '';
+                  tabButtons[k].style.fontWeight = on ? '600' : '450';
+                  tabPanes[k].style.display = on ? 'flex' : 'none';
+               }
+               if (key === 'console') renderDevConsolePanel();
+               else if (key === 'network') renderDevNetworkPanel();
+               else if (key === 'storage') renderDevStoragePanel();
+               else if (key === 'dom') renderDevDomInfo(null);
+            }
+
+            for (let i = 0; i < tabDefs.length; i++) {
+               const [k, enT, zhT] = tabDefs[i];
+               const b = document.createElement('button');
+               b.type = 'button';
+               b.className = 'fnx-pop-btn';
+               b.style.cssText = 'width: auto; height: 25px; padding: 0 9px; font-size: 11.5px;';
+               b.textContent = isZh() ? zhT : enT;
+               b.onclick = () => selectDevTab(k);
+               tabButtons[k] = b;
+               tabWrap.appendChild(b);
+            }
+
+            const btnDesign = document.createElement('button');
+            btnDesign.type = 'button';
+            btnDesign.className = 'fnx-pop-btn';
+            btnDesign.style.cssText = 'width: auto; height: 25px; padding: 0 8px; font-size: 11px;';
+
+            const btnWireframe = document.createElement('button');
+            btnWireframe.type = 'button';
+            btnWireframe.className = 'fnx-pop-btn';
+            btnWireframe.style.cssText = 'width: auto; height: 25px; padding: 0 8px; font-size: 11px;';
+
+            const btnViewport = document.createElement('button');
+            btnViewport.type = 'button';
+            btnViewport.className = 'fnx-pop-btn';
+            btnViewport.style.cssText = 'width: auto; height: 25px; padding: 0 8px; font-size: 11px;';
+
+            const btnFpsHud = document.createElement('button');
+            btnFpsHud.type = 'button';
+            btnFpsHud.className = 'fnx-pop-btn';
+            btnFpsHud.style.cssText = 'width: auto; height: 25px; padding: 0 8px; font-size: 11px;';
+            btnFpsHud.onclick = () => toggleDevFpsHud();
+
+            function syncDevQuickToggles() {
+               const zh = isZh();
+               btnFpsHud.textContent = zh ? '📊 FPS' : '📊 FPS';
+               btnFpsHud.style.borderColor = devFpsActive ? 'var(--fnx-accent)' : '';
+               btnFpsHud.style.color = devFpsActive ? 'var(--fnx-accent)' : '';
+
+               btnDesign.textContent = zh ? '✏️ 自由编辑' : '✏️ DesignMode';
+               btnDesign.style.borderColor = devDesignModeOn ? 'var(--fnx-accent)' : '';
+               btnDesign.style.color = devDesignModeOn ? 'var(--fnx-accent)' : '';
+
+               btnWireframe.textContent = zh ? '📐 线框透视' : '📐 Wireframe';
+               btnWireframe.style.borderColor = devWireframeOn ? 'var(--fnx-accent)' : '';
+               btnWireframe.style.color = devWireframeOn ? 'var(--fnx-accent)' : '';
+
+               const vpPx = DEV_VIEWPORTS[devViewportIdx] || 0;
+               btnViewport.textContent = vpPx
+                  ? (zh ? `📱 ${vpPx}px` : `📱 ${vpPx}px`)
+                  : (zh ? '📱 视口模拟' : '📱 Viewport');
+               btnViewport.style.borderColor = vpPx ? 'var(--fnx-accent)' : '';
+               btnViewport.style.color = vpPx ? 'var(--fnx-accent)' : '';
+            }
+
+            btnDesign.onclick = () => {
+               devDesignModeOn = !devDesignModeOn;
+               try {
+                  document.designMode = devDesignModeOn ? 'on' : 'off';
+               } catch (_) {}
+               syncDevQuickToggles();
+               showHudToast(
+                  isZh()
+                     ? (devDesignModeOn ? '已开启网页文字自由编辑' : '已关闭网页自由编辑')
+                     : (devDesignModeOn ? 'document.designMode ON' : 'document.designMode OFF'),
+               );
+            };
+            btnWireframe.onclick = () => {
+               applyDevWireframe(!devWireframeOn);
+               syncDevQuickToggles();
+            };
+            btnViewport.onclick = () => {
+               devViewportIdx = (devViewportIdx + 1) % DEV_VIEWPORTS.length;
+               applyDevViewportWidth(DEV_VIEWPORTS[devViewportIdx]);
+               syncDevQuickToggles();
+            };
+            const devPortSel = document.createElement('select');
+            devPortSel.className = 'fnx-pop-btn';
+            devPortSel.style.cssText =
+               'width: auto; height: 25px; padding: 0 6px; font-size: 11px; outline: none; background: var(--fnx-bg, #141417); color: var(--fnx-fg, #f4f4f6);';
+            const devPorts = ['', '3000', '5173', '8080', '8000', '4200', '4321'];
+            const rebuildPortOpts = () => {
+               const zh = isZh();
+               const curPort = String(window.location.port || '');
+               devPortSel.textContent = '';
+               devPorts.forEach((pt) => {
+                  const opt = document.createElement('option');
+                  opt.value = pt;
+                  opt.textContent = pt ? `:${pt}` : (zh ? '⚡ 切端口' : '⚡ :port');
+                  if (pt && pt === curPort) opt.selected = true;
+                  devPortSel.appendChild(opt);
+               });
+               devPortSel.title = zh
+                  ? '一键跳转到本地开发端口（保留当前路径）'
+                  : 'Quick jump to localhost port (keeps path)';
+            };
+            rebuildPortOpts();
+            devPortSel.onchange = () => {
+               const pt = devPortSel.value;
+               if (!pt) return;
+               const curHost = String(window.location.hostname || '').toLowerCase();
+               const targetHost = isLocalDevHost(curHost) ? curHost : 'localhost';
+               const suffix = isLocalDevHost(curHost)
+                  ? (window.location.pathname || '/') + (window.location.search || '')
+                  : '/';
+               const targetUrl = `http://${targetHost}:${pt}${suffix}`;
+               triggerProgress();
+               sendIpc({ type: 'NAVIGATE', url: targetUrl });
+            };
+
+            const btnHardReload = document.createElement('button');
+            btnHardReload.type = 'button';
+            btnHardReload.className = 'fnx-pop-btn';
+            btnHardReload.style.cssText = 'width: auto; height: 25px; padding: 0 8px; font-size: 11px;';
+            btnHardReload.textContent = isZh() ? '🔄 硬刷新' : '🔄 Hard Reload';
+            btnHardReload.title = isZh()
+               ? '清理 CacheStorage 与 ServiceWorker 并重新加载 (Ctrl+Shift+R)'
+               : 'Clear CacheStorage & ServiceWorkers and reload (Ctrl+Shift+R)';
+            btnHardReload.onclick = () => performHardCacheBustReload();
+
+            rightWrap.appendChild(devPortSel);
+            rightWrap.appendChild(btnHardReload);
+            rightWrap.appendChild(btnFpsHud);
+            rightWrap.appendChild(btnDesign);
+            rightWrap.appendChild(btnWireframe);
+            if (!isMobilePlatform()) {
+               rightWrap.appendChild(btnViewport);
+               const btnF12 = document.createElement('button');
+               btnF12.type = 'button';
+               btnF12.className = 'fnx-pop-btn';
+               btnF12.style.cssText = 'width: auto; height: 25px; padding: 0 8px; font-size: 11px;';
+               btnF12.textContent = 'F12';
+               btnF12.onclick = () => sendIpc({ type: 'OPEN_DEVTOOLS' });
+               rightWrap.appendChild(btnF12);
+            }
+            const btnClose = document.createElement('button');
+            btnClose.type = 'button';
+            btnClose.className = 'fnx-sp-close';
+            btnClose.title = 'Close (Esc)';
+            btnClose.appendChild(createIcon('close'));
+            btnClose.onclick = () => toggleDevDrawer(false);
+            rightWrap.appendChild(btnClose);
+
+            head.appendChild(tabWrap);
+            head.appendChild(rightWrap);
+            devDrawerEl.appendChild(head);
+
+            // Tab 1: Console + JS REPL
+            const paneConsole = document.createElement('div');
+            paneConsole.style.cssText =
+               'display: flex; flex-direction: column; flex: 1; min-height: 0;';
+            const cToolbar = document.createElement('div');
+            cToolbar.style.cssText =
+               'display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-bottom: 1px solid var(--fnx-border); flex-shrink: 0;';
+            const filterBtns = Object.create(null);
+            ['all', 'error', 'warn', 'log'].forEach((fk) => {
+               const fb = document.createElement('button');
+               fb.type = 'button';
+               fb.className = 'fnx-pop-btn';
+               fb.style.cssText = 'width: auto; height: 22px; padding: 0 8px; font-size: 11px; text-transform: capitalize;';
+               fb.textContent = fk;
+               fb.onclick = () => {
+                  devConsoleFilter = fk;
+                  Object.keys(filterBtns).forEach((k) => {
+                     filterBtns[k].style.borderColor = k === fk ? 'var(--fnx-accent)' : '';
+                     filterBtns[k].style.color = k === fk ? 'var(--fnx-accent)' : '';
+                  });
+                  renderDevConsolePanel();
+               };
+               filterBtns[fk] = fb;
+               cToolbar.appendChild(fb);
+            });
+            filterBtns.all.style.borderColor = 'var(--fnx-accent)';
+            filterBtns.all.style.color = 'var(--fnx-accent)';
+            const btnConsoleClear = document.createElement('button');
+            btnConsoleClear.type = 'button';
+            btnConsoleClear.className = 'fnx-pop-btn';
+            btnConsoleClear.style.cssText = 'width: auto; height: 22px; padding: 0 8px; font-size: 11px; margin-left: auto;';
+            btnConsoleClear.textContent = isZh() ? '清空' : 'Clear';
+            btnConsoleClear.onclick = () => {
+               devConsoleLogs.length = 0;
+               renderDevConsolePanel();
+            };
+            cToolbar.appendChild(btnConsoleClear);
+
+            const consoleList = document.createElement('div');
+            consoleList.style.cssText =
+               'flex: 1; min-height: 0; overflow-y: auto; font-family: ui-monospace, Consolas, monospace; font-size: 11.5px;';
+
+            const replRow = document.createElement('div');
+            replRow.style.cssText =
+               'display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--fnx-border); flex-shrink: 0;';
+            const replCaret = document.createElement('span');
+            replCaret.style.cssText =
+               'font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: var(--fnx-accent);';
+            replCaret.textContent = '>';
+            const replInp = document.createElement('input');
+            replInp.type = 'text';
+            replInp.style.cssText =
+               'flex: 1; min-width: 0; height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; outline: none;';
+            replInp.placeholder = isZh()
+               ? '输入 JS 表达式回车执行 (如: document.title)'
+               : 'Evaluate JS on page... (Enter)';
+            const replBtn = document.createElement('button');
+            replBtn.type = 'button';
+            replBtn.className = 'fnx-pop-btn';
+            replBtn.style.cssText = 'width: auto; height: 26px; padding: 0 10px; font-size: 11.5px;';
+            replBtn.textContent = isZh() ? '执行' : 'Run';
+
+            const replHistory = [];
+            let replHistPos = 0;
+            function runRepl() {
+               const code = replInp.value.trim();
+               if (!code) return;
+               replHistory.push(code);
+               replHistPos = replHistory.length;
+               replInp.value = '';
+               pushDevConsoleEntry('info', ['> ' + code]);
+               try {
+                  // Evaluate expression cleanly inside active page scope
+                  const res = window.eval(code);
+                  pushDevConsoleEntry('log', ['<-', res]);
+               } catch (err) {
+                  pushDevConsoleEntry('error', [err]);
+               }
+            }
+            replBtn.onclick = runRepl;
+            replInp.onkeydown = (ev) => {
+               if (ev.key === 'Enter') {
+                  ev.preventDefault();
+                  runRepl();
+               } else if (ev.key === 'ArrowUp' && replHistory.length > 0) {
+                  ev.preventDefault();
+                  replHistPos = Math.max(0, replHistPos - 1);
+                  replInp.value = replHistory[replHistPos] || '';
+               } else if (ev.key === 'ArrowDown' && replHistory.length > 0) {
+                  ev.preventDefault();
+                  replHistPos = Math.min(replHistory.length, replHistPos + 1);
+                  replInp.value = replHistory[replHistPos] || '';
+               }
+            };
+            replRow.appendChild(replCaret);
+            replRow.appendChild(replInp);
+            replRow.appendChild(replBtn);
+
+            paneConsole.appendChild(cToolbar);
+            paneConsole.appendChild(consoleList);
+            paneConsole.appendChild(replRow);
+            tabPanes.console = paneConsole;
+
+            // Tab 2: Network & Performance
+            const paneNet = document.createElement('div');
+            paneNet.style.cssText =
+               'display: none; flex-direction: column; flex: 1; min-height: 0;';
+            const netHead = document.createElement('div');
+            netHead.style.cssText =
+               'display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--fnx-border); flex-shrink: 0; flex-wrap: wrap;';
+            const netSummary = document.createElement('span');
+            netSummary.style.cssText = 'font-size: 11px; flex: 1; min-width: 180px;';
+            const btnNetRefresh = document.createElement('button');
+            btnNetRefresh.type = 'button';
+            btnNetRefresh.className = 'fnx-pop-btn';
+            btnNetRefresh.style.cssText = 'width: auto; height: 22px; padding: 0 8px; font-size: 11px;';
+            btnNetRefresh.textContent = isZh() ? '刷新' : 'Refresh';
+            btnNetRefresh.onclick = renderDevNetworkPanel;
+            const btnNetClear = document.createElement('button');
+            btnNetClear.type = 'button';
+            btnNetClear.className = 'fnx-pop-btn';
+            btnNetClear.style.cssText = 'width: auto; height: 22px; padding: 0 8px; font-size: 11px;';
+            btnNetClear.textContent = isZh() ? '清空' : 'Clear';
+            btnNetClear.onclick = () => {
+               devNetworkLogs.length = 0;
+               devSelectedNetEntry = null;
+               try {
+                  performance.clearResourceTimings();
+               } catch (_) {}
+               renderDevNetworkPanel();
+            };
+            netHead.appendChild(netSummary);
+            netHead.appendChild(btnNetRefresh);
+            netHead.appendChild(btnNetClear);
+            const netList = document.createElement('div');
+            netList.style.cssText =
+               'flex: 1; min-height: 0; overflow-y: auto; font-family: ui-monospace, Consolas, monospace;';
+            const netDetail = document.createElement('pre');
+            netDetail.style.cssText =
+               'display: none; margin: 0; padding: 7px 10px; max-height: 120px; overflow-y: auto; border-top: 1px solid var(--fnx-border); font-family: ui-monospace, Consolas, monospace; font-size: 11px; white-space: pre-wrap; word-break: break-word; background: var(--fnx-surface); flex-shrink: 0;';
+            paneNet.appendChild(netHead);
+            paneNet.appendChild(netList);
+            paneNet.appendChild(netDetail);
+            tabPanes.network = paneNet;
+
+            // Tab 2.5: Built-in API Client (Mini-Postman)
+            const paneApi = document.createElement('div');
+            paneApi.style.cssText =
+               'display: none; flex-direction: column; flex: 1; min-height: 0; padding: 8px 10px; gap: 6px;';
+            const apiBar = document.createElement('div');
+            apiBar.style.cssText = 'display: flex; align-items: center; gap: 6px; flex-shrink: 0;';
+            const apiMethod = document.createElement('select');
+            apiMethod.className = 'fnx-pop-btn';
+            apiMethod.style.cssText =
+               'width: 82px; height: 26px; padding: 0 6px; font-weight: 700; font-size: 11.5px; background: var(--fnx-bg, #141417); color: var(--fnx-fg, #f4f4f6);';
+            ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].forEach((m) => {
+               const o = document.createElement('option');
+               o.value = m;
+               o.textContent = m;
+               apiMethod.appendChild(o);
+            });
+            const apiUrl = document.createElement('input');
+            apiUrl.type = 'text';
+            apiUrl.style.cssText =
+               'flex: 1; min-width: 0; height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); font-family: ui-monospace, Consolas, monospace; font-size: 11.5px;';
+            apiUrl.placeholder = isZh()
+               ? '/api/hello 或 https://...'
+               : '/api/hello or https://...';
+            const btnApiSend = document.createElement('button');
+            btnApiSend.type = 'button';
+            btnApiSend.className = 'fnx-pop-btn';
+            btnApiSend.style.cssText =
+               'width: auto; height: 26px; padding: 0 12px; font-weight: 600; font-size: 11.5px; border-color: var(--fnx-accent); color: var(--fnx-accent);';
+            btnApiSend.textContent = isZh() ? '发送' : 'Send';
+            apiBar.appendChild(apiMethod);
+            apiBar.appendChild(apiUrl);
+            apiBar.appendChild(btnApiSend);
+
+            const apiInputsRow = document.createElement('div');
+            apiInputsRow.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 6px; height: 64px; flex-shrink: 0;';
+            const apiHeadersInp = document.createElement('textarea');
+            apiHeadersInp.style.cssText =
+               'width: 100%; height: 100%; box-sizing: border-box; padding: 5px 7px; border-radius: 6px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); font-family: ui-monospace, Consolas, monospace; font-size: 11px; resize: none;';
+            apiHeadersInp.placeholder = '{"Content-Type": "application/json"}';
+            const apiBodyInp = document.createElement('textarea');
+            apiBodyInp.style.cssText =
+               'width: 100%; height: 100%; box-sizing: border-box; padding: 5px 7px; border-radius: 6px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); font-family: ui-monospace, Consolas, monospace; font-size: 11px; resize: none;';
+            apiBodyInp.placeholder = isZh() ? 'Request Body (JSON 或文本)' : 'Request Body (JSON / text)';
+            apiInputsRow.appendChild(apiHeadersInp);
+            apiInputsRow.appendChild(apiBodyInp);
+
+            const apiResOut = document.createElement('textarea');
+            apiResOut.readOnly = true;
+            apiResOut.style.cssText =
+               'flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); font-family: ui-monospace, Consolas, monospace; font-size: 11px; resize: none;';
+            apiResOut.placeholder = isZh() ? '响应状态码与格式化 JSON 将显示在此处...' : 'Response status, headers and JSON appear here...';
+
+            btnApiSend.onclick = () => {
+               const rawTarget = apiUrl.value.trim();
+               if (!rawTarget) return;
+               let target = rawTarget;
+               if (target.startsWith('/')) {
+                  target = window.location.origin + target;
+               }
+               let parsedHeaders = {};
+               if (apiHeadersInp.value.trim()) {
+                  try {
+                     parsedHeaders = JSON.parse(apiHeadersInp.value.trim());
+                  } catch (err) {
+                     apiResOut.value = 'Invalid Headers JSON: ' + err.message;
+                     return;
+                  }
+               }
+               const opts = { method: apiMethod.value, headers: parsedHeaders };
+               if (apiMethod.value !== 'GET' && apiMethod.value !== 'HEAD' && apiBodyInp.value) {
+                  opts.body = apiBodyInp.value;
+               }
+               apiResOut.value = isZh() ? '正在请求...' : 'Sending request...';
+               const t0 = performance.now ? performance.now() : Date.now();
+               window.fetch(target, opts)
+                  .then((res) =>
+                     res.text().then((txt) => {
+                        const dur = Math.max(0, Math.round((performance.now ? performance.now() : Date.now()) - t0));
+                        let formatted = txt;
+                        try {
+                           formatted = JSON.stringify(JSON.parse(txt), null, 2);
+                        } catch (_) {}
+                        const hdrLines = [];
+                        res.headers.forEach((v, k) => hdrLines.push(`${k}: ${v}`));
+                        apiResOut.value = [
+                           `HTTP ${res.status} ${res.statusText} · ${dur} ms`,
+                           hdrLines.join('\n'),
+                           '--- BODY ---',
+                           formatted,
+                        ].join('\n');
+                     }),
+                  )
+                  .catch((err) => {
+                     apiResOut.value = 'Request failed: ' + (err && err.message ? err.message : String(err));
+                  });
+            };
+            paneApi.appendChild(apiBar);
+            paneApi.appendChild(apiInputsRow);
+            paneApi.appendChild(apiResOut);
+            tabPanes.api = paneApi;
+
+            // Tab 3: Storage & Cookies
+            const paneStorage = document.createElement('div');
+            paneStorage.style.cssText =
+               'display: none; flex-direction: column; flex: 1; min-height: 0;';
+            const stHead = document.createElement('div');
+            stHead.style.cssText =
+               'display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--fnx-border); flex-shrink: 0; flex-wrap: wrap;';
+            const stModeBtns = Object.create(null);
+            ['local', 'session', 'cookies'].forEach((sk) => {
+               const sb = document.createElement('button');
+               sb.type = 'button';
+               sb.className = 'fnx-pop-btn';
+               sb.style.cssText = 'width: auto; height: 22px; padding: 0 8px; font-size: 11px;';
+               sb.textContent =
+                  sk === 'local'
+                     ? 'localStorage'
+                     : sk === 'session'
+                       ? 'sessionStorage'
+                       : 'Cookies';
+               sb.onclick = () => {
+                  devStorageKind = sk;
+                  Object.keys(stModeBtns).forEach((k) => {
+                     stModeBtns[k].style.borderColor = k === sk ? 'var(--fnx-accent)' : '';
+                     stModeBtns[k].style.color = k === sk ? 'var(--fnx-accent)' : '';
+                  });
+                  renderDevStoragePanel();
+               };
+               stModeBtns[sk] = sb;
+               stHead.appendChild(sb);
+            });
+            stModeBtns.local.style.borderColor = 'var(--fnx-accent)';
+            stModeBtns.local.style.color = 'var(--fnx-accent)';
+
+            const stKeyInp = document.createElement('input');
+            stKeyInp.type = 'text';
+            stKeyInp.placeholder = 'key';
+            stKeyInp.style.cssText =
+               'width: 100px; height: 22px; padding: 0 6px; border-radius: 5px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); font-size: 11px;';
+            const stValInp = document.createElement('input');
+            stValInp.type = 'text';
+            stValInp.placeholder = 'value';
+            stValInp.style.cssText =
+               'width: 120px; height: 22px; padding: 0 6px; border-radius: 5px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); font-size: 11px;';
+            const btnStSet = document.createElement('button');
+            btnStSet.type = 'button';
+            btnStSet.className = 'fnx-pop-btn';
+            btnStSet.style.cssText = 'width: auto; height: 22px; padding: 0 8px; font-size: 11px;';
+            btnStSet.textContent = isZh() ? '写入' : 'Set';
+            btnStSet.onclick = () => {
+               const k = stKeyInp.value.trim();
+               if (!k) return;
+               try {
+                  if (devStorageKind === 'cookies') {
+                     document.cookie = `${encodeURIComponent(k)}=${encodeURIComponent(stValInp.value)}; path=/`;
+                  } else {
+                     const store =
+                        devStorageKind === 'session'
+                           ? window.sessionStorage
+                           : window.localStorage;
+                     store.setItem(k, stValInp.value);
+                  }
+                  stKeyInp.value = '';
+                  stValInp.value = '';
+                  renderDevStoragePanel();
+               } catch (_) {}
+            };
+            const btnStClear = document.createElement('button');
+            btnStClear.type = 'button';
+            btnStClear.className = 'fnx-pop-btn';
+            btnStClear.style.cssText = 'width: auto; height: 22px; padding: 0 8px; font-size: 11px; margin-left: auto;';
+            btnStClear.textContent = isZh() ? '清空当前' : 'Clear';
+            btnStClear.onclick = () => {
+               try {
+                  if (devStorageKind === 'cookies') {
+                     String(document.cookie || '')
+                        .split(/;\s*/)
+                        .forEach((p) => {
+                           const eq = p.indexOf('=');
+                           if (eq > 0) {
+                              document.cookie = `${p.slice(0, eq)}=; max-age=0; path=/`;
+                           }
+                        });
+                  } else {
+                     const store =
+                        devStorageKind === 'session'
+                           ? window.sessionStorage
+                           : window.localStorage;
+                     store.clear();
+                  }
+                  renderDevStoragePanel();
+               } catch (_) {}
+            };
+            stHead.appendChild(stKeyInp);
+            stHead.appendChild(stValInp);
+            stHead.appendChild(btnStSet);
+            stHead.appendChild(btnStClear);
+            const storageList = document.createElement('div');
+            storageList.style.cssText =
+               'flex: 1; min-height: 0; overflow-y: auto; font-family: ui-monospace, Consolas, monospace;';
+            paneStorage.appendChild(stHead);
+            paneStorage.appendChild(storageList);
+            tabPanes.storage = paneStorage;
+
+            // Tab 4: DOM Inspector & Page Source
+            const paneDom = document.createElement('div');
+            paneDom.style.cssText =
+               'display: none; flex-direction: column; flex: 1; min-height: 0;';
+            const domHead = document.createElement('div');
+            domHead.style.cssText =
+               'display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--fnx-border); flex-shrink: 0; flex-wrap: wrap;';
+            const btnDomPick = document.createElement('button');
+            btnDomPick.type = 'button';
+            btnDomPick.className = 'fnx-pop-btn';
+            btnDomPick.style.cssText = 'width: auto; height: 22px; padding: 0 9px; font-size: 11px;';
+            btnDomPick.textContent = isZh() ? '🎯 点选检查元素' : '🎯 Inspect Element';
+            const btnDomHtml = document.createElement('button');
+            btnDomHtml.type = 'button';
+            btnDomHtml.className = 'fnx-pop-btn';
+            btnDomHtml.style.cssText = 'width: auto; height: 22px; padding: 0 9px; font-size: 11px;';
+            btnDomHtml.textContent = isZh() ? '↻ 查看全页 HTML' : '↻ Page HTML';
+            btnDomHtml.onclick = () => renderDevDomInfo(null);
+            const btnDomCopy = document.createElement('button');
+            btnDomCopy.type = 'button';
+            btnDomCopy.className = 'fnx-pop-btn';
+            btnDomCopy.style.cssText = 'width: auto; height: 22px; padding: 0 9px; font-size: 11px;';
+            btnDomCopy.textContent = isZh() ? '📋 复制完整 HTML' : '📋 Copy Full HTML';
+            btnDomCopy.onclick = () => {
+               const html = document.documentElement
+                  ? document.documentElement.outerHTML
+                  : '';
+               if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(html).catch(() => {});
+               }
+               showHudToast(isZh() ? '已复制完整页面源码' : 'Full HTML copied');
+            };
+            domHead.appendChild(btnDomPick);
+            domHead.appendChild(btnDomHtml);
+            domHead.appendChild(btnDomCopy);
+
+            const domSummary = document.createElement('pre');
+            domSummary.style.cssText =
+               'margin: 0; padding: 6px 10px; border-bottom: 1px solid var(--fnx-border); font-family: ui-monospace, Consolas, monospace; font-size: 11px; white-space: pre-wrap; max-height: 92px; overflow-y: auto; flex-shrink: 0;';
+            const domSource = document.createElement('textarea');
+            domSource.readOnly = true;
+            domSource.style.cssText =
+               'flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 8px 10px; border: none; outline: none; resize: none; background: transparent; color: var(--fnx-fg); font-family: ui-monospace, Consolas, monospace; font-size: 11px;';
+
+            btnDomPick.onclick = () => {
+               if (devInspectActive) {
+                  stopDevInspectPicker();
+                  return;
+               }
+               ensurePickerUi();
+               devInspectActive = true;
+               btnDomPick.style.borderColor = 'var(--fnx-accent)';
+               btnDomPick.style.color = 'var(--fnx-accent)';
+               devInspectOnHover = (ev) => {
+                  if (!devInspectActive || !pickerHighlightBox) return;
+                  const t = ev.target;
+                  if (
+                     !t ||
+                     t.nodeType !== 1 ||
+                     isHudOwnTarget(t) ||
+                     t === document.documentElement ||
+                     t === document.body
+                  ) {
+                     pickerHighlightBox.style.display = 'none';
+                     return;
+                  }
+                  const r = t.getBoundingClientRect();
+                  if (!r || r.width < 2 || r.height < 2) return;
+                  pickerHighlightBox.style.left = Math.max(0, r.left) + 'px';
+                  pickerHighlightBox.style.top = Math.max(0, r.top) + 'px';
+                  pickerHighlightBox.style.width = r.width + 'px';
+                  pickerHighlightBox.style.height = r.height + 'px';
+                  pickerHighlightBox.style.display = 'block';
+               };
+               devInspectOnClick = (ev) => {
+                  if (!devInspectActive) return;
+                  if (isHudOwnTarget(ev.target)) return;
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  if (typeof ev.stopImmediatePropagation === 'function') {
+                     ev.stopImmediatePropagation();
+                  }
+                  const el =
+                     ev.target && ev.target.nodeType === 1
+                        ? ev.target
+                        : document.elementFromPoint(ev.clientX || 0, ev.clientY || 0);
+                  stopDevInspectPicker();
+                  if (el) renderDevDomInfo(el);
+               };
+               devInspectOnKeydown = (ev) => {
+                  if (ev.key === 'Escape') {
+                     ev.preventDefault();
+                     ev.stopPropagation();
+                     stopDevInspectPicker();
+                  }
+               };
+               window.addEventListener('mousemove', devInspectOnHover, true);
+               window.addEventListener('mouseover', devInspectOnHover, true);
+               window.addEventListener('click', devInspectOnClick, true);
+               window.addEventListener('keydown', devInspectOnKeydown, true);
+               showHudToast(
+                  isZh() ? '请点击页面任意元素查看样式与盒模型' : 'Click any element to inspect box & CSS',
+               );
+            };
+
+            paneDom.appendChild(domHead);
+            paneDom.appendChild(domSummary);
+            paneDom.appendChild(domSource);
+            tabPanes.dom = paneDom;
+
+            devDrawerEl.appendChild(paneConsole);
+            devDrawerEl.appendChild(paneNet);
+            devDrawerEl.appendChild(paneApi);
+            devDrawerEl.appendChild(paneStorage);
+            devDrawerEl.appendChild(paneDom);
+            shell.appendChild(devDrawerEl);
+
+            devDrawerRefs = {
+               consoleList,
+               netSummary,
+               netList,
+               netDetail,
+               storageList,
+               domSummary,
+               domSource,
+               btnDomPick,
+               selectDevTab,
+               syncDevQuickToggles,
+            };
+            syncDevQuickToggles();
+            selectDevTab(devActiveTab);
+            return devDrawerRefs;
+         }
+
+         function toggleDevDrawer(force) {
+            const next = force !== undefined ? !!force : !isDevDrawerOpen;
+            if (!next && !devDrawerEl) {
+               isDevDrawerOpen = false;
+               return;
+            }
+            const refs = ensureDevDrawerMounted();
+            isDevDrawerOpen = next;
+            if (!next) {
+               stopDevInspectPicker();
+               devDrawerEl.style.display = 'none';
+               return;
+            }
+            const mobDockBottom =
+               isMobilePlatform() &&
+               styles.mobile_bar.visible !== false &&
+               (styles.mobile_bar.position || 'bottom').toLowerCase() !== 'top';
+            devDrawerEl.style.bottom = mobDockBottom
+               ? `calc(${styles.mobile_bar.height || '54px'} + env(safe-area-inset-bottom, 0px))`
+               : '0px';
+            devDrawerEl.style.display = 'flex';
+            refs.syncDevQuickToggles();
+            refs.selectDevTab(devActiveTab);
+         }
+         toggleDevDrawerRef = toggleDevDrawer;
+         isDevDrawerOpenRef = () => isDevDrawerOpen;
 
          // 3.6 History Drawer Modal (Linear / Raycast Style)
          const historyRoot = document.createElement('div');
@@ -9082,6 +11470,21 @@
                   cycleRelativeTab(e.shiftKey ? -1 : 1);
                   return;
                }
+               if (
+                  ((e.ctrlKey || e.metaKey) &&
+                     e.shiftKey &&
+                     !e.altKey &&
+                     (e.key || '').toLowerCase() === 'r') ||
+                  ((e.ctrlKey || e.metaKey) &&
+                     !e.shiftKey &&
+                     !e.altKey &&
+                     e.key === 'F5')
+               ) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  performHardCacheBustReload();
+                  return;
+               }
                if (matchesKeybind(e, keybinds.reload)) {
                   e.preventDefault();
                   e.stopPropagation();
@@ -9180,6 +11583,24 @@
                   togglePreferences();
                   return;
                }
+               if (matchesKeybind(e, keybinds.devtools)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!isMobilePlatform()) {
+                     sendIpc({ type: 'OPEN_DEVTOOLS' });
+                  } else if (typeof toggleDevDrawerRef === 'function') {
+                     toggleDevDrawerRef();
+                  }
+                  return;
+               }
+               if (matchesKeybind(e, keybinds.dev_drawer)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (typeof toggleDevDrawerRef === 'function') {
+                     toggleDevDrawerRef();
+                  }
+                  return;
+               }
                if (matchesKeybind(e, keybinds.zoom_in)) {
                   e.preventDefault();
                   e.stopPropagation();
@@ -9253,6 +11674,10 @@
                      isSidePanelOpen
                   ) {
                      toggleSidePanel(false);
+                     return;
+                  }
+                  if (isDevDrawerOpenRef && isDevDrawerOpenRef()) {
+                     if (toggleDevDrawerRef) toggleDevDrawerRef(false);
                      return;
                   }
                   if (

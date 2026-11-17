@@ -161,6 +161,7 @@ impl AppState {
             adblock: self.adblock.clone(),
             keybinds: self.keybinds.clone(),
             blocked_ads: adblock::blocked_count(),
+            workspaces: crate::tabs::TabManager::list_workspaces(),
         }
     }
 

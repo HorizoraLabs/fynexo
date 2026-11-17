@@ -646,6 +646,22 @@ mod tests {
 
     const HOME: &str = "fynexo://newtab";
 
+    #[test]
+    fn workspace_save_list_load_delete_roundtrip() {
+        let mut m = mgr_with(&["https://a.test/", "https://b.test/"]);
+        let name = "__unit_test_ws__";
+        TabManager::delete_workspace(name);
+        m.save_workspace(name);
+        let list = TabManager::list_workspaces();
+        let snap = list.iter().find(|w| w.name == name).expect("saved");
+        assert_eq!(snap.tabs.len(), m.tabs.len());
+        m.new_tab("https://c.test/");
+        assert!(m.load_workspace(name).is_some());
+        assert_eq!(m.tabs.len(), snap.tabs.len());
+        assert!(TabManager::delete_workspace(name));
+        assert!(!TabManager::delete_workspace(name));
+        assert!(TabManager::list_workspaces().iter().all(|w| w.name != name));
+    }
     /// Every test runs against an isolated temp data dir so the real session file is never touched.
     fn mgr_with(urls: &[&str]) -> TabManager {
         crate::util::isolate_data_dir();
