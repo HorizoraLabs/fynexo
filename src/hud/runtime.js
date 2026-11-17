@@ -4131,6 +4131,11 @@
       if (!shadowRoot) return;
       isDrawerOpen = true;
       renderDrawerCards();
+      const sheet = shadowRoot.getElementById('__fynexo_drawer_sheet__');
+      if (sheet) {
+         sheet.style.transition = '';
+         sheet.style.transform = '';
+      }
       const drawer = shadowRoot.getElementById('__fynexo_mobile_drawer__');
       if (drawer) drawer.style.display = 'flex';
    }
@@ -4138,6 +4143,11 @@
    function closeMobileDrawer() {
       if (!shadowRoot) return;
       isDrawerOpen = false;
+      const sheet = shadowRoot.getElementById('__fynexo_drawer_sheet__');
+      if (sheet) {
+         sheet.style.transition = '';
+         sheet.style.transform = '';
+      }
       const drawer = shadowRoot.getElementById('__fynexo_mobile_drawer__');
       if (drawer) drawer.style.display = 'none';
    }
@@ -4400,6 +4410,19 @@
          return true;
       }
       return false;
+   });
+
+   exposeReadOnly('__fynexo_on_ime_inset__', function (imeOpen) {
+      if (!imeOpen) {
+         setKeyboardHiddenState(false);
+         return;
+      }
+      const hudRootEl = shadowRoot
+         ? shadowRoot.getElementById('__fynexo_hud_root__')
+         : null;
+      if (hudRootEl && hudRootEl.style.display !== 'flex' && !isFindOpen) {
+         setKeyboardHiddenState(true);
+      }
    });
 
    exposeBridge('__fynexo_set_config__', function (newCfg) {
@@ -6205,15 +6228,24 @@
          };
          shieldPopoverEl.appendChild(btnOpenAdbStudio);
 
+         function getDetectedAdCount() {
+            const ads = document.querySelectorAll(
+               'ins.adsbygoogle, [id^="div-gpt-ad"], [id^="google_ads_iframe"], iframe[src*="doubleclick.net"], iframe[src*="googlesyndication.com"]',
+            );
+            const nativeBlocked =
+               window.__fynexo_android__ &&
+               typeof window.__fynexo_android__.getPageBlockedAds === 'function'
+                  ? Number(window.__fynexo_android__.getPageBlockedAds()) || 0
+                  : 0;
+            return ads.length + nativeBlocked;
+         }
+
          function updateShieldState() {
             if (isInternalAny()) {
                shieldBadge.style.display = 'none';
                return;
             }
-            const ads = document.querySelectorAll(
-               'ins.adsbygoogle, [id^="div-gpt-ad"], [id^="google_ads_iframe"], iframe[src*="doubleclick.net"], iframe[src*="googlesyndication.com"]',
-            );
-            const count = ads.length;
+            const count = getDetectedAdCount();
             if (count > 0 && config.adblock !== false) {
                shieldBadge.textContent = count > 99 ? '99+' : String(count);
                shieldBadge.style.display = 'flex';
@@ -6386,13 +6418,10 @@
             } else {
                closeAllNavPopovers();
                syncShieldPopoverUI();
-               const ads = document.querySelectorAll(
-                  'ins.adsbygoogle, [id^="div-gpt-ad"], [id^="google_ads_iframe"], iframe[src*="doubleclick.net"], iframe[src*="googlesyndication.com"]',
-               );
                const c = shieldPopoverEl.querySelector(
                   '#__fynexo_shield_pop_count__',
                );
-               if (c) c.textContent = String(ads.length);
+               if (c) c.textContent = String(getDetectedAdCount());
                positionNavPopover(btnShield, shieldPopoverEl);
                shieldPopoverEl.style.display = 'flex';
                activeNavPopoverEl = shieldPopoverEl;
@@ -6849,6 +6878,125 @@
          mobileBar.appendChild(mbMore);
          shell.appendChild(mobileBar);
 
+         function bindBottomSheetSwipeDismiss(sheetEl, scrollListEl, onClose) {
+            if (!sheetEl || typeof onClose !== 'function') return;
+            let tracking = false;
+            let dragging = false;
+            let startX = 0;
+            let startY = 0;
+            let lastDy = 0;
+            let lastTs = 0;
+            let velocity = 0;
+            let startedInScrollableList = false;
+
+            const isScrollAtTop = () =>
+               !scrollListEl || scrollListEl.scrollTop <= 1;
+
+            sheetEl.addEventListener(
+               'touchstart',
+               (e) => {
+                  if (!isMobilePlatform() && window.innerWidth > 768) return;
+                  if (!e.touches || e.touches.length !== 1) return;
+                  const targetTag = (
+                     (e.target && e.target.tagName) ||
+                     ''
+                  ).toLowerCase();
+                  if (
+                     targetTag === 'input' ||
+                     targetTag === 'textarea' ||
+                     targetTag === 'select'
+                  ) {
+                     return;
+                  }
+                  startedInScrollableList = !!(
+                     scrollListEl && scrollListEl.contains(e.target)
+                  );
+                  if (startedInScrollableList && !isScrollAtTop()) return;
+                  const touch = e.touches[0];
+                  tracking = true;
+                  dragging = false;
+                  startX = touch.clientX;
+                  startY = touch.clientY;
+                  lastDy = 0;
+                  lastTs = Date.now();
+                  velocity = 0;
+               },
+               { passive: true },
+            );
+
+            sheetEl.addEventListener(
+               'touchmove',
+               (e) => {
+                  if (!tracking || !e.touches || e.touches.length !== 1) return;
+                  const touch = e.touches[0];
+                  const dx = touch.clientX - startX;
+                  const dy = touch.clientY - startY;
+                  if (!dragging) {
+                     if (dy < -2 || Math.abs(dx) > Math.abs(dy) * 1.15) {
+                        tracking = false;
+                        return;
+                     }
+                     if (dy > 8) {
+                        if (startedInScrollableList && !isScrollAtTop()) {
+                           tracking = false;
+                           return;
+                        }
+                        dragging = true;
+                        sheetEl.style.transition = 'none';
+                     } else {
+                        return;
+                     }
+                  }
+                  const pull = Math.max(0, dy - 8);
+                  const now = Date.now();
+                  const dt = Math.max(1, now - lastTs);
+                  velocity = (pull - lastDy) / dt;
+                  lastDy = pull;
+                  lastTs = now;
+                  sheetEl.style.transform =
+                     'translate3d(0, ' + Math.round(pull) + 'px, 0)';
+                  if (e.cancelable) e.preventDefault();
+               },
+               { passive: false },
+            );
+
+            const finishTouch = () => {
+               if (!tracking) return;
+               tracking = false;
+               if (!dragging) return;
+               dragging = false;
+               const threshold = Math.min(
+                  120,
+                  (sheetEl.offsetHeight || 360) * 0.28,
+               );
+               if (lastDy > threshold || (lastDy > 36 && velocity > 0.45)) {
+                  sheetEl.style.transition =
+                     'transform 0.16s cubic-bezier(0.22, 1, 0.36, 1)';
+                  sheetEl.style.transform = 'translate3d(0, 100%, 0)';
+                  setTimeout(() => {
+                     sheetEl.style.transition = '';
+                     sheetEl.style.transform = '';
+                     onClose();
+                  }, 150);
+               } else {
+                  sheetEl.style.transition =
+                     'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1)';
+                  sheetEl.style.transform = 'translate3d(0, 0, 0)';
+                  setTimeout(() => {
+                     if (!dragging) {
+                        sheetEl.style.transition = '';
+                        sheetEl.style.transform = '';
+                     }
+                  }, 190);
+               }
+            };
+
+            sheetEl.addEventListener('touchend', finishTouch, { passive: true });
+            sheetEl.addEventListener('touchcancel', finishTouch, {
+               passive: true,
+            });
+         }
+
          // 3. Thumb-First Mobile Tab Switcher Sheet
          const mobileDrawer = document.createElement('div');
          mobileDrawer.id = '__fynexo_mobile_drawer__';
@@ -6973,6 +7121,7 @@
             if (e.target === mobileDrawer) closeMobileDrawer();
          };
          shell.appendChild(mobileDrawer);
+         bindBottomSheetSwipeDismiss(drawerSheet, drawerList, closeMobileDrawer);
 
          // 3.5 Side Drawer / Web Panel (Alt+S, Lazy-mounted only when ext_side_panel is active)
          isSidePanelOpen = false;
@@ -7264,6 +7413,8 @@
          function closeHistoryDrawer() {
             if (!isHistoryDrawerOpen) return;
             isHistoryDrawerOpen = false;
+            historyCard.style.transition = '';
+            historyCard.style.transform = '';
             historyRoot.style.display = 'none';
             histSearchInput.value = '';
             histList.textContent = '';
@@ -7358,6 +7509,8 @@
                closeAllNavPopovers();
             hideTabContextMenu();
             isHistoryDrawerOpen = true;
+            historyCard.style.transition = '';
+            historyCard.style.transform = '';
             histSearchInput.value = '';
             renderHistoryDrawerList('');
             historyRoot.style.display = 'flex';
@@ -7386,6 +7539,7 @@
          openHistoryDrawerRef = openHistoryDrawer;
          closeHistoryDrawerRef = closeHistoryDrawer;
          isHistoryOpenRef = () => isHistoryDrawerOpen;
+         bindBottomSheetSwipeDismiss(historyCard, histList, closeHistoryDrawer);
 
          // 3.7 Custom Prompt Dialog (Replaces native window.prompt)
          const promptRoot = document.createElement('div');
@@ -8045,7 +8199,7 @@
                         window.visualViewport.height /
                         Math.max(window.screen.height, window.innerHeight, 1);
                      const activeEl = getDeepActiveElement();
-                     if (ratio < 0.68 || isEditableWebElement(activeEl)) {
+                     if (ratio < 0.72) {
                         setKeyboardHiddenState(true);
                         if (activeEl && isEditableWebElement(activeEl)) {
                            try {

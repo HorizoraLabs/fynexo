@@ -151,13 +151,28 @@ pub fn unique_download_path(suggested_filename: &str) -> PathBuf {
 }
 
 pub fn export_json_to_downloads(filename: &str, json_content: &str) -> Result<PathBuf, String> {
-    let target = unique_download_path(filename);
-    if crate::util::atomic_write(&target, json_content).is_ok() {
-        return Ok(target);
+    #[cfg(target_os = "android")]
+    {
+        let export_dir = data_dir().join("exports");
+        let _ = fs::create_dir_all(&export_dir);
+        let clean_name = unique_download_path(filename)
+            .file_name()
+            .map(|n| n.to_os_string())
+            .unwrap_or_else(|| std::ffi::OsString::from("export.json"));
+        let staged_path = export_dir.join(clean_name);
+        crate::util::atomic_write(&staged_path, json_content).map_err(|e| e.to_string())?;
+        Ok(staged_path)
     }
-    let fallback = data_dir().join(filename);
-    crate::util::atomic_write(&fallback, json_content).map_err(|e| e.to_string())?;
-    Ok(fallback)
+    #[cfg(not(target_os = "android"))]
+    {
+        let target = unique_download_path(filename);
+        if crate::util::atomic_write(&target, json_content).is_ok() {
+            return Ok(target);
+        }
+        let fallback = data_dir().join(filename);
+        crate::util::atomic_write(&fallback, json_content).map_err(|e| e.to_string())?;
+        Ok(fallback)
+    }
 }
 
 #[inline]

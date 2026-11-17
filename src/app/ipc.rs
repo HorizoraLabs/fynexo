@@ -1098,6 +1098,10 @@ fn export_json_with_toast(
 ) {
     match export_json_to_downloads(filename, json) {
         Ok(saved_path) => {
+            #[cfg(target_os = "android")]
+            let _ = proxy.send_event(UserEvent::EvalScript(
+                "if(window.__fynexo_android__&&typeof window.__fynexo_android__.flushPendingExports==='function'){window.__fynexo_android__.flushPendingExports();}".to_string(),
+            ));
             let name_only = saved_path
                 .file_name()
                 .and_then(|s| s.to_str())

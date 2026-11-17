@@ -70,7 +70,15 @@
         let themesDir = boot.themes_dir || 'themes/';
         let stylesPath = boot.styles_path || 'config/styles.json';
         let dataDir = boot.data_dir || '';
-        let blockedAds = Number(boot.blocked_ads) || 0;
+        function resolveTotalBlockedAds(rustCount) {
+            const androidBlocked =
+                window.__fynexo_android__ && typeof window.__fynexo_android__.getSessionBlockedAds === 'function'
+                    ? (Number(window.__fynexo_android__.getSessionBlockedAds()) || 0)
+                    : 0;
+            return (Number(rustCount) || 0) + androidBlocked;
+        }
+        let rustBlockedAds = Number(boot.blocked_ads) || 0;
+        let blockedAds = resolveTotalBlockedAds(rustBlockedAds);
         let historyCount = Array.isArray(boot.history) ? boot.history.length : 0;
 
         let editingRuleId = null;
@@ -2497,7 +2505,8 @@
             if (payload.themes_dir) themesDir = payload.themes_dir;
             if (payload.styles_path) stylesPath = payload.styles_path;
             if (payload.data_dir) dataDir = payload.data_dir;
-            if (typeof payload.blocked_ads === 'number') blockedAds = payload.blocked_ads;
+            if (typeof payload.blocked_ads === 'number') rustBlockedAds = payload.blocked_ads;
+            blockedAds = resolveTotalBlockedAds(rustBlockedAds);
             if (Array.isArray(payload.history)) historyCount = payload.history.length;
             renderAllSections();
         };

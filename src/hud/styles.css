@@ -1624,6 +1624,26 @@
                         min-height: 36px;
                         padding: 7px 10px;
                     }
+                    .fnx-pop-btn {
+                        min-height: 34px;
+                    }
+                    .fnx-pop-seg-btn {
+                        min-height: 28px;
+                    }
+                    .fnx-pop-row {
+                        min-height: 30px;
+                    }
+                    .fnx-pop-switch {
+                        width: 34px;
+                        height: 19px;
+                    }
+                    .fnx-pop-switch::after {
+                        width: 13px;
+                        height: 13px;
+                    }
+                    .fnx-pop-switch.on::after {
+                        transform: translateX(15px);
+                    }
                 }
                 #__fynexo_shell__.fnx-is-mobile #__fynexo_mb_reload__ {
                     width: 34px;
