@@ -152,7 +152,7 @@ impl Default for BrowserModeProfile {
             id: "custom".to_string(),
             name_zh: "自定义模式".to_string(),
             name_en: "Custom Mode".to_string(),
-            icon: "✨".to_string(),
+            icon: "spark".to_string(),
             auto_domains: Vec::new(),
             adblock: true,
             force_dark: false,
@@ -171,6 +171,25 @@ impl Default for BrowserModeProfile {
     }
 }
 
+pub fn normalize_mode_icon_key(raw: &str, mode_id: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "developer" | "code" => "code".to_string(),
+        "study" | "reader" => "reader".to_string(),
+        "media" => "media".to_string(),
+        "bolt" => "bolt".to_string(),
+        "shield" => "shield".to_string(),
+        "cpu" => "cpu".to_string(),
+        "globe" => "globe".to_string(),
+        "spark" => "spark".to_string(),
+        _ => match mode_id.trim().to_ascii_lowercase().as_str() {
+            "developer" => "code".to_string(),
+            "study" => "reader".to_string(),
+            "media" => "media".to_string(),
+            _ => "spark".to_string(),
+        },
+    }
+}
+
 pub fn default_mode_profiles() -> Vec<BrowserModeProfile> {
     let s = |v: &str| v.to_string();
     vec![
@@ -178,7 +197,7 @@ pub fn default_mode_profiles() -> Vec<BrowserModeProfile> {
             id: s("developer"),
             name_zh: s("开发者模式"),
             name_en: s("Developer Mode"),
-            icon: s("🛠️"),
+            icon: s("code"),
             auto_domains: vec![
                 s("localhost"),
                 s("127.0.0.1"),
@@ -211,7 +230,7 @@ pub fn default_mode_profiles() -> Vec<BrowserModeProfile> {
             id: s("study"),
             name_zh: s("学习与阅读模式"),
             name_en: s("Study & Focus Mode"),
-            icon: s("📚"),
+            icon: s("reader"),
             auto_domains: vec![
                 s("*.wikipedia.org"),
                 s("zhihu.com"),
@@ -242,7 +261,7 @@ pub fn default_mode_profiles() -> Vec<BrowserModeProfile> {
             id: s("media"),
             name_zh: s("影音娱乐模式"),
             name_en: s("Media & Cinema Mode"),
-            icon: s("🎬"),
+            icon: s("media"),
             auto_domains: vec![
                 s("youtube.com"),
                 s("*.youtube.com"),
@@ -297,6 +316,8 @@ pub struct AppConfig {
     pub incognito: bool,
     #[serde(default = "default_true")]
     pub https_first: bool,
+    #[serde(default)]
+    pub allow_page_eval: bool,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default = "default_zoom_one")]
@@ -333,6 +354,8 @@ pub struct AppConfig {
     pub ext_userscript_engine: bool,
     #[serde(default = "default_true")]
     pub ext_mouse_gestures: bool,
+    #[serde(default = "default_true")]
+    pub chrome_extensions_enabled: bool,
     #[serde(default = "default_active_mode")]
     pub active_mode: String,
     #[serde(default = "default_mode_profiles")]
@@ -361,6 +384,7 @@ impl Default for AppConfig {
             force_dark: false,
             incognito: false,
             https_first: true,
+            allow_page_eval: false,
             language: default_language(),
             default_zoom: 1.0,
             user_agent_mode: "default".to_string(),
@@ -379,6 +403,7 @@ impl Default for AppConfig {
             ext_media_booster: false,
             ext_userscript_engine: true,
             ext_mouse_gestures: true,
+            chrome_extensions_enabled: true,
             active_mode: default_active_mode(),
             mode_profiles: default_mode_profiles(),
             site_overrides: std::collections::BTreeMap::new(),
@@ -424,6 +449,9 @@ impl AppConfig {
         if self.tab_sleep_minutes > 240 {
             self.tab_sleep_minutes = 240;
         }
+        for prof in &mut self.mode_profiles {
+            prof.icon = normalize_mode_icon_key(&prof.icon, &prof.id);
+        }
     }
 
     pub fn apply_perf_preset(&mut self, raw_preset: &str) {
@@ -441,6 +469,7 @@ impl AppConfig {
                 self.ext_yt_ad_skipper = false;
                 self.ext_gh_harmonizer = false;
                 self.ext_media_booster = false;
+                self.chrome_extensions_enabled = false;
             }
             "low" => {
                 self.perf_preset = "low".to_string();
@@ -450,6 +479,7 @@ impl AppConfig {
                 self.tab_sleep_minutes = 15;
                 self.enforce_perf = false;
                 self.reduce_animations = false;
+                self.chrome_extensions_enabled = true;
             }
             "medium" => {
                 self.perf_preset = "medium".to_string();
@@ -459,6 +489,7 @@ impl AppConfig {
                 self.tab_sleep_minutes = 30;
                 self.enforce_perf = false;
                 self.reduce_animations = false;
+                self.chrome_extensions_enabled = true;
             }
             "high" => {
                 self.perf_preset = "high".to_string();
@@ -468,6 +499,7 @@ impl AppConfig {
                 self.tab_sleep_minutes = 0;
                 self.enforce_perf = false;
                 self.reduce_animations = false;
+                self.chrome_extensions_enabled = true;
             }
             _ => {
                 self.perf_preset = "custom".to_string();
@@ -503,6 +535,10 @@ impl AppConfig {
 
     /// Returns an estimated `(min_mb, max_mb)` multi-process RAM footprint matching the UI calculator.
     pub fn estimate_ram_mb(&self) -> (u32, u32) {
+        self.estimate_ram_mb_with_chrome_ext(0)
+    }
+
+    pub fn estimate_ram_mb_with_chrome_ext(&self, enabled_chrome_ext_count: usize) -> (u32, u32) {
         let limits = self.tab_cache_limits();
         let bg_slots = limits.max_cached_normal.saturating_sub(1) as f64;
         let base_min = if self.hw_accel { 105.0 } else { 90.0 };
@@ -523,6 +559,11 @@ impl AppConfig {
                 ext_count += 1;
             }
         }
+        let chrome_n = if self.chrome_extensions_enabled {
+            enabled_chrome_ext_count as f64
+        } else {
+            0.0
+        };
         let ext_overhead = (ext_count as f64) * 14.0;
         let ad_penalty = if self.adblock { 0.0 } else { 35.0 };
         let trim_bonus = if self.auto_trim_ram { 0.90 } else { 1.0 };
@@ -530,11 +571,13 @@ impl AppConfig {
 
         let min_mb = ((base_min + bg_slots * per_tab_min + ext_overhead + ad_penalty)
             * trim_bonus
-            * fx_bonus)
+            * fx_bonus
+            + chrome_n * 18.0)
             .round() as u32;
         let max_mb = ((base_max + bg_slots * per_tab_max + ext_overhead * 1.6 + ad_penalty * 1.8)
             * trim_bonus
-            * fx_bonus)
+            * fx_bonus
+            + chrome_n * 32.0)
             .round() as u32;
         (min_mb, max_mb.max(min_mb + 20))
     }
@@ -640,9 +683,13 @@ mod tests {
         assert!(cfg.auto_trim_ram);
         assert_eq!(cfg.tab_sleep_minutes, 15);
         assert!(cfg.hw_accel);
+        assert!(cfg.chrome_extensions_enabled);
         assert!(cfg.is_multi_window());
         cfg.window_mode = "single".to_string();
         assert!(!cfg.is_multi_window());
+        let (base_min, base_max) = cfg.estimate_ram_mb();
+        let (with_ext_min, with_ext_max) = cfg.estimate_ram_mb_with_chrome_ext(2);
+        assert!(with_ext_min > base_min && with_ext_max > base_max);
     }
     #[test]
     fn tab_cache_mode_normalization_and_limits() {
@@ -687,5 +734,23 @@ mod tests {
 
         assert!(u_min < l_min && l_min < m_min && m_min < h_min);
         assert!(u_max < l_max && l_max < m_max && m_max < h_max);
+    }
+
+    #[test]
+    fn sanitize_perf_fields_migrates_legacy_emoji_mode_icons() {
+        let mut cfg = AppConfig::default();
+        cfg.mode_profiles[0].icon = "\u{1F6E0}\u{FE0F}".to_string();
+        cfg.mode_profiles[1].icon = "\u{1F4DA}".to_string();
+        cfg.mode_profiles[2].icon = "\u{1F3AC}".to_string();
+        cfg.mode_profiles.push(BrowserModeProfile {
+            id: "custom_reading".to_string(),
+            icon: "\u{2728}".to_string(),
+            ..BrowserModeProfile::default()
+        });
+        cfg.sanitize_perf_fields();
+        assert_eq!(cfg.mode_profiles[0].icon, "code");
+        assert_eq!(cfg.mode_profiles[1].icon, "reader");
+        assert_eq!(cfg.mode_profiles[2].icon, "media");
+        assert_eq!(cfg.mode_profiles[3].icon, "spark");
     }
 }

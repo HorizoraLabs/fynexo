@@ -606,6 +606,50 @@ pub fn open_folder_in_explorer(path: &std::path::Path) {
     }
 }
 
+/// Returns `true` when the filename lacks a safe extension or looks like an executable/script/shortcut.
+pub fn is_dangerous_download_filename(raw_name: &str) -> bool {
+    let trimmed = raw_name.trim().trim_end_matches(['.', ' ']);
+    let ext = std::path::Path::new(trimmed)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    if ext.is_empty() {
+        return true;
+    }
+    matches!(
+        ext.as_str(),
+        "exe"
+            | "msi"
+            | "msp"
+            | "bat"
+            | "cmd"
+            | "com"
+            | "scr"
+            | "pif"
+            | "ps1"
+            | "psm1"
+            | "vbs"
+            | "vbe"
+            | "js"
+            | "jse"
+            | "wsf"
+            | "wsh"
+            | "hta"
+            | "lnk"
+            | "url"
+            | "reg"
+            | "dll"
+            | "cpl"
+            | "inf"
+            | "jar"
+            | "py"
+            | "sh"
+            | "chm"
+            | "scf"
+    )
+}
+
 #[cfg(target_os = "windows")]
 pub fn open_download_file(downloads_root: &std::path::Path, raw_name: &str) -> bool {
     use windows::core::{w, HSTRING};
@@ -628,6 +672,20 @@ pub fn open_download_file(downloads_root: &std::path::Path, raw_name: &str) -> b
     if !full.is_file() {
         return false;
     }
+    if is_dangerous_download_filename(clean) {
+        let select_arg = HSTRING::from(format!("/select,\"{}\"", full.display()));
+        unsafe {
+            let res = ShellExecuteW(
+                Some(HWND::default()),
+                w!("open"),
+                w!("explorer.exe"),
+                &select_arg,
+                None,
+                SW_SHOWNORMAL,
+            );
+            return (res.0 as isize) > 32;
+        }
+    }
     let target = HSTRING::from(full.as_os_str());
     unsafe {
         let res = ShellExecuteW(
@@ -635,6 +693,43 @@ pub fn open_download_file(downloads_root: &std::path::Path, raw_name: &str) -> b
             w!("open"),
             &target,
             None,
+            None,
+            SW_SHOWNORMAL,
+        );
+        (res.0 as isize) > 32
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn reveal_download_in_explorer(downloads_root: &std::path::Path, raw_name: &str) -> bool {
+    use windows::core::{w, HSTRING};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let clean = raw_name.trim();
+    if clean.is_empty()
+        || clean.contains('/')
+        || clean.contains('\\')
+        || clean.contains("..")
+    {
+        return false;
+    }
+    let Some(file_only) = std::path::Path::new(clean).file_name() else {
+        return false;
+    };
+    let full = downloads_root.join(file_only);
+    if !full.is_file() {
+        open_folder_in_explorer(downloads_root);
+        return false;
+    }
+    let select_arg = HSTRING::from(format!("/select,\"{}\"", full.display()));
+    unsafe {
+        let res = ShellExecuteW(
+            Some(HWND::default()),
+            w!("open"),
+            w!("explorer.exe"),
+            &select_arg,
             None,
             SW_SHOWNORMAL,
         );
@@ -675,5 +770,31 @@ mod tests {
         cfg.sanitize();
         assert_eq!(cfg.custom_blocked_domains, vec!["ads.com".to_string()]);
         assert_eq!(cfg.whitelisted_domains, vec!["ok.org".to_string()]);
+    }
+
+    #[test]
+    fn dangerous_download_extensions_are_flagged() {
+        for bad in [
+            "setup.exe",
+            "SCRIPT.BAT",
+            "payload.exe.",
+            "run.ps1 ",
+            "helper.js",
+            "shortcut.lnk",
+            "installer.msi",
+            "noext",
+        ] {
+            assert!(is_dangerous_download_filename(bad), "expected dangerous: {bad}");
+        }
+        for safe in [
+            "report.pdf",
+            "photo.png",
+            "fynexo_rules.json",
+            "notes.txt",
+            "archive.zip",
+            "clip.mp4",
+        ] {
+            assert!(!is_dangerous_download_filename(safe), "expected safe: {safe}");
+        }
     }
 }

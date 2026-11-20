@@ -65,6 +65,7 @@ pub struct TabPool {
     live_webviews: HashMap<usize, TabWebView>,
     lru_order: VecDeque<usize>,
     last_active_at: HashMap<usize, Instant>,
+    runtime_hashes: HashMap<usize, u64>,
     idle_webview: Option<TabWebView>,
     visible_tab_id: Option<usize>,
     pending_reveal: Option<(usize, u64)>,
@@ -83,11 +84,24 @@ impl TabPool {
             live_webviews,
             lru_order,
             last_active_at,
+            runtime_hashes: HashMap::new(),
             idle_webview: None,
             visible_tab_id: Some(initial_id),
             pending_reveal: None,
             reveal_gen: 0,
         }
+    }
+
+    pub fn should_push_runtime(&mut self, id: usize, hash: u64) -> bool {
+        if self.runtime_hashes.get(&id).copied() == Some(hash) {
+            return false;
+        }
+        self.runtime_hashes.insert(id, hash);
+        true
+    }
+
+    pub fn clear_runtime_hash(&mut self, id: usize) {
+        self.runtime_hashes.remove(&id);
     }
 
     pub fn contains(&self, id: usize) -> bool {
@@ -204,6 +218,7 @@ impl TabPool {
     }
 
     pub fn insert_live(&mut self, id: usize, tv: TabWebView) {
+        self.runtime_hashes.remove(&id);
         if let Some(prev) = self.live_webviews.insert(id, tv) {
             self.recycle_or_drop(prev);
         }
@@ -342,6 +357,7 @@ impl TabPool {
             };
             if let Some(victim_id) = self.lru_order.remove(pos) {
                 self.last_active_at.remove(&victim_id);
+                self.runtime_hashes.remove(&victim_id);
                 if let Some(tv) = self.live_webviews.remove(&victim_id) {
                     self.recycle_or_drop(tv);
                     cached_normal -= 1;
@@ -389,6 +405,7 @@ impl TabPool {
         for tid in victims {
             self.lru_order.retain(|&x| x != tid);
             self.last_active_at.remove(&tid);
+            self.runtime_hashes.remove(&tid);
             if let Some(tv) = self.live_webviews.remove(&tid) {
                 self.recycle_or_drop(tv);
                 slept += 1;
@@ -456,6 +473,7 @@ impl TabPool {
         for tid in dead_ids {
             self.lru_order.retain(|&x| x != tid);
             self.last_active_at.remove(&tid);
+            self.runtime_hashes.remove(&tid);
             if self.visible_tab_id == Some(tid) {
                 self.visible_tab_id = None;
             }
@@ -473,6 +491,7 @@ impl TabPool {
         self.pending_reveal = None;
         self.lru_order.clear();
         self.last_active_at.clear();
+        self.runtime_hashes.clear();
         let drained: Vec<TabWebView> = self.live_webviews.drain().map(|(_, tv)| tv).collect();
         for tv in drained {
             self.recycle_or_drop(tv);
@@ -484,6 +503,7 @@ impl TabPool {
         self.pending_reveal = None;
         self.lru_order.clear();
         self.last_active_at.clear();
+        self.runtime_hashes.clear();
         self.live_webviews.clear();
         self.idle_webview = None;
     }
@@ -491,6 +511,7 @@ impl TabPool {
     pub fn drop_crashed(&mut self, tab_id: usize) {
         self.lru_order.retain(|&x| x != tab_id);
         self.last_active_at.remove(&tab_id);
+        self.runtime_hashes.remove(&tab_id);
         if self.visible_tab_id == Some(tab_id) {
             self.visible_tab_id = None;
         }

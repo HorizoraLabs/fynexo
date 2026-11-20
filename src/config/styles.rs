@@ -322,7 +322,7 @@ impl Default for NewtabStyles {
     fn default() -> Self {
         Self {
             title: "Fynexo".to_string(),
-            subtitle: "Single-WebView studio browser · Zero-FX compositing".to_string(),
+            subtitle: "Modular studio browser · Deeply customizable UI & workflows".to_string(),
             show_clock: true,
             use_24h_clock: true,
             show_shortcuts: true,

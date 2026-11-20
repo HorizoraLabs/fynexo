@@ -120,6 +120,43 @@ fn ct_eq(a: &str, b: &str) -> bool {
     a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+/// True when `origin` is a trusted HTTPS Chrome Web Store or Microsoft Edge Add-ons page.
+pub fn is_trusted_webstore_origin(origin: &str) -> bool {
+    let trimmed = origin.trim();
+    if trimmed.is_empty() || has_control_chars(trimmed) {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    let Some(rest) = lower.strip_prefix("https://") else {
+        return false;
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if host.is_empty() || host.contains('@') || host.contains(':') {
+        return false;
+    }
+    let path_and_more = rest.strip_prefix(host).unwrap_or("");
+    match host {
+        "chromewebstore.google.com" => true,
+        "chrome.google.com" => path_and_more.starts_with("/webstore"),
+        "microsoftedge.microsoft.com" => path_and_more.starts_with("/addons"),
+        _ => false,
+    }
+}
+
+fn authorize_external_webstore_install(origin: &str, message: &serde_json::Value) -> bool {
+    if !is_trusted_webstore_origin(origin) {
+        return false;
+    }
+    let origin_id = crate::chrome_ext::crx::parse_store_input(origin).map(|(id, _)| id);
+    let input_str = message
+        .get("input")
+        .and_then(|v| v.as_str())
+        .or_else(|| message.get("url").and_then(|v| v.as_str()))
+        .unwrap_or("");
+    let input_id = crate::chrome_ext::crx::parse_store_input(input_str).map(|(id, _)| id);
+    origin_id.is_some() && origin_id == input_id
+}
+
 /// Commands the HUD overlay may trigger while hosted on external websites.
 /// Rule-writing, config import/export, theme deletion, data wiping, and internal
 /// directory opening are deliberately excluded and require `is_internal_origin`.
@@ -131,6 +168,10 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
             | "NEW_TAB"
             | "NEW_WINDOW"
             | "DETACH_TAB"
+            | "OPEN_CHROME_EXT_POPUP"
+            | "OPEN_CHROME_EXT_OPTIONS"
+            | "TOGGLE_CHROME_EXT"
+            | "PIN_CHROME_EXT"
             | "SWITCH_TAB"
             | "TOGGLE_PIN_TAB"
             | "TOGGLE_BACKGROUND_PLAY"
@@ -151,6 +192,8 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
             | "SET_ZOOM"
             | "TOGGLE_BOOKMARK"
             | "OPEN_DOWNLOADS_DIR"
+            | "OPEN_DOWNLOAD_FILE"
+            | "REVEAL_DOWNLOAD_FILE"
             | "GET_TABS"
             | "PATCH_HUD_PREFS"
             | "GET_CONFIG"
@@ -174,14 +217,18 @@ pub fn authorize_ipc(origin: &str, message: &serde_json::Value) -> bool {
     if is_internal_origin(origin) {
         return true;
     }
-    if !is_hud_allowed_command(cmd) {
-        return false;
-    }
-    message
+    let has_valid_token = message
         .get("__t")
         .and_then(|t| t.as_str())
         .map(|t| ct_eq(t, ipc_token()))
-        .unwrap_or(false)
+        .unwrap_or(false);
+    if !has_valid_token {
+        return false;
+    }
+    if cmd == "INSTALL_CHROME_EXT_STORE" {
+        return authorize_external_webstore_install(origin, message);
+    }
+    is_hud_allowed_command(cmd)
 }
 
 fn has_control_chars(s: &str) -> bool {
@@ -239,6 +286,23 @@ pub fn is_safe_navigation_target(url: &str) -> bool {
         || lower.starts_with("https://")
         || is_exact_internal_target(&lower)
         || lower == "about:blank"
+}
+
+/// Allowed URLs for Chrome/Edge extension pages (`chrome-extension://<32 a..=p>/...`).
+pub fn is_safe_chrome_extension_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || has_control_chars(trimmed) {
+        return false;
+    }
+    let Some(rest) = trimmed.strip_prefix("chrome-extension://") else {
+        return false;
+    };
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+    if !crate::chrome_ext::crx::is_valid_chrome_ext_id(host) {
+        return false;
+    }
+    let clean_path = path.split(['?', '#']).next().unwrap_or("");
+    !clean_path.split('/').any(|seg| seg == "..")
 }
 
 /// Allowed URLs for bookmarks / shortcuts (`http://`, `https://`, internal newtab/settings).
@@ -327,7 +391,55 @@ mod tests {
         assert!(!authorize_ipc(evil, &json!({"type": "NEW_TAB", "__t": "guess"})));
         assert!(authorize_ipc(evil, &json!({"type": "NEW_TAB", "__t": ipc_token()})));
         assert!(authorize_ipc(evil, &json!({"type": "PATCH_HUD_PREFS", "__t": ipc_token()})));
+        assert!(authorize_ipc(
+            evil,
+            &json!({"type": "OPEN_DOWNLOAD_FILE", "filename": "notes.pdf", "__t": ipc_token()})
+        ));
         assert!(!authorize_ipc(evil, &json!({"type": "UNKNOWN_CMD", "__t": ipc_token()})));
+    }
+
+    #[test]
+    fn install_chrome_ext_store_requires_matching_webstore_origin() {
+        let tok = ipc_token();
+        let id_a = "cjpalhdlnbpafiamejdnhcphjbkeiagm";
+        let id_b = "ifoakfbpdcdoeenechcleahebpibofpc";
+        let evil = "https://evil.example/cjpalhdlnbpafiamejdnhcphjbkeiagm";
+        assert!(!authorize_ipc(
+            evil,
+            &json!({"type": "INSTALL_CHROME_EXT_STORE", "input": id_a, "__t": tok})
+        ));
+
+        let cws_a = format!("https://chromewebstore.google.com/detail/ublock/{id_a}?hl=zh-CN");
+        assert!(authorize_ipc(
+            &cws_a,
+            &json!({"type": "INSTALL_CHROME_EXT_STORE", "input": cws_a, "__t": tok})
+        ));
+        assert!(authorize_ipc(
+            &cws_a,
+            &json!({"type": "INSTALL_CHROME_EXT_STORE", "input": id_a, "__t": tok})
+        ));
+        assert!(!authorize_ipc(
+            &cws_a,
+            &json!({"type": "INSTALL_CHROME_EXT_STORE", "input": id_b, "__t": tok})
+        ));
+        assert!(!authorize_ipc(
+            &cws_a,
+            &json!({"type": "INSTALL_CHROME_EXT_STORE", "input": id_a})
+        ));
+
+        let edge_b = format!("https://microsoftedge.microsoft.com/addons/detail/dark/{id_b}");
+        assert!(authorize_ipc(
+            &edge_b,
+            &json!({"type": "INSTALL_CHROME_EXT_STORE", "input": edge_b, "__t": tok})
+        ));
+        assert!(!authorize_ipc(
+            "https://chromewebstore.google.com.evil.com/detail/ublock/cjpalhdlnbpafiamejdnhcphjbkeiagm",
+            &json!({"type": "INSTALL_CHROME_EXT_STORE", "input": id_a, "__t": tok})
+        ));
+        assert!(authorize_ipc(
+            "fynexo://settings",
+            &json!({"type": "INSTALL_CHROME_EXT_STORE", "input": id_b})
+        ));
     }
 
     #[test]
@@ -360,6 +472,19 @@ mod tests {
         assert!(is_safe_bookmark_url("https://example.com"));
         assert!(!is_safe_bookmark_url("javascript:alert(1)"));
         assert!(!is_safe_bookmark_url("data:text/html,1"));
+
+        assert!(is_safe_chrome_extension_url(
+            "chrome-extension://cjpalhdlnbpafiamejdnhcphjbkeiagm/popup.html"
+        ));
+        assert!(!is_safe_chrome_extension_url(
+            "chrome-extension://cjpalhdlnbpafiamejdnhcphjbkeiagm/../secret.html"
+        ));
+        assert!(!is_safe_chrome_extension_url(
+            "chrome-extension://invalidshortid/popup.html"
+        ));
+        assert!(!is_internal_origin(
+            "chrome-extension://cjpalhdlnbpafiamejdnhcphjbkeiagm/popup.html"
+        ));
     }
 
     #[test]

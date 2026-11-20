@@ -31,6 +31,29 @@ pub struct TabLaunch<'a> {
     pub visible: bool,
 }
 
+#[cfg(target_os = "windows")]
+pub fn windows_browser_args(hw_accel: bool) -> String {
+    let gpu_args = if hw_accel {
+        "--enable-gpu-rasterization --enable-zero-copy"
+    } else {
+        "--disable-gpu-rasterization --disable-gpu-compositing"
+    };
+    format!(
+        "{} \
+        --enable-quic \
+        --enable-smooth-scrolling \
+        --disable-background-networking \
+        --disable-component-update \
+        --disable-domain-reliability \
+        --disable-breakpad \
+        --no-default-browser-check \
+        --no-first-run \
+        --disable-features=msWebOOUI,msPdfOOUI,Prerender2,TopicsAPI,Translate,MediaRouter,OptimizationHints \
+        --enable-features=OverlayScrollbar,OverlayScrollbarWinStyle,OverlayScrollbarWinStyleAnimation,FluentOverlayScrollbar",
+        gpu_args
+    )
+}
+
 pub fn build_tab_webview(
     window: &tao::window::Window,
     web_context: &mut WebContext,
@@ -49,20 +72,24 @@ pub fn build_tab_webview(
     #[cfg(target_os = "windows")]
     let adblock_cfg;
     #[cfg(target_os = "windows")]
-    let hw_accel;
-    let (incognito, resolved_ua, default_zoom, initial_script) = {
+    let boot_hw_accel;
+    #[cfg(target_os = "windows")]
+    let boot_chrome_ext;
+    let (incognito, resolved_ua, default_zoom, allow_devtools, initial_script) = {
         let mut st = app_state.lock_safe();
         let _ = st.reload_if_changed();
         #[cfg(target_os = "windows")]
         {
             adblock_cfg = st.adblock.clone();
-            hw_accel = st.config.hw_accel;
+            boot_hw_accel = st.boot_hw_accel;
+            boot_chrome_ext = st.boot_chrome_ext_enabled;
         }
         let script = hud::generate_hud_script_from_state(&st, Some(&initial_tabs));
         (
             st.config.incognito || tm_incog,
             st.config.resolved_user_agent(),
             st.config.default_zoom,
+            cfg!(debug_assertions) || st.config.allow_page_eval,
             script,
         )
     };
@@ -79,27 +106,10 @@ pub fn build_tab_webview(
 
     #[cfg(target_os = "windows")]
     {
-        // Edge-style resource-trimmed Chromium args: zero telemetry, HTTP/3 QUIC, optional GPU acceleration
-        let gpu_args = if hw_accel {
-            "--enable-gpu-rasterization --enable-zero-copy"
-        } else {
-            "--disable-gpu-rasterization --disable-gpu-compositing"
-        };
-        let args = format!(
-            "{} \
-            --enable-quic \
-            --enable-smooth-scrolling \
-            --disable-background-networking \
-            --disable-component-update \
-            --disable-domain-reliability \
-            --disable-breakpad \
-            --no-default-browser-check \
-            --no-first-run \
-            --disable-features=msWebOOUI,msPdfOOUI,Prerender2,TopicsAPI,Translate,MediaRouter,OptimizationHints \
-            --enable-features=OverlayScrollbar,OverlayScrollbarWinStyle,OverlayScrollbarWinStyleAnimation,FluentOverlayScrollbar",
-            gpu_args
-        );
-        builder = builder.with_additional_browser_args(&args);
+        let args = windows_browser_args(boot_hw_accel);
+        builder = builder
+            .with_additional_browser_args(&args)
+            .with_browser_extensions_enabled(boot_chrome_ext);
     }
 
     // Intercept New Window Requests (target="_blank", window.open) -> Block Ad Popups or Convert to Internal Tabs
@@ -114,8 +124,10 @@ pub fn build_tab_webview(
         if adblock::launch_external_scheme_windows(&url) {
             return wry::NewWindowResponse::Deny;
         }
-        // Only external http(s) URLs may spawn popup tabs; deny fynexo://, file://, javascript:, data:, etc.
-        if !super::security::is_safe_external_http_url(&url) {
+        // Allow external http(s) URLs and validated chrome-extension:// pages; deny fynexo://, file://, javascript:, data:, etc.
+        if !super::security::is_safe_external_http_url(&url)
+            && !super::security::is_safe_chrome_extension_url(&url)
+        {
             return wry::NewWindowResponse::Deny;
         }
         let logical = normalize_logical_url(&url);
@@ -137,6 +149,7 @@ pub fn build_tab_webview(
         let is_standard = lower.starts_with("http://")
             || lower.starts_with("https://")
             || lower.starts_with("fynexo://")
+            || super::security::is_safe_chrome_extension_url(&url)
             || lower.starts_with("about:")
             || lower.starts_with("blob:")
             || lower.starts_with("javascript:");
@@ -248,7 +261,7 @@ pub fn build_tab_webview(
                 .header("Content-Type", "text/html; charset=utf-8")
                 .header("Cache-Control", "no-store")
                 .body(std::borrow::Cow::from(html.into_bytes()))
-                .unwrap()
+                .unwrap_or_else(|_| wry::http::Response::new(std::borrow::Cow::Borrowed(&b""[..])))
         } else {
             let not_found = r##"<!DOCTYPE html>
 <html lang="en">
@@ -280,7 +293,7 @@ pub fn build_tab_webview(
                 .status(404)
                 .header("Content-Type", "text/html; charset=utf-8")
                 .body(std::borrow::Cow::from(not_found.as_bytes()))
-                .unwrap()
+                .unwrap_or_else(|_| wry::http::Response::new(std::borrow::Cow::Borrowed(&b""[..])))
         }
     });
 
@@ -292,7 +305,7 @@ pub fn build_tab_webview(
     let tab_id_for_ipc = Arc::clone(&bound_tab_id);
 
     let builder = builder
-        .with_devtools(true)
+        .with_devtools(allow_devtools)
         .with_initialization_script_for_main_only(&initial_script, true)
         .with_ipc_handler(move |req| {
             let tid = tab_id_for_ipc.load(Ordering::Acquire);
@@ -351,6 +364,103 @@ pub fn build_tab_webview(
         webview,
         bound_tab_id,
     })
+}
+
+pub fn build_extension_popup_webview(
+    window: &tao::window::Window,
+    web_context: &mut WebContext,
+    popup_url: &str,
+    app_state: &Arc<Mutex<AppState>>,
+    event_proxy: &EventLoopProxy<UserEvent>,
+    target_win_id: usize,
+) -> Result<wry::WebView, Box<dyn Error>> {
+    if !super::security::is_safe_chrome_extension_url(popup_url) {
+        return Err("Invalid chrome-extension popup URL".into());
+    }
+
+    #[cfg(target_os = "windows")]
+    let (boot_hw_accel, boot_chrome_ext);
+    let (incognito, resolved_ua, allow_devtools) = {
+        let st = app_state.lock_safe();
+        #[cfg(target_os = "windows")]
+        {
+            boot_hw_accel = st.boot_hw_accel;
+            boot_chrome_ext = st.boot_chrome_ext_enabled;
+        }
+        (
+            st.config.incognito,
+            st.config.resolved_user_agent(),
+            cfg!(debug_assertions) || st.config.allow_page_eval,
+        )
+    };
+
+    let mut builder = WebViewBuilder::new_with_web_context(web_context)
+        .with_background_color((24, 24, 27, 255))
+        .with_visible(true)
+        .with_incognito(incognito);
+
+    if let Some(ua) = resolved_ua {
+        builder = builder.with_user_agent(&ua);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let args = windows_browser_args(boot_hw_accel);
+        builder = builder
+            .with_additional_browser_args(&args)
+            .with_browser_extensions_enabled(boot_chrome_ext);
+    }
+
+    let proxy_for_nw = event_proxy.clone();
+    builder = builder.with_new_window_req_handler(move |url, _| {
+        if super::security::is_safe_external_http_url(&url)
+            || super::security::is_safe_chrome_extension_url(&url)
+        {
+            let _ = proxy_for_nw.send_event(UserEvent::OpenUrlInWindow {
+                win_id: target_win_id,
+                url,
+            });
+        }
+        wry::NewWindowResponse::Deny
+    });
+
+    builder = builder.with_navigation_handler(|url| {
+        super::security::is_safe_chrome_extension_url(&url)
+            || super::security::is_safe_external_http_url(&url)
+            || url == "about:blank"
+    });
+
+    let proxy_for_ipc = event_proxy.clone();
+    let esc_script = "window.addEventListener('keydown',function(e){if(e.key==='Escape'&&window.ipc){window.ipc.postMessage('{\"type\":\"CLOSE_CHROME_EXT_POPUP\"}');}},true);";
+    let builder = builder
+        .with_devtools(allow_devtools)
+        .with_initialization_script(esc_script)
+        .with_ipc_handler(move |req| {
+            let origin = req.uri().to_string();
+            if super::security::is_safe_chrome_extension_url(&origin) {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(req.body()) {
+                    if v.get("type").and_then(|t| t.as_str()) == Some("CLOSE_CHROME_EXT_POPUP") {
+                        let _ = proxy_for_ipc.send_event(UserEvent::CloseChromeExtPopup);
+                    }
+                }
+            }
+        })
+        .with_url(popup_url);
+
+    #[cfg(target_os = "windows")]
+    let webview = {
+        let sz = window.inner_size();
+        let wv = builder
+            .with_bounds(physical_bounds(sz.width, sz.height))
+            .build_as_child(window)?;
+        sync_webview_bounds(&wv, sz.width, sz.height);
+        wv
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let webview = builder.build(window)?;
+
+    Ok(webview)
 }
 
 #[cfg(target_os = "windows")]

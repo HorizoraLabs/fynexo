@@ -76,6 +76,28 @@ pub fn join_split_template(prefix: &str, middle: &str, suffix: &str) -> String {
     out
 }
 
+/// True when the configured UI language should render Chinese instead of English.
+#[inline]
+pub fn is_zh_lang(lang: &str) -> bool {
+    !lang.trim().eq_ignore_ascii_case("en")
+}
+
+/// Select localized Chinese or English text based on `zh`.
+#[inline]
+pub fn i18n<'a>(zh: bool, zh_text: &'a str, en_text: &'a str) -> &'a str {
+    if zh { zh_text } else { en_text }
+}
+
+/// Fast 64-bit FNV-1a hash for payload deduplication.
+pub fn fnv1a_hash64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
 struct PendingEntry {
     bytes: Vec<u8>,
     due: Instant,

@@ -35,4 +35,34 @@ pub enum UserEvent {
     RequestResourceUsage(usize),
     TrimWorkingSet(usize),
     SweepIdleTabs,
+    InstallChromeExtUnpacked {
+        entry: Box<crate::chrome_ext::ChromeExtensionEntry>,
+    },
+    ChromeExtRuntimeReady {
+        entry_id: String,
+        runtime_id: String,
+        enabled: bool,
+        error: Option<String>,
+    },
+    ChromeExtSynced(Vec<(String, String, bool)>),
+    ToggleChromeExt {
+        id: String,
+        enabled: bool,
+    },
+    RemoveChromeExt {
+        id: String,
+    },
+    OpenChromeExtPopup {
+        win_id: usize,
+        id: String,
+    },
+    OpenChromeExtOptions {
+        win_id: usize,
+        id: String,
+    },
+    CloseChromeExtPopup,
+    OpenUrlInWindow {
+        win_id: usize,
+        url: String,
+    },
 }

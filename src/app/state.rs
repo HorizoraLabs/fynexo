@@ -1,6 +1,7 @@
 use std::time::SystemTime;
 
 use crate::adblock::{self, AdblockConfig};
+use crate::chrome_ext::{self, ChromeExtensionEntry, HudChromeExtension};
 use crate::config::{
     data_dir_display, load_all_themes, now_unix_secs, themes_dir_display, themes_stamp, AppConfig,
     ComponentStyles, DownloadEntry, KeybindsConfig, RuntimePayload, SiteRule, SiteRulesStore,
@@ -15,6 +16,9 @@ pub struct AppState {
     pub site_rules: Vec<SiteRule>,
     pub adblock: AdblockConfig,
     pub keybinds: KeybindsConfig,
+    pub chrome_extensions: Vec<ChromeExtensionEntry>,
+    pub boot_hw_accel: bool,
+    pub boot_chrome_ext_enabled: bool,
     pub recent_downloads: Vec<DownloadEntry>,
     pub config_mtime: Option<SystemTime>,
     pub styles_mtime: Option<SystemTime>,
@@ -36,6 +40,10 @@ impl AppState {
         let adblock_cfg = AdblockConfig::load();
         adblock::sync_dynamic_lists(&adblock_cfg);
         let keybinds = KeybindsConfig::load();
+        let chrome_extensions = chrome_ext::load_registry();
+        let boot_hw_accel = config.hw_accel;
+        let boot_chrome_ext_enabled =
+            cfg!(target_os = "windows") && config.chrome_extensions_enabled;
 
         Self {
             config,
@@ -45,6 +53,9 @@ impl AppState {
             site_rules,
             adblock: adblock_cfg,
             keybinds,
+            chrome_extensions,
+            boot_hw_accel,
+            boot_chrome_ext_enabled,
             recent_downloads: Vec::new(),
             config_mtime: AppConfig::mtime(),
             styles_mtime: ComponentStyles::mtime(),
@@ -188,6 +199,8 @@ impl AppState {
             keybinds: self.keybinds.clone(),
             blocked_ads: adblock::blocked_count(),
             workspaces: crate::tabs::TabManager::list_workspaces(),
+            chrome_extensions: self.chrome_extensions.clone(),
+            chrome_ext_engine_active: self.boot_chrome_ext_enabled,
         }
     }
 
@@ -202,6 +215,11 @@ impl AppState {
             .unwrap_or_else(|| Self::default_theme_colors());
         let enabled_rules: Vec<&SiteRule> = self.site_rules.iter().filter(|r| r.enabled).collect();
         let history_slice = &self.userdata.history[..self.userdata.history.len().min(25)];
+        let chrome_extensions: Vec<HudChromeExtension> = self
+            .chrome_extensions
+            .iter()
+            .map(HudChromeExtension::from)
+            .collect();
         let slim = crate::config::HudBootPayload {
             config: &self.config,
             styles: &self.styles,
@@ -213,6 +231,8 @@ impl AppState {
             tabs,
             mode_themes: crate::config::collect_mode_themes(&self.config, &self.themes),
             downloads: &self.recent_downloads,
+            chrome_extensions,
+            chrome_ext_engine_active: self.boot_chrome_ext_enabled,
         };
         serde_json::to_string(&slim)
     }

@@ -25,6 +25,7 @@ use wry::WebContext;
 use wry::{MemoryUsageLevel, WebViewExtWindows};
 
 use crate::adblock;
+use crate::chrome_ext::{self, HudChromeExtension};
 use crate::config::data_dir;
 use crate::tabs::TabManager;
 use crate::util::LockExt;
@@ -36,7 +37,9 @@ use self::memory::get_process_tree_memory_with_roots;
 use self::scheduler::RevealScheduler;
 use self::tab_pool::TabPool;
 use self::url::to_webview_url;
-use self::webview::{build_tab_webview, TabLaunch};
+#[cfg(target_os = "windows")]
+use self::webview::sync_webview_bounds;
+use self::webview::{build_extension_popup_webview, build_tab_webview, TabLaunch};
 
 struct BrowserWindow {
     win_id: usize,
@@ -164,6 +167,19 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         &event_proxy,
     )?;
 
+    {
+        let st = app_state.lock_safe();
+        if st.boot_chrome_ext_enabled {
+            if let Some(wv) = primary_win.pool.visible_webview() {
+                chrome_ext::windows_bridge::sync_all_extensions(
+                    wv,
+                    st.chrome_extensions.clone(),
+                    event_proxy.clone(),
+                );
+            }
+        }
+    }
+
     let mut windows: HashMap<usize, BrowserWindow> = HashMap::new();
     let mut win_by_tao_id: HashMap<WindowId, usize> = HashMap::new();
     win_by_tao_id.insert(primary_win.window.id(), primary_win.win_id);
@@ -171,6 +187,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
     let mut next_win_id: usize = 2;
     let mut focused_win_id: usize = 1;
+    #[allow(clippy::type_complexity)]
+    let mut ext_popup: Option<(tao::window::Window, wry::WebView, String)> = None;
 
     let state_for_event = Arc::clone(&app_state);
     let event_proxy_for_run = event_proxy.clone();
@@ -219,6 +237,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             }
             Event::UserEvent(UserEvent::Navigate { win_id, url }) => {
                 if let Some(bw) = windows.get_mut(&win_id) {
+                    bw.pool.clear_runtime_hash(bw.active_tab_id);
                     let target = to_webview_url(&url);
                     #[cfg(debug_assertions)]
                     println!("[Navigation Request w{}]: {} -> {}", win_id, url, target);
@@ -319,6 +338,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         ),
                         serde_json::to_string(&tab_state),
                     ) {
+                        let rt_hash = crate::util::fnv1a_hash64(rt_json.as_bytes());
+                        bw.pool.should_push_runtime(tab_id, rt_hash);
                         let full_str = if is_full { "true" } else { "false" };
                         let muted_str = if is_tab_muted { "true" } else { "false" };
                         let mut script = format!(
@@ -353,19 +374,60 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             }
             Event::UserEvent(UserEvent::SyncConfig) => {
                 for bw in windows.values_mut() {
-                    let (active_url, vis_id) =
-                        (bw.tab_manager.lock_safe().active_url(), bw.pool.visible_id());
-                    if let Ok(json) = serialize_runtime_for_win(
-                        &state_for_event.lock_safe(),
-                        &active_url,
-                        bw.incognito_window,
-                    ) {
-                        let script = format!(
-                            "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
-                            json, bridge_tok_js
-                        );
-                        eval_on_active_and_visible(&bw.pool, bw.active_tab_id, vis_id, &script);
+                    let live_ids = bw.pool.live_ids();
+                    if live_ids.is_empty() {
+                        continue;
                     }
+                    let tab_urls: Vec<(usize, String)> = {
+                        let tm = bw.tab_manager.lock_safe();
+                        live_ids
+                            .into_iter()
+                            .map(|tid| (tid, tm.url_and_scroll_for(tid).0))
+                            .collect()
+                    };
+                    let st = state_for_event.lock_safe();
+                    let mut internal_payload: Option<(String, u64)> = None;
+                    let mut external_payload: Option<(String, u64)> = None;
+                    for (tid, tab_url) in tab_urls {
+                        let is_int = security::is_internal_origin(&tab_url);
+                        let cached = if is_int {
+                            if internal_payload.is_none() {
+                                if let Ok(json) = serialize_runtime_for_win(
+                                    &st,
+                                    "fynexo://settings",
+                                    bw.incognito_window,
+                                ) {
+                                    let h = crate::util::fnv1a_hash64(json.as_bytes());
+                                    internal_payload = Some((json, h));
+                                }
+                            }
+                            internal_payload.as_ref()
+                        } else {
+                            if external_payload.is_none() {
+                                if let Ok(json) = serialize_runtime_for_win(
+                                    &st,
+                                    "https://external.invalid/",
+                                    bw.incognito_window,
+                                ) {
+                                    let h = crate::util::fnv1a_hash64(json.as_bytes());
+                                    external_payload = Some((json, h));
+                                }
+                            }
+                            external_payload.as_ref()
+                        };
+                        if let Some((json, hash)) = cached {
+                            if bw.pool.should_push_runtime(tid, *hash) {
+                                if let Some(wv) = bw.pool.get_webview(tid) {
+                                    let script = format!(
+                                        "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
+                                        json, bridge_tok_js
+                                    );
+                                    let _ = wv.evaluate_script(&script);
+                                }
+                            }
+                        }
+                    }
+                    drop(st);
                     apply_pool_policy(bw, &state_for_event);
                 }
             }
@@ -467,7 +529,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 let (downloads_json, toast_msg) = {
                     let mut st = state_for_event.lock_safe();
                     st.record_download(name.clone(), status.clone());
-                    let zh = st.config.language.eq_ignore_ascii_case("zh");
+                    let zh = !st.config.language.trim().eq_ignore_ascii_case("en");
                     let msg = match status.as_str() {
                         "downloading" => {
                             if zh {
@@ -606,11 +668,12 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 if let Some(bw) = windows.get_mut(&win_id) {
                     bw.tab_manager.lock_safe().save();
                     crate::util::flush_pending_writes();
-                    let zh = state_for_event
+                    let zh = !state_for_event
                         .lock_safe()
                         .config
                         .language
-                        .eq_ignore_ascii_case("zh");
+                        .trim()
+                        .eq_ignore_ascii_case("en");
                     if unresponsive {
                         let msg = if zh {
                             "当前页面响应缓慢，正在恢复..."
@@ -716,7 +779,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             Event::UserEvent(UserEvent::Reload(win_id)) => {
-                if let Some(bw) = windows.get(&win_id) {
+                if let Some(bw) = windows.get_mut(&win_id) {
+                    bw.pool.clear_runtime_hash(bw.active_tab_id);
                     if let Some(fg) = bw.pool.get_webview(bw.active_tab_id) {
                         let _ = fg.reload();
                     }
@@ -724,21 +788,46 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             }
             Event::UserEvent(UserEvent::OpenDevtools(win_id)) => {
                 #[cfg(not(target_os = "android"))]
-                if let Some(bw) = windows.get(&win_id) {
-                    if let Some(fg) = bw.pool.get_webview(bw.active_tab_id) {
-                        fg.open_devtools();
+                {
+                    let (allow_eval, zh) = {
+                        let st = state_for_event.lock_safe();
+                        (
+                            cfg!(debug_assertions) || st.config.allow_page_eval,
+                            crate::util::is_zh_lang(&st.config.language),
+                        )
+                    };
+                    if !allow_eval {
+                        let _ = event_proxy_for_run.send_event(UserEvent::Toast(
+                            crate::util::i18n(
+                                zh,
+                                "安全保护：请先在「设置 -> 常规」开启「允许控制台 JS 执行与原生 DevTools」",
+                                "Protected: enable 'Allow Console JS Eval & Native DevTools' in Settings -> General first",
+                            )
+                            .to_string(),
+                        ));
+                    } else if let Some(bw) = windows.get(&win_id) {
+                        if let Some(fg) = bw.pool.get_webview(bw.active_tab_id) {
+                            fg.open_devtools();
+                        }
                     }
                 }
                 #[cfg(target_os = "android")]
                 {
                     let _ = win_id;
+                    let zh = crate::util::is_zh_lang(&state_for_event.lock_safe().config.language);
                     let _ = event_proxy_for_run.send_event(UserEvent::Toast(
-                        "Native DevTools only supported on Desktop".to_string(),
+                        crate::util::i18n(
+                            zh,
+                            "原生开发者工具仅支持桌面端",
+                            "Native DevTools only supported on Desktop",
+                        )
+                        .to_string(),
                     ));
                 }
             }
             Event::UserEvent(UserEvent::ReloadTab { win_id, id }) => {
-                if let Some(bw) = windows.get(&win_id) {
+                if let Some(bw) = windows.get_mut(&win_id) {
+                    bw.pool.clear_runtime_hash(id);
                     if let Some(wv) = bw.pool.get_webview(id) {
                         let _ = wv.reload();
                     } else if let Some(target_url) = bw.tab_manager.lock_safe().switch_tab(id) {
@@ -774,7 +863,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             Event::UserEvent(UserEvent::TrimWorkingSet(win_id)) => {
                 #[cfg(target_os = "windows")]
                 {
-                    let eff = state_for_event.lock_safe().config.efficiency_mode;
+                    let (eff, zh) = {
+                        let st = state_for_event.lock_safe();
+                        (
+                            st.config.efficiency_mode,
+                            !st.config.language.trim().eq_ignore_ascii_case("en"),
+                        )
+                    };
                     if eff {
                         for bw in windows.values() {
                             bw.pool.set_all_memory_low();
@@ -790,11 +885,18 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     let total_mb = stats_json["total_mb"].as_f64().unwrap_or(0.0);
                     if let Some(bw) = windows.get(&win_id) {
                         if let Some(vis) = bw.pool.visible_webview() {
-                            let script = format!(
-                                "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({}, {}); window.__fynexo_toast__ && window.__fynexo_toast__('Working set trimmed ({:.0} MB total)', {});",
-                                stats_json, bridge_tok_js, total_mb, bridge_tok_js
-                            );
-                            let _ = vis.evaluate_script(&script);
+                            let toast_txt = if zh {
+                                format!("内存已压缩清理（共 {:.0} MB）", total_mb)
+                            } else {
+                                format!("Working set trimmed ({:.0} MB total)", total_mb)
+                            };
+                            if let Ok(json_msg) = serde_json::to_string(&toast_txt) {
+                                let script = format!(
+                                    "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({}, {}); window.__fynexo_toast__ && window.__fynexo_toast__({}, {});",
+                                    stats_json, bridge_tok_js, json_msg, bridge_tok_js
+                                );
+                                let _ = vis.evaluate_script(&script);
+                            }
                         }
                     }
                 }
@@ -830,11 +932,371 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     let _ = (any_slept, auto_trim);
                 }
             }
+            Event::UserEvent(UserEvent::InstallChromeExtUnpacked { entry }) => {
+                let entry = *entry;
+                let (boot_en, is_zh, eid, dpath, des_en, name) = {
+                    let mut st = state_for_event.lock_safe();
+                    let en_boot = st.boot_chrome_ext_enabled;
+                    let zh = !st.config.language.trim().eq_ignore_ascii_case("en");
+                    if let Some(pos) = st.chrome_extensions.iter().position(|e| e.id == entry.id) {
+                        st.chrome_extensions[pos] = entry.clone();
+                    } else {
+                        st.chrome_extensions.insert(0, entry.clone());
+                    }
+                    chrome_ext::save_registry(&st.chrome_extensions);
+                    (
+                        en_boot,
+                        zh,
+                        entry.id.clone(),
+                        entry.dir_path.clone(),
+                        entry.enabled,
+                        entry.name.clone(),
+                    )
+                };
+                if boot_en {
+                    if let Some(wv) = target_visible_webview(&windows, focused_win_id) {
+                        chrome_ext::windows_bridge::add_extension(
+                            wv,
+                            eid,
+                            dpath,
+                            des_en,
+                            event_proxy_for_run.clone(),
+                        );
+                    }
+                } else {
+                    let msg = if is_zh {
+                        format!(
+                            "扩展「{}」已解包；开启 Chrome 扩展引擎并重启即可生效",
+                            name
+                        )
+                    } else {
+                        format!(
+                            "Unpacked '{}'; enable Chrome Extensions engine & restart to run",
+                            name
+                        )
+                    };
+                    let _ = event_proxy_for_run.send_event(UserEvent::Toast(msg));
+                }
+                let _ = event_proxy_for_run.send_event(UserEvent::SyncConfig);
+            }
+            Event::UserEvent(UserEvent::ChromeExtRuntimeReady {
+                entry_id,
+                runtime_id,
+                enabled,
+                error,
+            }) => {
+                if let Some(err) = error {
+                    let zh = !state_for_event
+                        .lock_safe()
+                        .config
+                        .language
+                        .trim()
+                        .eq_ignore_ascii_case("en");
+                    let _ = event_proxy_for_run.send_event(UserEvent::Toast(if zh {
+                        format!("扩展加载出错：{}", err)
+                    } else {
+                        format!("Extension load error: {}", err)
+                    }));
+                } else {
+                    let (ext_name, zh) = {
+                        let mut st = state_for_event.lock_safe();
+                        let zh = !st.config.language.trim().eq_ignore_ascii_case("en");
+                        let mut nm = entry_id.clone();
+                        if let Some(entry) =
+                            st.chrome_extensions.iter_mut().find(|e| e.id == entry_id)
+                        {
+                            if !runtime_id.is_empty() {
+                                entry.runtime_id = runtime_id;
+                            }
+                            entry.enabled = enabled;
+                            nm = entry.name.clone();
+                            chrome_ext::save_registry(&st.chrome_extensions);
+                        }
+                        (nm, zh)
+                    };
+                    if enabled {
+                        let msg = if zh {
+                            format!("已启用 Chrome 扩展：{}", ext_name)
+                        } else {
+                            format!("Chrome extension active: {}", ext_name)
+                        };
+                        let _ = event_proxy_for_run.send_event(UserEvent::Toast(msg));
+                    }
+                    let _ = event_proxy_for_run.send_event(UserEvent::SyncConfig);
+                }
+            }
+            Event::UserEvent(UserEvent::ChromeExtSynced(loaded)) => {
+                let mut changed = false;
+                {
+                    let mut st = state_for_event.lock_safe();
+                    for entry in st.chrome_extensions.iter_mut() {
+                        if let Some((rid, _, _)) = loaded.iter().find(|(rid, nm, _)| {
+                            (!entry.runtime_id.is_empty() && rid == &entry.runtime_id)
+                                || rid == &entry.id
+                                || nm.eq_ignore_ascii_case(&entry.name)
+                        }) {
+                            if entry.runtime_id != *rid {
+                                entry.runtime_id = rid.clone();
+                                changed = true;
+                            }
+                        }
+                    }
+                    if changed {
+                        chrome_ext::save_registry(&st.chrome_extensions);
+                    }
+                }
+                if changed {
+                    let _ = event_proxy_for_run.send_event(UserEvent::SyncConfig);
+                }
+            }
+            Event::UserEvent(UserEvent::ToggleChromeExt { id, enabled }) => {
+                let (boot_en, rid) = {
+                    let st = state_for_event.lock_safe();
+                    let rid = st
+                        .chrome_extensions
+                        .iter()
+                        .find(|e| e.id == id)
+                        .map(|e| e.runtime_id.clone())
+                        .unwrap_or_default();
+                    (st.boot_chrome_ext_enabled, rid)
+                };
+                if !enabled {
+                    if let Some((_, _, pid)) = &ext_popup {
+                        if pid == &id {
+                            ext_popup = None;
+                        }
+                    }
+                }
+                if boot_en {
+                    if let Some(wv) = target_visible_webview(&windows, focused_win_id) {
+                        chrome_ext::windows_bridge::set_extension_enabled(
+                            wv,
+                            id,
+                            rid,
+                            enabled,
+                            event_proxy_for_run.clone(),
+                        );
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::RemoveChromeExt { id }) => {
+                if let Some((_, _, pid)) = &ext_popup {
+                    if pid == &id {
+                        ext_popup = None;
+                    }
+                }
+                let removed = {
+                    let mut st = state_for_event.lock_safe();
+                    let opt = st
+                        .chrome_extensions
+                        .iter()
+                        .position(|e| e.id == id)
+                        .map(|pos| st.chrome_extensions.remove(pos));
+                    if opt.is_some() {
+                        chrome_ext::save_registry(&st.chrome_extensions);
+                    }
+                    (st.boot_chrome_ext_enabled, opt)
+                };
+                if let (boot_en, Some(entry)) = removed {
+                    chrome_ext::remove_extension_files(&entry);
+                    if boot_en {
+                        if let Some(wv) = target_visible_webview(&windows, focused_win_id) {
+                            chrome_ext::windows_bridge::remove_extension(
+                                wv,
+                                entry.id,
+                                entry.runtime_id,
+                                event_proxy_for_run.clone(),
+                            );
+                            return;
+                        }
+                    }
+                    let _ = event_proxy_for_run.send_event(UserEvent::SyncConfig);
+                }
+            }
+            Event::UserEvent(UserEvent::OpenChromeExtPopup { win_id, id }) => {
+                if let Some((_, _, open_id)) = &ext_popup {
+                    if open_id == &id {
+                        ext_popup = None;
+                        return;
+                    }
+                }
+                ext_popup = None;
+                let (boot_en, zh, found) = {
+                    let st = state_for_event.lock_safe();
+                    (
+                        st.boot_chrome_ext_enabled,
+                        !st.config.language.trim().eq_ignore_ascii_case("en"),
+                        st.chrome_extensions.iter().find(|e| e.id == id).cloned(),
+                    )
+                };
+                if !boot_en {
+                    let msg = if zh {
+                        "Chrome 扩展引擎未启用，请先在设置 -> 性能中启用并重启"
+                    } else {
+                        "Chrome Extensions engine is off — enable in Performance Settings and restart"
+                    };
+                    let _ = event_proxy_for_run.send_event(UserEvent::Toast(msg.to_string()));
+                    return;
+                }
+                if let Some(entry) = found {
+                    if !entry.enabled {
+                        let msg = if zh {
+                            format!("扩展「{}」已停用，请先启用", entry.name)
+                        } else {
+                            format!("Extension '{}' is disabled", entry.name)
+                        };
+                        let _ = event_proxy_for_run.send_event(UserEvent::Toast(msg));
+                        return;
+                    }
+                    let host_id = if !entry.runtime_id.is_empty() {
+                        entry.runtime_id.clone()
+                    } else {
+                        entry.id.clone()
+                    };
+                    if entry.popup_path.is_empty() {
+                        if !entry.options_path.is_empty() {
+                            let _ = event_proxy_for_run.send_event(UserEvent::OpenChromeExtOptions {
+                                win_id,
+                                id: entry.id,
+                            });
+                        } else {
+                            let msg = if zh {
+                                format!("「{}」在网页内直接生效，无独立弹窗", entry.name)
+                            } else {
+                                format!("'{}' runs automatically on pages (no popup UI)", entry.name)
+                            };
+                            let _ = event_proxy_for_run.send_event(UserEvent::Toast(msg));
+                        }
+                        return;
+                    }
+                    let popup_url = format!("chrome-extension://{}/{}", host_id, entry.popup_path);
+                    #[allow(unused_mut)]
+                    let mut p_builder = WindowBuilder::new()
+                        .with_title(&entry.name)
+                        .with_background_color((24, 24, 27, 255));
+                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                    {
+                        p_builder = p_builder
+                            .with_decorations(true)
+                            .with_resizable(true)
+                            .with_always_on_top(true)
+                            .with_inner_size(tao::dpi::LogicalSize::new(400.0, 560.0));
+                        if let Some(bw) = windows.get(&win_id).or_else(|| windows.get(&focused_win_id)) {
+                            if let Ok(pos) = bw.window.outer_position() {
+                                let sf = bw.window.scale_factor().max(1.0);
+                                let sz = bw.window.outer_size();
+                                let lx = (pos.x as f64 + sz.width as f64) / sf - 430.0;
+                                let ly = (pos.y as f64) / sf + 78.0;
+                                p_builder = p_builder.with_position(
+                                    tao::dpi::LogicalPosition::new(lx.max(20.0), ly.max(20.0)),
+                                );
+                            }
+                        }
+                    }
+                    match p_builder.build(event_loop_target) {
+                        Ok(p_win) => match build_extension_popup_webview(
+                            &p_win,
+                            &mut web_context,
+                            &popup_url,
+                            &state_for_event,
+                            &event_proxy_for_run,
+                            win_id,
+                        ) {
+                            Ok(p_wv) => {
+                                p_win.set_focus();
+                                ext_popup = Some((p_win, p_wv, entry.id));
+                            }
+                            Err(e) => {
+                                let _ = event_proxy_for_run.send_event(UserEvent::Toast(if zh {
+                                    format!("打开扩展弹窗失败：{}", e)
+                                } else {
+                                    format!("Failed opening popup: {}", e)
+                                }));
+                            }
+                        },
+                        Err(e) => {
+                            let _ = event_proxy_for_run.send_event(UserEvent::Toast(if zh {
+                                format!("创建扩展弹窗失败：{}", e)
+                            } else {
+                                format!("Popup window failed: {}", e)
+                            }));
+                        }
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::OpenChromeExtOptions { win_id, id }) => {
+                let (boot_en, found) = {
+                    let st = state_for_event.lock_safe();
+                    (
+                        st.boot_chrome_ext_enabled,
+                        st.chrome_extensions.iter().find(|e| e.id == id).cloned(),
+                    )
+                };
+                if !boot_en {
+                    return;
+                }
+                if let Some(entry) = found {
+                    let host_id = if !entry.runtime_id.is_empty() {
+                        entry.runtime_id
+                    } else {
+                        entry.id
+                    };
+                    let page = if !entry.options_path.is_empty() {
+                        entry.options_path
+                    } else {
+                        entry.popup_path
+                    };
+                    if page.is_empty() {
+                        return;
+                    }
+                    let target_url = format!("chrome-extension://{}/{}", host_id, page);
+                    if security::is_safe_chrome_extension_url(&target_url) {
+                        let _ = event_proxy_for_run.send_event(UserEvent::OpenUrlInWindow {
+                            win_id,
+                            url: target_url,
+                        });
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::CloseChromeExtPopup) => {
+                ext_popup = None;
+            }
+            Event::UserEvent(UserEvent::OpenUrlInWindow { win_id, url }) => {
+                let target_wid = if windows.contains_key(&win_id) {
+                    Some(win_id)
+                } else {
+                    windows.keys().next().copied()
+                };
+                if let Some(actual_wid) = target_wid {
+                    if let Some(bw) = windows.get_mut(&actual_wid) {
+                        let (new_id, nav_url) = bw.tab_manager.lock_safe().new_tab(&url);
+                        perform_switch_tab(
+                            bw,
+                            new_id,
+                            &nav_url,
+                            &mut web_context,
+                            &state_for_event,
+                            &reveal_scheduler,
+                            &bridge_tok_js,
+                        );
+                        let _ = event_proxy_for_run.send_event(UserEvent::SyncTabs(actual_wid));
+                    }
+                }
+            }
             Event::WindowEvent {
                 window_id,
                 event: WindowEvent::Resized(size),
                 ..
             } => {
+                if let Some((p_win, p_wv, _)) = &ext_popup {
+                    if p_win.id() == window_id {
+                        #[cfg(target_os = "windows")]
+                        sync_webview_bounds(p_wv, size.width, size.height);
+                        #[cfg(not(target_os = "windows"))]
+                        let _ = (p_wv, size);
+                        return;
+                    }
+                }
                 if let Some(&wid) = win_by_tao_id.get(&window_id) {
                     if let Some(bw) = windows.get_mut(&wid) {
                         if size.width == 0 && size.height == 0 {
@@ -933,6 +1395,12 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 event: WindowEvent::CloseRequested,
                 ..
             } => {
+                if let Some((p_win, _, _)) = &ext_popup {
+                    if p_win.id() == window_id {
+                        ext_popup = None;
+                        return;
+                    }
+                }
                 if let Some(&wid) = win_by_tao_id.get(&window_id) {
                     close_browser_window(
                         wid,
@@ -1293,6 +1761,11 @@ fn serialize_runtime_for_win(
         let enabled_rules: Vec<&crate::config::SiteRule> =
             state.site_rules.iter().filter(|r| r.enabled).collect();
         let history_slice = &state.userdata.history[..state.userdata.history.len().min(25)];
+        let chrome_extensions: Vec<HudChromeExtension> = state
+            .chrome_extensions
+            .iter()
+            .map(HudChromeExtension::from)
+            .collect();
         let slim = crate::config::HudBootPayload {
             config: &cfg,
             styles: &state.styles,
@@ -1304,6 +1777,8 @@ fn serialize_runtime_for_win(
             tabs: None,
             mode_themes: crate::config::collect_mode_themes(&cfg, &state.themes),
             downloads: &state.recent_downloads,
+            chrome_extensions,
+            chrome_ext_engine_active: state.boot_chrome_ext_enabled,
         };
         serde_json::to_string(&slim)
     } else {

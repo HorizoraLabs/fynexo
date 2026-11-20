@@ -58,6 +58,10 @@ pub struct RuntimePayload {
     pub blocked_ads: usize,
     #[serde(default)]
     pub workspaces: Vec<crate::tabs::WorkspaceSnapshot>,
+    #[serde(default)]
+    pub chrome_extensions: Vec<crate::chrome_ext::ChromeExtensionEntry>,
+    #[serde(default)]
+    pub chrome_ext_engine_active: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -84,6 +88,9 @@ pub struct HudBootPayload<'a> {
     pub mode_themes: std::collections::BTreeMap<String, &'a ThemeColors>,
     #[serde(skip_serializing_if = "<[DownloadEntry]>::is_empty")]
     pub downloads: &'a [DownloadEntry],
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub chrome_extensions: Vec<crate::chrome_ext::HudChromeExtension>,
+    pub chrome_ext_engine_active: bool,
 }
 
 pub fn collect_mode_themes<'a>(
@@ -107,6 +114,11 @@ impl<'a> HudBootPayload<'a> {
         let history_slice = &payload.history[..payload.history.len().min(25)];
         let enabled_rules: Vec<&SiteRule> = payload.site_rules.iter().filter(|r| r.enabled).collect();
         let mode_themes = collect_mode_themes(&payload.config, &payload.themes);
+        let chrome_extensions = payload
+            .chrome_extensions
+            .iter()
+            .map(crate::chrome_ext::HudChromeExtension::from)
+            .collect();
         Self {
             config: &payload.config,
             styles: &payload.styles,
@@ -118,6 +130,8 @@ impl<'a> HudBootPayload<'a> {
             tabs,
             mode_themes,
             downloads: &[],
+            chrome_extensions,
+            chrome_ext_engine_active: payload.chrome_ext_engine_active,
         }
     }
 }
