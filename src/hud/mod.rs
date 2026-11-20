@@ -47,6 +47,7 @@ mod tests {
             "__FNX_ICONS__",
             "__FNX_DEFAULTS__",
             "__FNX_BASE_CSS__",
+            "__FNX_SCRIPTFORGE__",
             "__FNX_EXTENSIONS__",
             "__FNX_INITIAL_JSON__",
             "__FNX_IPC_TOKEN__",

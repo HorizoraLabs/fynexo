@@ -1,5 +1,6 @@
 pub mod adblock;
 pub mod app;
+pub mod chrome_ext;
 pub mod config;
 pub mod hud;
 pub mod pages;
