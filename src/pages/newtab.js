@@ -295,7 +295,10 @@
             const clockEl = document.getElementById('ntClock');
             const dateSub = document.getElementById('ntDateSub');
             const d = new Date();
-            const longDate = d.toLocaleDateString(isZh() ? 'zh-CN' : 'en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+            const zh = isZh();
+            const wk = d.toLocaleDateString(zh ? 'zh-CN' : 'en-US', { weekday: zh ? 'short' : 'long' });
+            const md = d.toLocaleDateString(zh ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' });
+            const longDate = `${wk} · ${md}`;
 
             if (nt.show_clock === false) {
                 clockWrap.style.display = 'none';
@@ -325,18 +328,18 @@
 
             if (isDefaultDark) {
                 root.removeAttribute('data-theme-kind');
-                root.style.setProperty('--nt-bg', '#0B0B0E');
-                root.style.setProperty('--nt-surface', '#141418');
-                root.style.setProperty('--nt-elevated', '#1B1B21');
-                root.style.setProperty('--nt-hover', '#18181D');
-                root.style.setProperty('--nt-hairline', 'rgba(255, 255, 255, 0.06)');
-                root.style.setProperty('--nt-hairline-hover', 'rgba(255, 255, 255, 0.12)');
-                root.style.setProperty('--nt-top-highlight', 'rgba(255, 255, 255, 0.15)');
-                root.style.setProperty('--nt-fg', '#F4F4F5');
-                root.style.setProperty('--nt-dim', '#71717A');
-                root.style.setProperty('--nt-faint', '#52525B');
-                root.style.setProperty('--nt-accent', accent);
-                root.style.setProperty('--nt-accent-soft', `color-mix(in srgb, ${accent} 16%, transparent)`);
+                root.style.setProperty('--nt-bg', '#0B0C10');
+                root.style.setProperty('--nt-surface', '#171A24');
+                root.style.setProperty('--nt-elevated', '#1F2330');
+                root.style.setProperty('--nt-hover', '#1B1F2C');
+                root.style.setProperty('--nt-hairline', 'rgba(243, 244, 248, 0.08)');
+                root.style.setProperty('--nt-hairline-hover', 'rgba(243, 244, 248, 0.16)');
+                root.style.setProperty('--nt-top-highlight', 'rgba(243, 244, 248, 0.16)');
+                root.style.setProperty('--nt-fg', '#F3F4F8');
+                root.style.setProperty('--nt-dim', '#A6ADBE');
+                root.style.setProperty('--nt-faint', '#6E768A');
+                root.style.setProperty('--nt-accent', src.accent || '#7C86FF');
+                root.style.setProperty('--nt-accent-soft', `color-mix(in srgb, ${src.accent || '#7C86FF'} 16%, transparent)`);
             } else {
                 const bg = src.bg || '#0B0B0E';
                 const light = isLightHex(bg);

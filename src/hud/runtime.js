@@ -1130,19 +1130,19 @@
             ? styles.colors
             : activeTheme;
       return {
-         bg: src.bg || '#19191c',
-         panel: src.panel || '#29292e',
-         surface: src.surface || src.panel || '#212126',
-         elevated: src.elevated || '#35353c',
-         border: src.border || '#37373f',
-         borderHover: src.border_hover || src.borderHover || '#4b4b56',
-         fg: src.fg || '#f0f0f3',
-         secondary: src.secondary || '#c2c2cb',
-         muted: src.muted || '#8a8a95',
-         accent: src.accent || '#7a88f7',
-         accentBg: src.accent_bg || src.accentBg || '#262942',
-         hover: src.hover || '#33333a',
-         tabActive: src.tab_active || src.tabActive || '#29292e',
+         bg: src.bg || '#0b0c10',
+         panel: src.panel || '#12141c',
+         surface: src.surface || src.panel || '#171a24',
+         elevated: src.elevated || '#1f2330',
+         border: src.border || '#262b3a',
+         borderHover: src.border_hover || src.borderHover || '#384056',
+         fg: src.fg || '#f3f4f8',
+         secondary: src.secondary || '#a6adbe',
+         muted: src.muted || '#6e768a',
+         accent: src.accent || '#7c86ff',
+         accentBg: src.accent_bg || src.accentBg || '#1e2246',
+         hover: src.hover || '#1b1f2c',
+         tabActive: src.tab_active || src.tabActive || '#1d212e',
          tabInactive: src.tab_inactive || src.tabInactive || 'transparent',
       };
    }
@@ -1850,7 +1850,7 @@
                 height: ${tb.titlebar_height || '42px'};
                 padding: 0 0 0 10px;
                 background: var(--fnx-bg);
-                border-bottom: 1px solid color-mix(in srgb, var(--fnx-fg) 6%, transparent);
+                border-bottom: 1px solid color-mix(in srgb, var(--fnx-fg) 4%, transparent);
                 `
                 }
             }
@@ -1934,7 +1934,7 @@
                 height: 28px;
                 padding: 0 ${tb.padding_x || '8px'} 0 12px;
                 background: ${tb.background || 'var(--fnx-panel)'};
-                border-top: 1px solid rgba(128, 128, 128, 0.14);
+                border-top: none;
             }
 
             .fnx-icon-btn {
@@ -1972,9 +1972,10 @@
 
             .fnx-tab-item.active {
                 height: ${ts.height || (isDeck ? '30px' : '28px')};
-                border: 1px solid var(--fnx-border);
-                border-top-color: var(--fnx-border-hover);
-                background: var(--fnx-elevated);
+                border: 1px solid color-mix(in srgb, var(--fnx-border-hover) 68%, transparent);
+                border-top-color: color-mix(in srgb, var(--fnx-fg) 22%, var(--fnx-border-hover));
+                background: var(--fnx-tab-active, var(--fnx-elevated));
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
                 color: var(--fnx-fg);
                 z-index: 2;
             }

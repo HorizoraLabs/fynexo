@@ -1,20 +1,4 @@
         :root {
-            --fnx-bg: #0B0B0E;
-            --fnx-panel: #0E0E12;
-            --fnx-surface: #141418;
-            --fnx-elevated: #1B1B21;
-            --fnx-hover: #18181D;
-            --fnx-divider: rgba(255, 255, 255, 0.05);
-            --fnx-hairline: rgba(255, 255, 255, 0.08);
-            --fnx-hairline-hover: rgba(255, 255, 255, 0.14);
-            --fnx-btn-bg: rgba(255, 255, 255, 0.05);
-            --fnx-btn-bg-hover: rgba(255, 255, 255, 0.09);
-            --fnx-btn-top: rgba(255, 255, 255, 0.14);
-            --fnx-fg: #F4F4F5;
-            --fnx-secondary: #A1A1AA;
-            --fnx-muted: #71717A;
-            --fnx-faint: #52525B;
-            --fnx-accent: #7A88F7;
             --cfg-sidebar-w: 224px;
             --cfg-content-pad: 32px 36px 56px;
         }
@@ -29,9 +13,12 @@
             padding: 0;
             -webkit-font-smoothing: antialiased;
             -webkit-tap-highlight-color: transparent;
+        }
+        html.zero-fx *, html.zero-fx *::before, html.zero-fx *::after {
             box-shadow: none !important;
             text-shadow: none !important;
             backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
         }
 
         html, body {
@@ -40,7 +27,8 @@
             min-height: 100vh;
             background: var(--fnx-bg);
             color: var(--fnx-fg);
-            font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: var(--font-sans);
+            font-feature-settings: "cv02", "cv03", "cv04", "cv11";
             line-height: 1.48;
             overflow-x: hidden;
         }
@@ -51,7 +39,7 @@
         }
 
         code {
-            font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-family: var(--font-mono);
         }
 
         #__fynexo_settings_app__ {
@@ -64,9 +52,9 @@
             overflow: hidden;
         }
 
-        /* Cursor-style Ghost Sidebar */
+        /* Sculpted Studio Sidebar */
         .sidebar {
-            background: transparent;
+            background: color-mix(in srgb, var(--fnx-panel) 55%, var(--fnx-bg));
             border-right: 1px solid var(--fnx-divider);
             padding: 24px 14px 12px;
             display: flex;
@@ -122,12 +110,11 @@
         }
 
         .nav-group-label {
-            padding: 10px 10px 4px;
-            font-size: 10px;
+            padding: 12px 10px 4px;
+            font-size: var(--t-xs);
             font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--fnx-faint);
+            letter-spacing: 0;
+            color: var(--fnx-muted);
         }
         .nav-group-label:first-child {
             padding-top: 2px;
@@ -189,6 +176,7 @@
         }
         .nav-link.active {
             background: color-mix(in srgb, var(--fnx-fg) 7%, transparent);
+            box-shadow: inset 2px 0 0 var(--fnx-accent);
             color: var(--fnx-fg);
         }
         .nav-link.active svg {
@@ -280,11 +268,18 @@
         }
 
         .sec-header {
+            position: sticky;
+            top: 0;
+            z-index: 15;
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 20px;
+            padding-top: 4px;
             padding-bottom: 16px;
+            background: color-mix(in srgb, var(--fnx-bg) 86%, transparent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             border-bottom: 1px solid var(--fnx-divider);
         }
         .sec-header > div:first-child {
@@ -330,11 +325,10 @@
 
         /* Linear Left-Label + Right-Control Rows */
         .set-group-title {
-            font-size: 11px;
+            font-size: var(--t-xs);
             font-weight: 600;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            color: var(--fnx-faint);
+            letter-spacing: -0.005em;
+            color: var(--fnx-secondary);
             padding: 22px 0 6px;
         }
 
@@ -1268,6 +1262,161 @@
             min-height: 88px;
             max-height: 220px;
             opacity: 0.92;
+        }
+
+        /* Live Miniature Browser Preview in Component Studio */
+        .studio-live-preview {
+            margin: 14px 0 6px;
+            border-radius: var(--r-lg);
+            border: 1px solid var(--fnx-hairline-hover);
+            border-top-color: var(--fnx-btn-top);
+            background: var(--fnx-bg);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+            overflow: hidden;
+            user-select: none;
+        }
+        .mlp-chrome {
+            display: flex;
+            flex-direction: column;
+            background: var(--fnx-bg);
+            border-bottom: 1px solid var(--fnx-divider);
+        }
+        .mlp-chrome.is-glass .mlp-nav-bar {
+            background: color-mix(in srgb, var(--fnx-panel) 74%, transparent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .mlp-tab-strip {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 6px 10px;
+            background: var(--fnx-bg);
+        }
+        .mlp-chrome.is-compact .mlp-tab-strip,
+        .mlp-chrome.is-vertical .mlp-tab-strip {
+            display: none;
+        }
+        .mlp-tabs {
+            display: flex;
+            align-items: center;
+            gap: var(--mlp-tab-gap, 4px);
+        }
+        .mlp-tab {
+            height: var(--mlp-tab-h, 24px);
+            padding: 0 10px;
+            border-radius: var(--mlp-tab-r, 8px);
+            font-size: 11px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--fnx-secondary);
+            border: 1px solid transparent;
+        }
+        .mlp-tab.active {
+            background: var(--fnx-tab-active, var(--fnx-elevated));
+            border-color: color-mix(in srgb, var(--fnx-border-hover) 68%, transparent);
+            border-top-color: color-mix(in srgb, var(--fnx-fg) 22%, var(--fnx-border-hover));
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+            color: var(--fnx-fg);
+        }
+        .mlp-tab-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--fnx-accent);
+        }
+        .mlp-win-dots {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .mlp-win-dots span {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: color-mix(in srgb, var(--fnx-fg) 22%, transparent);
+        }
+        .mlp-nav-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 6px 10px;
+            background: var(--fnx-panel);
+        }
+        .mlp-nav-icons {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .mlp-nav-btn {
+            width: 18px;
+            height: 18px;
+            border-radius: 5px;
+            background: color-mix(in srgb, var(--fnx-fg) 7%, transparent);
+        }
+        .mlp-addr-bar {
+            flex: 0 1 240px;
+            height: 24px;
+            padding: 0 10px;
+            border-radius: var(--mlp-addr-r, 8px);
+            background: var(--fnx-surface);
+            border: 1px solid var(--fnx-border);
+            color: var(--fnx-secondary);
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .mlp-chrome.addr-left .mlp-addr-bar { margin-right: auto; }
+        .mlp-chrome.addr-right .mlp-addr-bar { margin-left: auto; }
+        .mlp-addr-lock {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #10B981;
+            flex-shrink: 0;
+        }
+        .mlp-body-stage {
+            display: flex;
+            align-items: stretch;
+            min-height: 54px;
+            background: radial-gradient(ellipse 60% 90% at 50% 0%, color-mix(in srgb, var(--fnx-accent) 10%, transparent), transparent);
+        }
+        .mlp-vert-sidebar {
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            width: 112px;
+            padding: 8px;
+            background: var(--fnx-bg);
+            border-right: 1px solid var(--fnx-divider);
+        }
+        .mlp-body-stage.is-vertical .mlp-vert-sidebar {
+            display: flex;
+        }
+        .mlp-stage-content {
+            flex: 1;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 11.5px;
+            color: var(--fnx-muted);
+        }
+        .mlp-stage-tag {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--fnx-accent) 16%, transparent);
+            border: 1px solid color-mix(in srgb, var(--fnx-accent) 36%, transparent);
+            color: var(--fnx-fg);
         }
 
         .toast {

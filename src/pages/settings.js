@@ -218,34 +218,36 @@
             if (isDefaultDark) {
                 return {
                     isDefaultDark: true,
-                    bg: '#0B0B0E',
-                    panel: '#0E0E12',
-                    surface: '#141418',
-                    elevated: '#1B1B21',
-                    border: 'rgba(255, 255, 255, 0.08)',
-                    borderHover: 'rgba(255, 255, 255, 0.14)',
-                    fg: '#F4F4F5',
-                    secondary: '#A1A1AA',
-                    muted: '#71717A',
-                    accent: src.accent || '#7A88F7',
-                    accentBg: '#1B1D36',
-                    hover: '#18181D'
+                    bg: '#0B0C10',
+                    panel: '#12141C',
+                    surface: '#171A24',
+                    elevated: '#1F2330',
+                    border: '#262B3A',
+                    borderHover: '#384056',
+                    fg: '#F3F4F8',
+                    secondary: '#A6ADBE',
+                    muted: '#6E768A',
+                    accent: src.accent || '#7C86FF',
+                    accentBg: '#1E2246',
+                    hover: '#1B1F2C',
+                    tabActive: '#1D212E'
                 };
             }
             return {
                 isDefaultDark: false,
-                bg: src.bg || '#0B0B0E',
-                panel: src.panel || '#0E0E12',
-                surface: src.surface || src.panel || '#141418',
-                elevated: src.elevated || '#1B1B21',
-                border: src.border || 'rgba(255, 255, 255, 0.08)',
-                borderHover: src.border_hover || src.borderHover || 'rgba(255, 255, 255, 0.14)',
-                fg: src.fg || '#F4F4F5',
-                secondary: src.secondary || '#A1A1AA',
-                muted: src.muted || '#71717A',
-                accent: src.accent || '#7A88F7',
-                accentBg: src.accent_bg || src.accentBg || '#1B1D36',
-                hover: src.hover || '#18181D'
+                bg: src.bg || '#0B0C10',
+                panel: src.panel || '#12141C',
+                surface: src.surface || src.panel || '#171A24',
+                elevated: src.elevated || '#1F2330',
+                border: src.border || 'rgba(243, 244, 248, 0.09)',
+                borderHover: src.border_hover || src.borderHover || 'rgba(243, 244, 248, 0.16)',
+                fg: src.fg || '#F3F4F8',
+                secondary: src.secondary || '#A6ADBE',
+                muted: src.muted || '#6E768A',
+                accent: src.accent || '#7C86FF',
+                accentBg: src.accent_bg || src.accentBg || '#1E2246',
+                hover: src.hover || '#1B1F2C',
+                tabActive: src.tab_active || src.tabActive || src.elevated || '#1D212E'
             };
         }
 
@@ -312,6 +314,7 @@
             const root = document.documentElement;
             const light = !t.isDefaultDark && isLightHex(t.bg);
 
+            root.classList.toggle('zero-fx', !!config.enforce_perf);
             if (light) root.setAttribute('data-theme-kind', 'light');
             else root.removeAttribute('data-theme-kind');
 
@@ -320,18 +323,19 @@
             root.style.setProperty('--fnx-surface', t.surface);
             root.style.setProperty('--fnx-elevated', t.elevated);
             root.style.setProperty('--fnx-hover', t.hover);
+            root.style.setProperty('--fnx-tab-active', t.tabActive || t.elevated);
             root.style.setProperty('--fnx-fg', t.fg);
             root.style.setProperty('--fnx-secondary', t.secondary);
             root.style.setProperty('--fnx-muted', t.muted);
             root.style.setProperty('--fnx-accent', t.accent);
 
             if (t.isDefaultDark) {
-                root.style.setProperty('--fnx-divider', 'rgba(255, 255, 255, 0.05)');
-                root.style.setProperty('--fnx-hairline', 'rgba(255, 255, 255, 0.08)');
-                root.style.setProperty('--fnx-hairline-hover', 'rgba(255, 255, 255, 0.14)');
-                root.style.setProperty('--fnx-btn-bg', 'rgba(255, 255, 255, 0.05)');
-                root.style.setProperty('--fnx-btn-bg-hover', 'rgba(255, 255, 255, 0.09)');
-                root.style.setProperty('--fnx-faint', '#52525B');
+                root.style.setProperty('--fnx-divider', 'rgba(243, 244, 248, 0.06)');
+                root.style.setProperty('--fnx-hairline', 'rgba(243, 244, 248, 0.09)');
+                root.style.setProperty('--fnx-hairline-hover', 'rgba(243, 244, 248, 0.16)');
+                root.style.setProperty('--fnx-btn-bg', 'rgba(243, 244, 248, 0.05)');
+                root.style.setProperty('--fnx-btn-bg-hover', 'rgba(243, 244, 248, 0.10)');
+                root.style.setProperty('--fnx-faint', '#4E566A');
             } else {
                 root.style.setProperty('--fnx-divider', `color-mix(in srgb, ${t.fg} ${light ? '8%' : '5%'}, transparent)`);
                 root.style.setProperty('--fnx-hairline', `color-mix(in srgb, ${t.fg} ${light ? '12%' : '8%'}, transparent)`);
@@ -361,6 +365,45 @@
             document.querySelectorAll('.theme-card').forEach(card => {
                 card.classList.toggle('active', !useCustom && card.dataset.theme === config.theme);
             });
+            if (typeof updateStudioLivePreview === 'function') updateStudioLivePreview();
+        }
+
+        function updateStudioLivePreview() {
+            const chromeEl = document.getElementById('mlpChrome');
+            const stageEl = document.getElementById('mlpBodyStage');
+            const capEl = document.getElementById('mlpStageCaption');
+            const badgeEl = document.getElementById('mlpStageBadge');
+            if (!chromeEl || !stageEl) return;
+            const tb = styles.topbar || {};
+            const ts = styles.tabs || {};
+            const ab = styles.address_bar || {};
+            const layout = (tb.layout || 'deck').toLowerCase();
+            const pos = (ab.position || 'center').toLowerCase();
+            const isGlass = String(tb.background || '').includes('transparent') || String(tb.custom_css || '').includes('backdrop-filter');
+
+            chromeEl.classList.toggle('is-compact', layout === 'compact');
+            chromeEl.classList.toggle('is-vertical', layout === 'vertical');
+            chromeEl.classList.toggle('is-glass', isGlass);
+            chromeEl.classList.toggle('addr-left', pos === 'left');
+            chromeEl.classList.toggle('addr-right', pos === 'right');
+            stageEl.classList.toggle('is-vertical', layout === 'vertical');
+
+            const box = document.getElementById('studioLivePreview');
+            if (box) {
+                box.style.setProperty('--mlp-tab-r', ts.border_radius || '8px');
+                box.style.setProperty('--mlp-tab-h', ts.height || '26px');
+                box.style.setProperty('--mlp-tab-gap', ts.gap || '4px');
+                box.style.setProperty('--mlp-addr-r', ab.border_radius || '8px');
+            }
+            const zh = isZh();
+            if (capEl) capEl.textContent = zh ? '组件外观实时预览' : 'Live Chrome Preview';
+            if (badgeEl) {
+                badgeEl.textContent = layout === 'vertical'
+                    ? (zh ? '左侧竖排边栏' : 'Sidebar')
+                    : layout === 'compact'
+                        ? (zh ? '极简单栏' : 'Compact')
+                        : (zh ? '经典双栏' : 'Deck');
+            }
         }
 
         function renderThemeGrid() {
@@ -2833,10 +2876,11 @@
                 else if (btn.dataset.subpane === 'pane-studio-json') btn.textContent = 'styles.json';
             });
             const uiPresetLabels = {
-                compact: ['极简紧凑', 'Compact (1-row)'],
-                deck: ['经典双栏', 'Deck (2-row)'],
-                pill: ['大圆角胶囊', 'Pill Capsule'],
-                vertical: ['左侧竖排边栏', 'Left Sidebar']
+                compact: ['极简紧凑 (Compact)', 'Compact (1-row)'],
+                deck: ['经典双栏 (Deck)', 'Deck (2-row)'],
+                pill: ['大圆角胶囊 (Pill)', 'Pill Capsule'],
+                vertical: ['左侧竖排边栏 (Sidebar)', 'Left Sidebar'],
+                glass: ['亚克力毛玻璃 (Glass)', 'Frosted Glass']
             };
             document.querySelectorAll('[data-ui-preset]').forEach((btn) => {
                 const pair = uiPresetLabels[btn.dataset.uiPreset];
@@ -3020,7 +3064,7 @@
 
             const nt = styles.newtab || {};
             document.getElementById('qsNtTitle').value = nt.title !== undefined ? nt.title : 'Fynexo';
-            document.getElementById('qsNtSub').value = nt.subtitle !== undefined ? nt.subtitle : 'Single-WebView studio browser · Zero-FX compositing';
+            document.getElementById('qsNtSub').value = nt.subtitle !== undefined ? nt.subtitle : 'Modular studio browser · Deeply customizable UI & workflows';
             document.getElementById('qsNtCols').value = String(Number(nt.shortcuts_columns) || 0);
             setSwitchState('qsNtClockToggle', nt.show_clock !== false);
             setSwitchState('qsNt24hToggle', nt.use_24h_clock !== false);
@@ -3040,6 +3084,7 @@
             setJsonStatus(false, isZh()
                 ? '就绪 — 可直接在右侧修改 JSON（Ctrl+S 生效）。'
                 : 'Ready — edit JSON directly (Ctrl+S to apply).');
+            if (typeof updateStudioLivePreview === 'function') updateStudioLivePreview();
             applySettingsLocalization();
         }
 

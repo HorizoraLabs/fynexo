@@ -85,6 +85,23 @@ for (const file of allSrcFiles) {
   }
 }
 
+const requiredTokensFile = path.join('src', 'hud', 'tokens.css');
+if (!fs.existsSync(requiredTokensFile)) {
+  console.error('MISSING_TOKENS_CSS:', requiredTokensFile);
+  process.exit(1);
+}
+const allowedScalePx = new Set(['0', '0px', '2px', '3px', '4px', '5px', '6px', '7px', '8px', '9px', '10px', '10.5px', '11px', '11.5px', '12px', '12.5px', '13px', '13.5px', '14px', '14.5px', '15px', '16px', '18px', '20px', '42px', '44px', '50%', '999px']);
+const cssTokenViolations = [];
+for (const cssFile of [path.join('src', 'hud', 'tokens.css')]) {
+  const txt = fs.readFileSync(cssFile, 'utf8');
+  for (const m of txt.matchAll(/(?:border-radius|font-size)\s*:\s*([^;]+);/g)) {
+    const val = m[1].trim();
+    if (!val.startsWith('var(') && !allowedScalePx.has(val)) {
+      cssTokenViolations.push(`${cssFile}: off-scale value ${val}`);
+    }
+  }
+}
+
 console.log('SYNTAX_CHECKED_JS=' + jsTargets.length);
 console.log('SCANNED_FILES=' + allSrcFiles.length);
 console.log('EMOJI_COUNT=' + emojiHits.length);
@@ -95,7 +112,9 @@ console.log('DUP_ID_COUNT=' + dupIdHits.length);
 dupIdHits.forEach((h) => console.error('DUP_ID:', h));
 console.log('UNAUDITED_DYNAMIC_CODE=' + dynamicEvalHits.length);
 dynamicEvalHits.forEach((h) => console.error('UNAUDITED_EVAL:', h));
+console.log('TOKEN_VIOLATIONS=' + cssTokenViolations.length);
+cssTokenViolations.forEach((v) => console.error('TOKEN_VIOLATION:', v));
 
-if (emojiHits.length || innerHtmlHits.length || dupIdHits.length || dynamicEvalHits.length) {
+if (emojiHits.length || innerHtmlHits.length || dupIdHits.length || dynamicEvalHits.length || cssTokenViolations.length) {
   process.exit(1);
 }

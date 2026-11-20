@@ -936,18 +936,50 @@ __FNX_SETTINGS_CSS__
 
                     <!-- Sub-pane A: Visual Linear Controls -->
                     <div class="sub-pane active" id="pane-studio-visual">
+                        <div class="studio-live-preview" id="studioLivePreview" aria-hidden="true">
+                            <div class="mlp-chrome" id="mlpChrome">
+                                <div class="mlp-tab-strip">
+                                    <div class="mlp-tabs">
+                                        <span class="mlp-tab active"><span class="mlp-tab-dot"></span>Fynexo Studio</span>
+                                        <span class="mlp-tab">GitHub</span>
+                                    </div>
+                                    <div class="mlp-win-dots"><span></span><span></span><span></span></div>
+                                </div>
+                                <div class="mlp-nav-bar">
+                                    <div class="mlp-nav-icons">
+                                        <span class="mlp-nav-btn"></span>
+                                        <span class="mlp-nav-btn"></span>
+                                    </div>
+                                    <div class="mlp-addr-bar"><span class="mlp-addr-lock"></span>fynexo.dev / studio</div>
+                                    <div class="mlp-nav-icons">
+                                        <span class="mlp-nav-btn"></span>
+                                        <span class="mlp-nav-btn"></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mlp-body-stage" id="mlpBodyStage">
+                                <div class="mlp-vert-sidebar">
+                                    <span class="mlp-tab active"><span class="mlp-tab-dot"></span>Studio</span>
+                                    <span class="mlp-tab">GitHub</span>
+                                </div>
+                                <div class="mlp-stage-content">
+                                    <span id="mlpStageCaption">Live Chrome Preview</span>
+                                    <span class="mlp-stage-tag" id="mlpStageBadge">Deck</span>
+                                </div>
+                            </div>
+                        </div>
                         <div class="set-group-title">Desktop Topbar &amp; Omnibox</div>
                         <div class="set-row">
                             <div class="set-meta">
-                                <div class="set-label">One-Click UI Style · 一键界面风格预设</div>
-                                <div class="set-hint">不懂像素参数也没关系，点一下即可套用整套界面比例与圆角风格。</div>
+                                <div class="set-label">One-click UI layout preset</div>
+                                <div class="set-hint">Apply complete chrome proportions and corner radii in one click.</div>
                             </div>
                             <div class="set-ctrl">
-                                <button type="button" class="action-btn compact" data-ui-preset="compact">极简紧凑 (Compact)</button>
-                                <button type="button" class="action-btn compact" data-ui-preset="deck">经典双栏 (Deck)</button>
-                                <button type="button" class="action-btn compact" data-ui-preset="pill">大圆角胶囊 (Pill)</button>
-                                <button type="button" class="action-btn compact" data-ui-preset="vertical">左侧竖排边栏 (Sidebar)</button>
-                                <button type="button" class="action-btn compact" data-ui-preset="glass">亚克力毛玻璃 (Glass)</button>
+                                <button type="button" class="action-btn compact" data-ui-preset="compact">Compact (1-row)</button>
+                                <button type="button" class="action-btn compact" data-ui-preset="deck">Deck (2-row)</button>
+                                <button type="button" class="action-btn compact" data-ui-preset="pill">Pill Capsule</button>
+                                <button type="button" class="action-btn compact" data-ui-preset="vertical">Left Sidebar</button>
+                                <button type="button" class="action-btn compact" data-ui-preset="glass">Frosted Glass</button>
                             </div>
                         </div>
                         <div class="set-row">
@@ -1126,12 +1158,12 @@ __FNX_SETTINGS_CSS__
                                     <button type="button" class="action-btn compact" id="btnNtWallpaperClear">Clear</button>
                                 </div>
                                 <div class="preset-row" style="justify-content: flex-start; width: 100%;">
-                                    <button type="button" class="preset-chip" data-wp="">默认无壁纸</button>
-                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #311042 100%)">深空极光</button>
-                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #082f49 0%, #0f172a 55%, #022c22 100%)">静谧深海</button>
-                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #2e1065 0%, #4c1d95 45%, #831843 100%)">暮光紫霞</button>
-                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #052e16 0%, #14532d 50%, #0f172a 100%)">森系暗绿</button>
-                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #431407 0%, #7c2d12 48%, #3b0764 100%)">暖阳落日</button>
+                                    <button type="button" class="preset-chip" data-wp="">None</button>
+                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #311042 100%)">Aurora Dark</button>
+                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #082f49 0%, #0f172a 55%, #022c22 100%)">Abyssal Ocean</button>
+                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #2e1065 0%, #4c1d95 45%, #831843 100%)">Twilight Dusk</button>
+                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #052e16 0%, #14532d 50%, #0f172a 100%)">Deep Forest</button>
+                                    <button type="button" class="preset-chip" data-wp="linear-gradient(135deg, #431407 0%, #7c2d12 48%, #3b0764 100%)">Warm Sunset</button>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 8px; width: 100%; font-size: 11.5px; color: var(--fnx-muted);">
                                     <span>Dim %</span>

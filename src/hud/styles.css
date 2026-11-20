@@ -2,7 +2,8 @@
                     box-sizing: border-box !important;
                     margin: 0;
                     padding: 0;
-                    font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    font-family: var(--font-sans);
+                    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
                     -webkit-font-smoothing: antialiased;
                     font-variant-numeric: tabular-nums;
                     -webkit-tap-highlight-color: transparent;
@@ -236,9 +237,10 @@
                 }
                 .fnx-tab-item.active {
                     font-weight: 550;
-                    background: var(--fnx-elevated);
-                    border-color: var(--fnx-border);
-                    border-top-color: var(--fnx-border-hover);
+                    background: var(--fnx-tab-active, var(--fnx-elevated));
+                    border-color: color-mix(in srgb, var(--fnx-border-hover) 68%, transparent);
+                    border-top-color: color-mix(in srgb, var(--fnx-fg) 22%, var(--fnx-border-hover));
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
                     color: var(--fnx-fg);
                 }
                 .fnx-tab-item:not(.active):hover {
@@ -589,7 +591,9 @@
                     position: fixed;
                     background: var(--fnx-panel);
                     border: 1px solid var(--fnx-border-hover);
-                    border-radius: 10px;
+                    border-top-color: color-mix(in srgb, var(--fnx-fg) 18%, var(--fnx-border-hover));
+                    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+                    border-radius: var(--r-lg);
                     overflow: hidden;
                     display: flex;
                     flex-direction: column;
@@ -606,7 +610,9 @@
                     padding: 4px;
                     background: var(--fnx-panel);
                     border: 1px solid var(--fnx-border-hover);
-                    border-radius: 10px;
+                    border-top-color: color-mix(in srgb, var(--fnx-fg) 18%, var(--fnx-border-hover));
+                    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+                    border-radius: var(--r-lg);
                     font-size: 12.5px;
                     user-select: none;
                     display: none;
@@ -624,7 +630,9 @@
                     overscroll-behavior: contain;
                     background: var(--fnx-panel);
                     border: 1px solid var(--fnx-border-hover);
-                    border-radius: 10px;
+                    border-top-color: color-mix(in srgb, var(--fnx-fg) 18%, var(--fnx-border-hover));
+                    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+                    border-radius: var(--r-lg);
                     font-size: 12.5px;
                     user-select: none;
                     display: none;

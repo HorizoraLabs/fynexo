@@ -1,18 +1,3 @@
-        :root {
-            --nt-bg: #0B0B0E;
-            --nt-surface: #141418;
-            --nt-elevated: #1B1B21;
-            --nt-hover: #18181D;
-            --nt-hairline: rgba(255, 255, 255, 0.06);
-            --nt-hairline-hover: rgba(255, 255, 255, 0.12);
-            --nt-top-highlight: rgba(255, 255, 255, 0.15);
-            --nt-fg: #F4F4F5;
-            --nt-dim: #71717A;
-            --nt-faint: #52525B;
-            --nt-accent: #7A88F7;
-            --nt-accent-soft: rgba(122, 136, 247, 0.14);
-        }
-
         html[data-theme-kind="light"] {
             --nt-top-highlight: rgba(255, 255, 255, 0.9);
         }
@@ -36,7 +21,8 @@
             min-height: 100vh;
             background-color: var(--nt-bg);
             color: var(--nt-fg);
-            font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: var(--font-sans);
+            font-feature-settings: "cv02", "cv03", "cv04", "cv11";
             line-height: 1.45;
             overflow-x: hidden;
         }
@@ -244,16 +230,17 @@
         .nt-search-box {
             position: relative;
             width: 100%;
-            min-height: 52px;
+            min-height: 54px;
             display: flex;
             align-items: center;
             gap: 10px;
             padding: 8px 10px 8px 10px;
-            background: var(--nt-surface);
-            border: 1px solid var(--nt-hairline);
+            background: color-mix(in srgb, var(--nt-elevated) 72%, var(--nt-surface));
+            border: 1px solid var(--nt-hairline-hover);
             border-top-color: var(--nt-top-highlight);
-            border-radius: 14px;
-            transition: border-color 0.15s ease, background 0.15s ease;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+            border-radius: var(--r-xl);
+            transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
         }
         .nt-search-box:hover {
             border-color: var(--nt-hairline-hover);
@@ -646,11 +633,10 @@
         }
 
         .nt-sec-label {
-            font-size: 11px;
-            font-weight: 500;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
-            color: var(--nt-faint);
+            font-size: var(--t-xs);
+            font-weight: 600;
+            letter-spacing: -0.005em;
+            color: var(--nt-dim);
         }
 
         .nt-mini-btn {
@@ -730,16 +716,17 @@
             padding: 0 12px;
             background: var(--nt-surface);
             border: 1px solid var(--nt-hairline);
-            border-top-color: rgba(255, 255, 255, 0.10);
-            border-radius: 10px;
+            border-top-color: rgba(243, 244, 248, 0.10);
+            border-radius: var(--r-md);
             cursor: pointer;
             text-align: left;
             min-width: 0;
-            transition: border-color 0.12s ease, background 0.12s ease;
+            transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
         }
         .bm-card:hover {
             border-color: var(--nt-hairline-hover);
             background: var(--nt-elevated);
+            transform: translateY(-1px);
         }
 
         .bm-card--empty {
@@ -855,15 +842,14 @@
             color: var(--nt-fg);
         }
 
-        /* Structured Studio List for Recent History */
+        /* Structured Studio List for Recent History (Tier 3: quietest surface) */
         .hist-list {
             display: flex;
             flex-direction: column;
             gap: 2px;
-            background: color-mix(in srgb, var(--nt-surface) 60%, transparent);
+            background: color-mix(in srgb, var(--nt-surface) 45%, transparent);
             border: 1px solid var(--nt-hairline);
-            border-top-color: rgba(255, 255, 255, 0.09);
-            border-radius: 12px;
+            border-radius: var(--r-lg);
             padding: 4px;
         }
 

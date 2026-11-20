@@ -32,19 +32,19 @@ pub struct ThemeColors {
 impl Default for ThemeColors {
     fn default() -> Self {
         Self {
-            bg: "#19191c".to_string(),
-            panel: "#29292e".to_string(),
-            surface: "#212126".to_string(),
-            elevated: "#35353c".to_string(),
-            border: "#37373f".to_string(),
-            border_hover: "#4b4b56".to_string(),
-            fg: "#f0f0f3".to_string(),
-            secondary: "#c2c2cb".to_string(),
-            muted: "#8a8a95".to_string(),
-            accent: "#7a88f7".to_string(),
-            accent_bg: "#262942".to_string(),
-            hover: "#33333a".to_string(),
-            tab_active: "#29292e".to_string(),
+            bg: "#0b0c10".to_string(),
+            panel: "#12141c".to_string(),
+            surface: "#171a24".to_string(),
+            elevated: "#1f2330".to_string(),
+            border: "#262b3a".to_string(),
+            border_hover: "#384056".to_string(),
+            fg: "#f3f4f8".to_string(),
+            secondary: "#a6adbe".to_string(),
+            muted: "#6e768a".to_string(),
+            accent: "#7c86ff".to_string(),
+            accent_bg: "#1e2246".to_string(),
+            hover: "#1b1f2c".to_string(),
+            tab_active: "#1d212e".to_string(),
             tab_inactive: "transparent".to_string(),
         }
     }
@@ -70,7 +70,7 @@ impl Default for ThemePreset {
             id: "dark".to_string(),
             name: "Obsidian".to_string(),
             author: "Fynexo".to_string(),
-            description: "Layered warm-charcoal studio deck".to_string(),
+            description: "Obsidian titanium deck & luminous iris accents".to_string(),
             builtin: true,
             colors: ThemeColors::default(),
         }
@@ -381,6 +381,13 @@ pub fn load_all_themes() -> Vec<ThemePreset> {
                         if preset.id.is_empty() {
                             preset.id = clean_stem;
                         }
+                    }
+                    if preset.id == "dark"
+                        && preset.colors.bg.eq_ignore_ascii_case("#19191c")
+                        && preset.colors.panel.eq_ignore_ascii_case("#29292e")
+                    {
+                        preset = ThemePreset::default();
+                        let _ = save_theme_preset(&preset);
                     }
                     if !list.iter().any(|existing| existing.id == preset.id) {
                         list.push(preset);

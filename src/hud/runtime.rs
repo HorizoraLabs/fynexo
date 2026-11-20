@@ -7,6 +7,7 @@ const HUD_RUNTIME_TEMPLATE: &str = include_str!("runtime.js");
 const ICONS_SCRIPT: &str = include_str!("icons.js");
 const SCRIPTFORGE_SCRIPT: &str = include_str!("scriptforge.js");
 const EXTENSIONS_SCRIPT: &str = include_str!("extensions.js");
+const BASE_TOKENS_CSS: &str = include_str!("tokens.css");
 const BASE_STYLES_CSS: &str = include_str!("styles.css");
 const INITIAL_JSON_PLACEHOLDER: &str = "__FNX_INITIAL_JSON__";
 
@@ -16,8 +17,9 @@ const INITIAL_JSON_PLACEHOLDER: &str = "__FNX_INITIAL_JSON__";
 pub fn baked_template_parts() -> &'static (String, String) {
     static BAKED: OnceLock<(String, String)> = OnceLock::new();
     BAKED.get_or_init(|| {
+        let combined_css = format!("{}\n{}", BASE_TOKENS_CSS, BASE_STYLES_CSS);
         let base_css_json =
-            serde_json::to_string(BASE_STYLES_CSS).unwrap_or_else(|_| "\"\"".to_string());
+            serde_json::to_string(&combined_css).unwrap_or_else(|_| "\"\"".to_string());
         let mobile_flag = if cfg!(any(target_os = "android", target_os = "ios")) {
             "true"
         } else {
