@@ -34,6 +34,7 @@
          let ytAdSkipperActive = false;
          let ytStopTeardown = null;
          function syncYouTubeAdSkipper() {
+            if (IS_HUD_SHELL) return;
             if (!config.ext_yt_ad_skipper) {
                if (ytStopTeardown) {
                   ytStopTeardown();
@@ -48,26 +49,28 @@
                if (!host.includes('youtube.com')) return;
                ytAdSkipperActive = true;
 
-               if (!patchYoutubeDrawers()) {
-                  let dTries = 0;
-                  const drawerTimer = setInterval(() => {
-                     if (patchYoutubeDrawers() || ++dTries > 30)
-                        clearInterval(drawerTimer);
-                  }, 250);
+               if (!IS_CONTENT_TAB) {
+                  if (!patchYoutubeDrawers()) {
+                     let dTries = 0;
+                     const drawerTimer = setInterval(() => {
+                        if (patchYoutubeDrawers() || ++dTries > 30)
+                           clearInterval(drawerTimer);
+                     }, 250);
+                  }
+                  document.addEventListener(
+                     'DOMContentLoaded',
+                     patchYoutubeDrawers,
+                     { once: true },
+                  );
+                  window.addEventListener('load', patchYoutubeDrawers, {
+                     once: true,
+                  });
+                  window.addEventListener(
+                     'yt-navigate-finish',
+                     () => setTimeout(patchYoutubeDrawers, 120),
+                     { passive: true },
+                  );
                }
-               document.addEventListener(
-                  'DOMContentLoaded',
-                  patchYoutubeDrawers,
-                  { once: true },
-               );
-               window.addEventListener('load', patchYoutubeDrawers, {
-                  once: true,
-               });
-               window.addEventListener(
-                  'yt-navigate-finish',
-                  () => setTimeout(patchYoutubeDrawers, 120),
-                  { passive: true },
-               );
 
                let savedRate = 1.0;
                let playerEl = null;
@@ -186,6 +189,7 @@
          let ghHarmonizerActive = false;
          let ghStopTeardown = null;
          function syncGithubDrawerHarmonizer() {
+            if (IS_HUD_SHELL || IS_CONTENT_TAB) return;
             if (!config.ext_gh_harmonizer) {
                if (ghStopTeardown) {
                   ghStopTeardown();
@@ -493,6 +497,7 @@
          let mouseGesturesActive = false;
          let gestureStopTeardown = null;
          function syncMouseGestures() {
+            if (IS_HUD_SHELL) return;
             const wantActive =
                !isMobilePlatform() && config.ext_mouse_gestures !== false;
             if (!wantActive) {

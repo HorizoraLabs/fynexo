@@ -12,7 +12,7 @@ use crate::config::{
 use crate::tabs::TabManager;
 use crate::util::LockExt;
 
-use super::events::UserEvent;
+use super::events::{HudInsetLogical, HudRegionRectLogical, UserEvent};
 use super::state::AppState;
 use super::url::normalize_logical_url;
 
@@ -53,6 +53,9 @@ pub fn handle_ipc_message(
             });
         }
         Some("TAB_PAINT_READY") => {
+            if source_tab_id == 0 {
+                return;
+            }
             let _ = proxy.send_event(UserEvent::TabPaintReady {
                 win_id: source_win_id,
                 tab_id: source_tab_id,
@@ -96,8 +99,13 @@ pub fn handle_ipc_message(
                 }
                 let is_active_source = {
                     let mut tm = tab_manager.lock_safe();
-                    tm.update_tab_info(source_tab_id, None, Some(&formatted_url));
-                    tm.active_id == source_tab_id
+                    let target_tid = if source_tab_id == 0 {
+                        tm.active_id
+                    } else {
+                        source_tab_id
+                    };
+                    tm.update_tab_info(target_tid, None, Some(&formatted_url));
+                    tm.active_id == target_tid
                 };
                 if is_active_source {
                     adblock::set_active_page_url(&formatted_url);
@@ -170,7 +178,13 @@ pub fn handle_ipc_message(
                 let target_tid = val["id"]
                     .as_u64()
                     .map(|n| n as usize)
-                    .unwrap_or(source_tab_id);
+                    .unwrap_or_else(|| {
+                        if source_tab_id == 0 {
+                            tab_manager.lock_safe().active_id
+                        } else {
+                            source_tab_id
+                        }
+                    });
                 let (tab_url, tab_incog, can_close) = {
                     let tm = tab_manager.lock_safe();
                     let url = tm.url_and_scroll_for(target_tid).0;
@@ -549,6 +563,9 @@ pub fn handle_ipc_message(
             }
         }
         Some("UPDATE_TAB_TITLE") => {
+            if source_tab_id == 0 {
+                return;
+            }
             let title = val["title"].as_str();
             let norm_url = val["url"].as_str().map(normalize_logical_url);
             if matches!(norm_url.as_deref(), Some("about:blank") | Some("")) {
@@ -581,6 +598,9 @@ pub fn handle_ipc_message(
             }
         }
         Some("UPDATE_TAB_MEDIA_STATE") => {
+            if source_tab_id == 0 {
+                return;
+            }
             if let Some(playing) = val["playing"].as_bool() {
                 if tab_manager
                     .lock_safe()
@@ -591,6 +611,9 @@ pub fn handle_ipc_message(
             }
         }
         Some("SAVE_SCROLL") => {
+            if source_tab_id == 0 {
+                return;
+            }
             if let Some(scroll_y) = val["scroll_y"].as_f64() {
                 let mut tm = tab_manager.lock_safe();
                 if tm.update_tab_scroll(source_tab_id, scroll_y) {
@@ -1842,9 +1865,14 @@ pub fn handle_ipc_message(
             let _ = proxy.send_event(UserEvent::GoForward(source_win_id));
         }
         Some("SYNC_NAV_STATE") => {
+            let tid = if source_tab_id == 0 {
+                tab_manager.lock_safe().active_id
+            } else {
+                source_tab_id
+            };
             let _ = proxy.send_event(UserEvent::SyncNavState {
                 win_id: source_win_id,
-                tab_id: source_tab_id,
+                tab_id: tid,
             });
         }
         Some("RELOAD") => {
@@ -2113,6 +2141,76 @@ pub fn handle_ipc_message(
         Some("OPEN_CHROME_EXT_DIR") => {
             #[cfg(target_os = "windows")]
             adblock::open_folder_in_explorer(&crate::chrome_ext::chrome_extensions_dir());
+        }
+        Some("SYNC_HUD_LAYOUT") => {
+            let ci = &val["content_inset"];
+            let inset = HudInsetLogical {
+                top: ci["top"].as_f64().unwrap_or(0.0).clamp(0.0, 2000.0),
+                left: ci["left"].as_f64().unwrap_or(0.0).clamp(0.0, 2000.0),
+                right: ci["right"].as_f64().unwrap_or(0.0).clamp(0.0, 2000.0),
+                bottom: ci["bottom"].as_f64().unwrap_or(0.0).clamp(0.0, 2000.0),
+            };
+            let mut regions = Vec::new();
+            if let Some(arr) = val["regions"].as_array() {
+                for item in arr.iter().take(32) {
+                    let w = item["w"].as_f64().unwrap_or(0.0);
+                    let h = item["h"].as_f64().unwrap_or(0.0);
+                    if w > 0.5 && h > 0.5 && w.is_finite() && h.is_finite() {
+                        regions.push(HudRegionRectLogical {
+                            x: item["x"].as_f64().unwrap_or(0.0),
+                            y: item["y"].as_f64().unwrap_or(0.0),
+                            w,
+                            h,
+                            r: item["r"].as_f64().unwrap_or(0.0).max(0.0),
+                        });
+                    }
+                }
+            }
+            let has_overlay = val["has_overlay"].as_bool().unwrap_or(false);
+            let _ = proxy.send_event(UserEvent::SyncHudLayout {
+                win_id: source_win_id,
+                inset,
+                regions,
+                has_overlay,
+            });
+        }
+        Some("CONTENT_ACTION") => {
+            if let Some(action) = val["action"].as_str() {
+                let trimmed = action.trim();
+                if !trimmed.is_empty() && trimmed.len() <= 64 {
+                    let _ = proxy.send_event(UserEvent::ContentAction {
+                        win_id: source_win_id,
+                        action: trimmed.to_string(),
+                        payload: val.get("payload").cloned().unwrap_or(serde_json::Value::Null),
+                    });
+                }
+            }
+        }
+        Some("HUD_ACTION") => {
+            if let Some(action) = val["action"].as_str() {
+                let trimmed = action.trim();
+                if !trimmed.is_empty() && trimmed.len() <= 64 {
+                    let _ = proxy.send_event(UserEvent::HudAction {
+                        win_id: source_win_id,
+                        action: trimmed.to_string(),
+                    });
+                }
+            }
+        }
+        Some("CONTENT_POINTER_DOWN") => {
+            let _ = proxy.send_event(UserEvent::ContentPointerDown {
+                win_id: source_win_id,
+            });
+        }
+        Some("CONTENT_PAGE_META") => {
+            if source_tab_id == 0 {
+                return;
+            }
+            let _ = proxy.send_event(UserEvent::ContentPageMeta {
+                win_id: source_win_id,
+                tab_id: source_tab_id,
+                meta: val.get("meta").cloned().unwrap_or(serde_json::Value::Null),
+            });
         }
         _ => {}
     }

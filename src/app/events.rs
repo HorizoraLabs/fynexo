@@ -1,5 +1,45 @@
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct HudInsetLogical {
+    pub top: f64,
+    pub left: f64,
+    pub right: f64,
+    pub bottom: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HudRegionRectLogical {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub r: f64,
+}
+
 #[derive(Debug, Clone)]
 pub enum UserEvent {
+    SyncHudLayout {
+        win_id: usize,
+        inset: HudInsetLogical,
+        regions: Vec<HudRegionRectLogical>,
+        has_overlay: bool,
+    },
+    ContentAction {
+        win_id: usize,
+        action: String,
+        payload: serde_json::Value,
+    },
+    HudAction {
+        win_id: usize,
+        action: String,
+    },
+    ContentPointerDown {
+        win_id: usize,
+    },
+    ContentPageMeta {
+        win_id: usize,
+        tab_id: usize,
+        meta: serde_json::Value,
+    },
     NewWindow { url: Option<String>, incognito: bool },
     Navigate { win_id: usize, url: String },
     SwitchTab { win_id: usize, id: usize, url: String },
@@ -12,6 +52,7 @@ pub enum UserEvent {
     SyncNavState { win_id: usize, tab_id: usize },
     SyncConfig,
     SyncTabs(usize),
+    PageStarted { win_id: usize, tab_id: usize },
     PageFinished { win_id: usize, tab_id: usize, url: String },
     DownloadUpdate { name: String, status: String },
     Toast(String),

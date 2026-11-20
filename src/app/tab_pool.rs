@@ -7,30 +7,38 @@ use wry::{MemoryUsageLevel, WebViewExtWindows};
 
 use crate::tabs::TabItem;
 
-use super::webview::TabWebView;
+use super::webview::{ContentBounds, TabWebView};
 #[cfg(target_os = "windows")]
-use super::webview::{enable_clip_siblings, sync_webview_bounds};
+use super::webview::{
+    bring_hud_to_top, enable_clip_siblings, place_behind_hud, sync_webview_bounds_rect,
+};
 
 const PAUSE_MEDIA_JS: &str =
     "document.querySelectorAll('video, audio').forEach(el => { try { el.pause(); } catch(_) {} });";
 
 #[cfg(target_os = "windows")]
 #[inline]
-fn bring_webview_to_front(webview: &wry::WebView) {
+fn bring_webview_below_hud(webview: &wry::WebView, hud_wv: Option<&wry::WebView>) {
     use windows::Win32::UI::WindowsAndMessaging::{
         SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     };
-    let hwnd = webview.hwnd();
-    unsafe {
-        let _ = SetWindowPos(
-            hwnd,
-            Some(HWND_TOP),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-        );
+    if let Some(hud) = hud_wv {
+        enable_clip_siblings(hud);
+        bring_hud_to_top(hud);
+        place_behind_hud(webview, hud);
+    } else {
+        let hwnd = webview.hwnd();
+        unsafe {
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_TOP),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+        }
     }
 }
 
@@ -167,39 +175,39 @@ impl TabPool {
 
     /// Shows `id` behind the currently visible WebView (without focus or visual bleed) so WebView2
     /// can composite its first frame before swapping to the foreground.
-    pub fn prepare_pending_behind(&self, id: usize, win_size: (u32, u32)) {
+    pub fn prepare_pending_behind(&self, id: usize, bounds: ContentBounds) {
         #[cfg(target_os = "windows")]
         {
             if let (Some(pending_tv), Some(vis_wv)) =
                 (self.live_webviews.get(&id), self.visible_webview())
             {
                 let _ = pending_tv.webview.set_memory_usage_level(MemoryUsageLevel::Normal);
-                sync_webview_bounds(&pending_tv.webview, win_size.0, win_size.1);
+                sync_webview_bounds_rect(&pending_tv.webview, bounds);
                 place_behind_visible(&pending_tv.webview, vis_wv);
             }
         }
         #[cfg(not(target_os = "windows"))]
-        let _ = (id, win_size);
+        let _ = (id, bounds);
     }
 
-    pub fn resize_all(&self, width: u32, height: u32) {
+    pub fn resize_all(&self, bounds: ContentBounds) {
         #[cfg(target_os = "windows")]
         {
             // Only resize the visible and pending-reveal WebViews immediately so drag-resizing
             // never forces hidden background renderers to relayout; cached tabs sync on reveal.
             if let Some(vis) = self.visible_webview() {
-                sync_webview_bounds(vis, width, height);
+                sync_webview_bounds_rect(vis, bounds);
             }
             if let Some((pid, _)) = self.pending_reveal {
                 if self.visible_tab_id != Some(pid) {
                     if let Some(pending_tv) = self.live_webviews.get(&pid) {
-                        sync_webview_bounds(&pending_tv.webview, width, height);
+                        sync_webview_bounds_rect(&pending_tv.webview, bounds);
                     }
                 }
             }
         }
         #[cfg(not(target_os = "windows"))]
-        let _ = (width, height);
+        let _ = bounds;
     }
 
     pub fn notify_parent_moved(&self) {
@@ -261,9 +269,16 @@ impl TabPool {
         }
     }
 
-    /// Shows `id`'s WebView in front before hiding the previously visible WebView,
-    /// avoiding any empty/black intermediate frame.
-    pub fn reveal_tab(&mut self, id: usize, win_size: (u32, u32), bridge_tok_js: &str) {
+    /// Shows `id`'s WebView immediately behind `hud_wv` before hiding the previously visible
+    /// WebView, avoiding any empty/black intermediate frame.
+    pub fn reveal_tab(
+        &mut self,
+        id: usize,
+        bounds: ContentBounds,
+        hud_wv: Option<&wry::WebView>,
+        focus_tab: bool,
+        bridge_tok_js: &str,
+    ) {
         if !self.live_webviews.contains_key(&id) {
             return;
         }
@@ -278,8 +293,8 @@ impl TabPool {
                 use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
                 let _ = next_tv.webview.set_memory_usage_level(MemoryUsageLevel::Normal);
                 enable_clip_siblings(&next_tv.webview);
-                sync_webview_bounds(&next_tv.webview, win_size.0, win_size.1);
-                bring_webview_to_front(&next_tv.webview);
+                sync_webview_bounds_rect(&next_tv.webview, bounds);
+                bring_webview_below_hud(&next_tv.webview, hud_wv);
                 if unsafe { IsWindowVisible(next_tv.webview.hwnd()).as_bool() } {
                     unsafe {
                         let _ = next_tv.webview.controller().SetIsVisible(true);
@@ -290,10 +305,12 @@ impl TabPool {
             }
             #[cfg(not(target_os = "windows"))]
             {
-                let _ = win_size;
+                let _ = (bounds, hud_wv);
                 let _ = next_tv.webview.set_visible(true);
             }
-            let _ = next_tv.webview.focus();
+            if focus_tab {
+                let _ = next_tv.webview.focus();
+            }
         }
         if let Some(prev_id) = self.visible_tab_id {
             if prev_id != id {

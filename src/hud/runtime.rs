@@ -11,6 +11,40 @@ const BASE_TOKENS_CSS: &str = include_str!("tokens.css");
 const BASE_STYLES_CSS: &str = include_str!("styles.css");
 const INITIAL_JSON_PLACEHOLDER: &str = "__FNX_INITIAL_JSON__";
 
+/// HUD runtime role determining whether this WebView hosts only chrome (`HudShell`),
+/// only page content (`ContentTab`), or legacy single-WebView chrome+content (`Embedded`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HudRole {
+    Embedded,
+    HudShell,
+    ContentTab,
+}
+
+impl HudRole {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Embedded => "embedded",
+            Self::HudShell => "hud",
+            Self::ContentTab => "content",
+        }
+    }
+}
+
+pub fn hud_shell_html() -> &'static str {
+    concat!(
+        "<!DOCTYPE html>",
+        "<html lang=\"en\" data-fynexo-hud-shell=\"1\">",
+        "<head>",
+        "<meta charset=\"utf-8\">",
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
+        "<title>Fynexo HUD</title>",
+        "<style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:transparent!important;user-select:none;}</style>",
+        "</head>",
+        "<body></body>",
+        "</html>"
+    )
+}
+
 /// Pre-baked static HUD prefix and suffix split around `__FNX_INITIAL_JSON__`.
 /// Built once per process so creating new tabs avoids re-serializing CSS and
 /// re-scanning the entire runtime script.

@@ -164,6 +164,7 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
     matches!(
         cmd,
         "BOOT_SYNC"
+            | "TAB_PAINT_READY"
             | "NAVIGATE"
             | "NEW_TAB"
             | "NEW_WINDOW"
@@ -206,6 +207,9 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
             | "SYNC_NAV_STATE"
             | "RELOAD"
             | "OPEN_DEVTOOLS"
+            | "HUD_ACTION"
+            | "CONTENT_POINTER_DOWN"
+            | "CONTENT_PAGE_META"
     )
 }
 
@@ -337,6 +341,7 @@ pub fn resolve_internal_route(host: &str, path: &str) -> Option<&'static str> {
     match key.as_str() {
         "settings" => Some("settings"),
         "" | "newtab" => Some("newtab"),
+        "hud" => Some("hud"),
         _ => None,
     }
 }
@@ -497,5 +502,7 @@ mod tests {
         assert_eq!(resolve_internal_route("settings-x", "/"), None);
         assert_eq!(resolve_internal_route("localhost", "/a/settings"), None);
         assert_eq!(resolve_internal_route("fynexo.localhost", "/settingsfoo"), None);
+        assert_eq!(resolve_internal_route("fynexo.localhost", "/hud"), Some("hud"));
+        assert!(!is_safe_navigation_target("fynexo://hud"));
     }
 }

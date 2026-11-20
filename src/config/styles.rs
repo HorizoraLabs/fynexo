@@ -398,6 +398,10 @@ impl ComponentStyles {
                         styles.colors = ColorStyles::default();
                         migrated = true;
                     }
+                    if styles.newtab.subtitle == "Single-WebView studio browser · Zero-FX compositing" {
+                        styles.newtab.subtitle = NewtabStyles::default().subtitle;
+                        migrated = true;
+                    }
                     if migrated {
                         styles.save();
                     }

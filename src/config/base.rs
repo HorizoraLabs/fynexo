@@ -10,6 +10,8 @@ static DATA_DIR_CACHE: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn data_dir() -> &'static Path {
     DATA_DIR_CACHE.get_or_init(|| {
+        #[cfg(test)]
+        crate::util::isolate_data_dir();
         if let Some(override_dir) = std::env::var_os("FYNEXO_DATA_DIR") {
             let p = PathBuf::from(override_dir);
             if fs::create_dir_all(&p).is_ok() {

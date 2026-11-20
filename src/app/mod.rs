@@ -30,6 +30,7 @@ use crate::config::data_dir;
 use crate::tabs::TabManager;
 use crate::util::LockExt;
 
+use self::events::{HudInsetLogical, HudRegionRectLogical};
 #[cfg(target_os = "windows")]
 use self::memory::{force_empty_working_set, get_process_tree_memory_with_roots};
 #[cfg(not(target_os = "windows"))]
@@ -38,18 +39,124 @@ use self::scheduler::RevealScheduler;
 use self::tab_pool::TabPool;
 use self::url::to_webview_url;
 #[cfg(target_os = "windows")]
-use self::webview::sync_webview_bounds;
-use self::webview::{build_extension_popup_webview, build_tab_webview, TabLaunch};
+use self::webview::{
+    bring_hud_to_top, build_hud_webview, apply_hud_window_region, estimate_initial_regions,
+    is_hud_taking_focus, logical_regions_to_physical, place_behind_hud, sync_webview_bounds,
+};
+use self::webview::{
+    build_extension_popup_webview, build_tab_webview, compute_content_bounds,
+    effective_zoom_for_url, estimate_initial_inset, ContentBounds, TabLaunch,
+};
 
 struct BrowserWindow {
     win_id: usize,
     window: tao::window::Window,
+    #[cfg(target_os = "windows")]
+    hud_webview: wry::WebView,
+    #[cfg(target_os = "windows")]
+    hud_inset: HudInsetLogical,
+    #[cfg(target_os = "windows")]
+    hud_regions_logical: Vec<HudRegionRectLogical>,
+    #[cfg(target_os = "windows")]
+    hud_has_overlay: bool,
+    #[cfg(target_os = "windows")]
+    hud_layout_synced: bool,
+    #[cfg(target_os = "windows")]
+    content_bounds: ContentBounds,
     incognito_window: bool,
     tab_manager: Arc<Mutex<TabManager>>,
     pool: TabPool,
     active_tab_id: usize,
     was_minimized: bool,
     last_maximize_time: std::time::Instant,
+}
+
+impl BrowserWindow {
+    #[inline]
+    fn hud_opt(&self) -> Option<&wry::WebView> {
+        #[cfg(target_os = "windows")]
+        {
+            Some(&self.hud_webview)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            None
+        }
+    }
+
+    #[inline]
+    fn content_bounds_val(&self) -> ContentBounds {
+        #[cfg(target_os = "windows")]
+        {
+            self.content_bounds
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            ContentBounds::default()
+        }
+    }
+
+    #[inline]
+    fn should_focus_content(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            !self.hud_has_overlay
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            true
+        }
+    }
+
+    fn eval_hud(&self, script: &str) {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = self.hud_webview.evaluate_script(script);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            eval_on_active_and_visible(&self.pool, self.active_tab_id, self.pool.visible_id(), script);
+        }
+    }
+
+    fn eval_hud_and_tabs(&self, script: &str) {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = self.hud_webview.evaluate_script(script);
+        }
+        eval_on_active_and_visible(&self.pool, self.active_tab_id, self.pool.visible_id(), script);
+    }
+
+    #[cfg(target_os = "windows")]
+    fn recompute_dual_layout(&mut self) {
+        let sz = self.window.inner_size();
+        if sz.width == 0 || sz.height == 0 {
+            return;
+        }
+        let sf = self.window.scale_factor().max(0.1);
+        self.content_bounds = compute_content_bounds(sz.width, sz.height, sf, self.hud_inset);
+        if !self.hud_layout_synced {
+            self.hud_regions_logical = estimate_initial_regions(
+                self.hud_inset,
+                sz.width as f64 / sf,
+                sz.height as f64 / sf,
+            );
+        }
+        sync_webview_bounds(&self.hud_webview, sz.width, sz.height);
+        let phys = logical_regions_to_physical(
+            &self.hud_regions_logical,
+            sz.width,
+            sz.height,
+            sf,
+            self.content_bounds,
+        );
+        apply_hud_window_region(&self.hud_webview, &phys);
+        bring_hud_to_top(&self.hud_webview);
+        if let Some(vis) = self.pool.visible_webview() {
+            place_behind_hud(vis, &self.hud_webview);
+        }
+        self.pool.resize_all(self.content_bounds);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -118,6 +225,27 @@ fn spawn_browser_window(
     };
     adblock::set_active_page_url(&active_logical);
 
+    let init_inset = {
+        let mut st = app_state.lock_safe();
+        let _ = st.reload_if_changed();
+        estimate_initial_inset(&st, &active_logical, false)
+    };
+    let win_size = window.inner_size();
+    let sf = window.scale_factor().max(0.1);
+    let init_content_bounds = compute_content_bounds(win_size.width, win_size.height, sf, init_inset);
+
+    #[cfg(target_os = "windows")]
+    let (hud_webview, hud_regions_logical) = build_hud_webview(
+        &window,
+        web_context,
+        win_id,
+        incognito_window,
+        init_inset,
+        app_state,
+        &tab_manager,
+        event_proxy,
+    )?;
+
     let initial_webview = build_tab_webview(
         &window,
         web_context,
@@ -126,11 +254,18 @@ fn spawn_browser_window(
             tab_id: initial_active_id,
             url: &active_logical,
             visible: true,
+            init_bounds: init_content_bounds,
         },
         app_state,
         &tab_manager,
         event_proxy,
     )?;
+
+    #[cfg(target_os = "windows")]
+    {
+        place_behind_hud(&initial_webview.webview, &hud_webview);
+        bring_hud_to_top(&hud_webview);
+    }
 
     let pool = TabPool::new(initial_active_id, initial_webview);
     if let Some(wv) = pool.get_webview(initial_active_id) {
@@ -140,6 +275,18 @@ fn spawn_browser_window(
     Ok(BrowserWindow {
         win_id,
         window,
+        #[cfg(target_os = "windows")]
+        hud_webview,
+        #[cfg(target_os = "windows")]
+        hud_inset: init_inset,
+        #[cfg(target_os = "windows")]
+        hud_regions_logical,
+        #[cfg(target_os = "windows")]
+        hud_has_overlay: false,
+        #[cfg(target_os = "windows")]
+        hud_layout_synced: false,
+        #[cfg(target_os = "windows")]
+        content_bounds: init_content_bounds,
         incognito_window,
         tab_manager,
         pool,
@@ -201,6 +348,101 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
         match event {
             Event::NewEvents(StartCause::Init) => (),
+            Event::UserEvent(UserEvent::SyncHudLayout {
+                win_id,
+                inset,
+                regions,
+                has_overlay,
+            }) => {
+                #[cfg(target_os = "windows")]
+                if let Some(bw) = windows.get_mut(&win_id) {
+                    bw.hud_inset = inset;
+                    bw.hud_regions_logical = regions;
+                    bw.hud_has_overlay = has_overlay;
+                    bw.hud_layout_synced = true;
+                    bw.recompute_dual_layout();
+                }
+                #[cfg(not(target_os = "windows"))]
+                let _ = (win_id, inset, regions, has_overlay);
+            }
+            Event::UserEvent(UserEvent::ContentAction {
+                win_id,
+                action,
+                payload,
+            }) => {
+                if let Some(bw) = windows.get(&win_id) {
+                    if let Some(wv) = bw.pool.active_or_visible_webview(bw.active_tab_id) {
+                        if action == "focus_content" {
+                            let _ = wv.focus();
+                        } else {
+                            if matches!(
+                                action.as_str(),
+                                "open_find" | "start_element_picker" | "toggle_dev_drawer"
+                            ) {
+                                let _ = wv.focus();
+                            }
+                            if let (Ok(act_json), Ok(pay_json)) = (
+                                serde_json::to_string(&action),
+                                serde_json::to_string(&payload),
+                            ) {
+                                let script = format!(
+                                    "window.__fynexo_content_action__ && window.__fynexo_content_action__({}, {}, {});",
+                                    act_json, pay_json, bridge_tok_js
+                                );
+                                let _ = wv.evaluate_script(&script);
+                            }
+                        }
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::HudAction { win_id, action }) => {
+                if let Some(bw) = windows.get(&win_id) {
+                    #[cfg(target_os = "windows")]
+                    if matches!(
+                        action.as_str(),
+                        "open_omnibox" | "open_command_palette" | "toggle_side_panel"
+                    ) {
+                        let _ = bw.hud_webview.focus();
+                    }
+                    if let Ok(act_json) = serde_json::to_string(&action) {
+                        let script = format!(
+                            "window.__fynexo_hud_action__ && window.__fynexo_hud_action__({}, {});",
+                            act_json, bridge_tok_js
+                        );
+                        bw.eval_hud(&script);
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::ContentPointerDown { win_id }) => {
+                #[cfg(target_os = "windows")]
+                if let Some(bw) = windows.get(&win_id) {
+                    if bw.hud_has_overlay {
+                        let script = format!(
+                            "window.__fynexo_hud_action__ && window.__fynexo_hud_action__(\"dismiss_overlays\", {});",
+                            bridge_tok_js
+                        );
+                        let _ = bw.hud_webview.evaluate_script(&script);
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                let _ = win_id;
+            }
+            Event::UserEvent(UserEvent::ContentPageMeta { win_id, tab_id, meta }) => {
+                #[cfg(target_os = "windows")]
+                if let Some(bw) = windows.get(&win_id) {
+                    if bw.active_tab_id == tab_id {
+                        if let Ok(meta_json) = serde_json::to_string(&meta) {
+                            let script = format!(
+                                "window.__fynexo_set_page_meta__ && window.__fynexo_set_page_meta__({}, {});",
+                                meta_json, bridge_tok_js
+                            );
+                            let _ = bw.hud_webview.evaluate_script(&script);
+                        }
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                let _ = (win_id, tab_id, meta);
+            }
             Event::UserEvent(UserEvent::NewWindow { url, incognito }) => {
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 {
@@ -239,13 +481,20 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 if let Some(bw) = windows.get_mut(&win_id) {
                     bw.pool.clear_runtime_hash(bw.active_tab_id);
                     let target = to_webview_url(&url);
+                    let zoom_factor = effective_zoom_for_url(&state_for_event.lock_safe(), &url);
                     #[cfg(debug_assertions)]
                     println!("[Navigation Request w{}]: {} -> {}", win_id, url, target);
+                    let prog_js = format!(
+                        "window.__fynexo_trigger_progress__ && window.__fynexo_trigger_progress__({});",
+                        bridge_tok_js
+                    );
+                    bw.eval_hud(&prog_js);
                     if let Some(fg) = bw.pool.get_webview(bw.active_tab_id) {
                         #[cfg(target_os = "windows")]
                         {
                             let _ = fg.set_memory_usage_level(MemoryUsageLevel::Normal);
                         }
+                        let _ = fg.zoom(zoom_factor);
                         let _ = fg.load_url(&target);
                     }
                 }
@@ -323,61 +572,85 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             }
             Event::UserEvent(UserEvent::BootSync { win_id, tab_id }) => {
                 if let Some(bw) = windows.get_mut(&win_id) {
+                    let target_tid = if tab_id == 0 { bw.active_tab_id } else { tab_id };
                     let (tab_state, tab_url, scroll_y, keep_bg, is_tab_muted) = {
                         let tm = bw.tab_manager.lock_safe();
-                        let (u, sy) = tm.url_and_scroll_for(tab_id);
-                        let (bg, muted) = tm.tab_meta(tab_id).unwrap_or((false, false));
+                        let (u, sy) = tm.url_and_scroll_for(target_tid);
+                        let (bg, muted) = tm.tab_meta(target_tid).unwrap_or((false, false));
                         (tm.get_state(), u, sy, bg, muted)
                     };
                     let is_full = bw.window.fullscreen().is_some();
+                    let runtime_url = if tab_id == 0 {
+                        "fynexo://settings"
+                    } else {
+                        tab_url.as_str()
+                    };
                     if let (Ok(rt_json), Ok(tabs_json)) = (
                         serialize_runtime_for_win(
                             &state_for_event.lock_safe(),
-                            &tab_url,
+                            runtime_url,
                             bw.incognito_window,
                         ),
                         serde_json::to_string(&tab_state),
                     ) {
-                        let rt_hash = crate::util::fnv1a_hash64(rt_json.as_bytes());
-                        bw.pool.should_push_runtime(tab_id, rt_hash);
                         let full_str = if is_full { "true" } else { "false" };
                         let muted_str = if is_tab_muted { "true" } else { "false" };
                         let mut script = format!(
                             "window.__fynexo_boot_sync__ && window.__fynexo_boot_sync__({}, {}, {}); window.__fynexo_set_fullscreen__ && window.__fynexo_set_fullscreen__({}, {}); window.__fnx_set_tab_muted__ && window.__fnx_set_tab_muted__({}, {});",
                             rt_json, tabs_json, bridge_tok_js, full_str, bridge_tok_js, muted_str, bridge_tok_js
                         );
-                        if scroll_y > 24.0 {
-                            script.push_str(&format!(
-                                " window.__fynexo_restore_scroll__ && window.__fynexo_restore_scroll__({}, {});",
-                                scroll_y, bridge_tok_js
-                            ));
-                        }
-                        if let Some(wv) = bw.pool.get_webview(tab_id) {
-                            set_webview_os_muted(wv, is_tab_muted);
-                            script.push(' ');
-                            script.push_str(&nav_state_js(wv, &bridge_tok_js));
-                            let _ = wv.evaluate_script(&script);
-                        }
-                        if tab_id != bw.active_tab_id {
-                            bw.pool.park_inactive(tab_id, keep_bg, &bridge_tok_js);
+                        if tab_id == 0 {
+                            #[cfg(target_os = "windows")]
+                            {
+                                if let Some(fg) = bw.pool.active_or_visible_webview(bw.active_tab_id) {
+                                    script.push(' ');
+                                    script.push_str(&nav_state_js(fg, &bridge_tok_js));
+                                }
+                                let _ = bw.hud_webview.evaluate_script(&script);
+                            }
+                        } else {
+                            let rt_hash = crate::util::fnv1a_hash64(rt_json.as_bytes());
+                            bw.pool.should_push_runtime(tab_id, rt_hash);
+                            if scroll_y > 24.0 {
+                                script.push_str(&format!(
+                                    " window.__fynexo_restore_scroll__ && window.__fynexo_restore_scroll__({}, {});",
+                                    scroll_y, bridge_tok_js
+                                ));
+                            }
+                            if let Some(wv) = bw.pool.get_webview(tab_id) {
+                                set_webview_os_muted(wv, is_tab_muted);
+                                let nav_js = nav_state_js(wv, &bridge_tok_js);
+                                script.push(' ');
+                                script.push_str(&nav_js);
+                                let _ = wv.evaluate_script(&script);
+                                #[cfg(target_os = "windows")]
+                                if tab_id == bw.active_tab_id {
+                                    let _ = bw.hud_webview.evaluate_script(&nav_js);
+                                }
+                            }
+                            if tab_id != bw.active_tab_id {
+                                bw.pool.park_inactive(tab_id, keep_bg, &bridge_tok_js);
+                            }
                         }
                     }
                 }
             }
             Event::UserEvent(UserEvent::SyncNavState { win_id, tab_id }) => {
                 if let Some(bw) = windows.get(&win_id) {
-                    if let Some(wv) = bw.pool.get_webview(tab_id) {
+                    let target_tid = if tab_id == 0 { bw.active_tab_id } else { tab_id };
+                    if let Some(wv) = bw.pool.get_webview(target_tid) {
                         let script = nav_state_js(wv, &bridge_tok_js);
                         let _ = wv.evaluate_script(&script);
+                        #[cfg(target_os = "windows")]
+                        if target_tid == bw.active_tab_id {
+                            let _ = bw.hud_webview.evaluate_script(&script);
+                        }
                     }
                 }
             }
             Event::UserEvent(UserEvent::SyncConfig) => {
                 for bw in windows.values_mut() {
                     let live_ids = bw.pool.live_ids();
-                    if live_ids.is_empty() {
-                        continue;
-                    }
                     let tab_urls: Vec<(usize, String)> = {
                         let tm = bw.tab_manager.lock_safe();
                         live_ids
@@ -388,19 +661,27 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     let st = state_for_event.lock_safe();
                     let mut internal_payload: Option<(String, u64)> = None;
                     let mut external_payload: Option<(String, u64)> = None;
+                    if let Ok(hud_json) =
+                        serialize_runtime_for_win(&st, "fynexo://settings", bw.incognito_window)
+                    {
+                        let h = crate::util::fnv1a_hash64(hud_json.as_bytes());
+                        internal_payload = Some((hud_json.clone(), h));
+                        #[cfg(target_os = "windows")]
+                        {
+                            let hud_script = format!(
+                                "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
+                                hud_json, bridge_tok_js
+                            );
+                            let _ = bw.hud_webview.evaluate_script(&hud_script);
+                        }
+                    }
                     for (tid, tab_url) in tab_urls {
+                        let z = effective_zoom_for_url(&st, &tab_url);
+                        if let Some(wv) = bw.pool.get_webview(tid) {
+                            let _ = wv.zoom(z);
+                        }
                         let is_int = security::is_internal_origin(&tab_url);
                         let cached = if is_int {
-                            if internal_payload.is_none() {
-                                if let Ok(json) = serialize_runtime_for_win(
-                                    &st,
-                                    "fynexo://settings",
-                                    bw.incognito_window,
-                                ) {
-                                    let h = crate::util::fnv1a_hash64(json.as_bytes());
-                                    internal_payload = Some((json, h));
-                                }
-                            }
                             internal_payload.as_ref()
                         } else {
                             if external_payload.is_none() {
@@ -453,9 +734,16 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         && bw.pool.contains(bw.active_tab_id)
                         && bw.pool.pending_reveal_id() != Some(bw.active_tab_id)
                     {
-                        let sz = bw.window.inner_size();
-                        bw.pool
-                            .reveal_tab(bw.active_tab_id, (sz.width, sz.height), &bridge_tok_js);
+                        let cbounds = bw.content_bounds_val();
+                        let hud_ptr = bw.hud_opt().map(|w| w as *const wry::WebView);
+                        let focus_tab = bw.should_focus_content();
+                        bw.pool.reveal_tab(
+                            bw.active_tab_id,
+                            cbounds,
+                            hud_ptr.map(|p| unsafe { &*p }),
+                            focus_tab,
+                            &bridge_tok_js,
+                        );
                     }
                     let live_ids = bw.pool.live_ids();
                     let tab_state = {
@@ -468,12 +756,18 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                             "window.__fynexo_set_tabs__ && window.__fynexo_set_tabs__({}, {});",
                             json, bridge_tok_js
                         );
-                        eval_on_active_and_visible(
-                            &bw.pool,
-                            bw.active_tab_id,
-                            bw.pool.visible_id(),
-                            &script,
+                        bw.eval_hud_and_tabs(&script);
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::PageStarted { win_id, tab_id }) => {
+                if let Some(bw) = windows.get(&win_id) {
+                    if bw.active_tab_id == tab_id {
+                        let script = format!(
+                            "window.__fynexo_trigger_progress__ && window.__fynexo_trigger_progress__({});",
+                            bridge_tok_js
                         );
+                        bw.eval_hud_and_tabs(&script);
                     }
                 }
             }
@@ -489,8 +783,10 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         let muted = tm.tab_meta(tab_id).map(|(_, m)| m).unwrap_or(false);
                         (u, sy, muted)
                     };
+                    let site_zoom = effective_zoom_for_url(&state_for_event.lock_safe(), &url);
                     if let Some(wv) = bw.pool.get_webview(tab_id) {
                         set_webview_os_muted(wv, is_tab_muted);
+                        let _ = wv.zoom(site_zoom);
                         let mut script = String::new();
                         if is_tab_muted {
                             script.push_str(&format!(
@@ -510,8 +806,20 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                                 scroll_y, bridge_tok_js
                             ));
                         }
-                        script.push_str(&nav_state_js(wv, &bridge_tok_js));
+                        let nav_js = nav_state_js(wv, &bridge_tok_js);
+                        script.push_str(&nav_js);
                         let _ = wv.evaluate_script(&script);
+                        #[cfg(target_os = "windows")]
+                        if tab_id == bw.active_tab_id {
+                            let mut hud_script = nav_js;
+                            if bw.pool.visible_id() == Some(tab_id) {
+                                hud_script.push_str(&format!(
+                                    " window.__fynexo_finish_progress__ && window.__fynexo_finish_progress__(false, {});",
+                                    bridge_tok_js
+                                ));
+                            }
+                            let _ = bw.hud_webview.evaluate_script(&hud_script);
+                        }
                     }
                     if bw.active_tab_id == tab_id {
                         if let Some(gen) = bw.pool.pending_reveal_gen(tab_id) {
@@ -561,9 +869,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         dl_json, bridge_tok_js
                     );
                     for bw in windows.values() {
-                        if let Some(vis) = bw.pool.visible_webview() {
-                            let _ = vis.evaluate_script(&dl_script);
-                        }
+                        bw.eval_hud(&dl_script);
                     }
                 }
                 if let Ok(json_msg) = serde_json::to_string(&toast_msg) {
@@ -571,8 +877,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         "window.__fynexo_toast__ && window.__fynexo_toast__({}, {});",
                         json_msg, bridge_tok_js
                     );
-                    if let Some(vis) = target_visible_webview(&windows, focused_win_id) {
-                        let _ = vis.evaluate_script(&t_script);
+                    if let Some(hud) = target_hud_webview(&windows, focused_win_id) {
+                        let _ = hud.evaluate_script(&t_script);
                     }
                 }
             }
@@ -582,8 +888,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         "window.__fynexo_toast__ && window.__fynexo_toast__({}, {});",
                         json_msg, bridge_tok_js
                     );
-                    if let Some(vis) = target_visible_webview(&windows, focused_win_id) {
-                        let _ = vis.evaluate_script(&script);
+                    if let Some(hud) = target_hud_webview(&windows, focused_win_id) {
+                        let _ = hud.evaluate_script(&script);
                     }
                 }
             }
@@ -602,23 +908,23 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         if next_full { "true" } else { "false" },
                         bridge_tok_js
                     );
-                    eval_on_active_and_visible(
-                        &bw.pool,
-                        bw.active_tab_id,
-                        bw.pool.visible_id(),
-                        &script,
-                    );
+                    bw.eval_hud_and_tabs(&script);
                 }
             }
-            Event::UserEvent(UserEvent::ApplyZoom(factor)) => {
+            Event::UserEvent(UserEvent::ApplyZoom(_factor)) => {
+                let st = state_for_event.lock_safe();
                 for bw in windows.values() {
+                    let url = bw.tab_manager.lock_safe().url_and_scroll_for(bw.active_tab_id).0;
+                    let z = effective_zoom_for_url(&st, &url);
                     if let Some(wv) = bw.pool.get_webview(bw.active_tab_id) {
-                        let _ = wv.zoom(factor);
+                        let _ = wv.zoom(z);
                     }
                     if let Some(vid) = bw.pool.visible_id() {
                         if vid != bw.active_tab_id {
+                            let vurl = bw.tab_manager.lock_safe().url_and_scroll_for(vid).0;
+                            let vz = effective_zoom_for_url(&st, &vurl);
                             if let Some(vis) = bw.pool.get_webview(vid) {
-                                let _ = vis.zoom(factor);
+                                let _ = vis.zoom(vz);
                             }
                         }
                     }
@@ -770,17 +1076,22 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             }
             Event::UserEvent(UserEvent::GoBack(win_id)) => {
                 if let Some(bw) = windows.get(&win_id) {
-                    navigate_webview_history(&bw.pool, bw.active_tab_id, false, &bridge_tok_js);
+                    navigate_webview_history(bw, false, &bridge_tok_js);
                 }
             }
             Event::UserEvent(UserEvent::GoForward(win_id)) => {
                 if let Some(bw) = windows.get(&win_id) {
-                    navigate_webview_history(&bw.pool, bw.active_tab_id, true, &bridge_tok_js);
+                    navigate_webview_history(bw, true, &bridge_tok_js);
                 }
             }
             Event::UserEvent(UserEvent::Reload(win_id)) => {
                 if let Some(bw) = windows.get_mut(&win_id) {
                     bw.pool.clear_runtime_hash(bw.active_tab_id);
+                    let prog_js = format!(
+                        "window.__fynexo_trigger_progress__ && window.__fynexo_trigger_progress__({});",
+                        bridge_tok_js
+                    );
+                    bw.eval_hud(&prog_js);
                     if let Some(fg) = bw.pool.get_webview(bw.active_tab_id) {
                         let _ = fg.reload();
                     }
@@ -850,14 +1161,12 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             }
             Event::UserEvent(UserEvent::RequestResourceUsage(win_id)) => {
                 if let Some(bw) = windows.get(&win_id) {
-                    if let Some(vis) = bw.pool.visible_webview() {
-                        let stats_json = build_resource_stats_json(&windows);
-                        let script = format!(
-                            "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({}, {});",
-                            stats_json, bridge_tok_js
-                        );
-                        let _ = vis.evaluate_script(&script);
-                    }
+                    let stats_json = build_resource_stats_json(&windows);
+                    let script = format!(
+                        "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({}, {});",
+                        stats_json, bridge_tok_js
+                    );
+                    bw.eval_hud_and_tabs(&script);
                 }
             }
             Event::UserEvent(UserEvent::TrimWorkingSet(win_id)) => {
@@ -884,19 +1193,24 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     let stats_json = build_resource_stats_json(&windows);
                     let total_mb = stats_json["total_mb"].as_f64().unwrap_or(0.0);
                     if let Some(bw) = windows.get(&win_id) {
+                        let toast_txt = if zh {
+                            format!("内存已压缩清理（共 {:.0} MB）", total_mb)
+                        } else {
+                            format!("Working set trimmed ({:.0} MB total)", total_mb)
+                        };
+                        if let Ok(json_msg) = serde_json::to_string(&toast_txt) {
+                            let hud_script = format!(
+                                "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({}, {}); window.__fynexo_toast__ && window.__fynexo_toast__({}, {});",
+                                stats_json, bridge_tok_js, json_msg, bridge_tok_js
+                            );
+                            let _ = bw.hud_webview.evaluate_script(&hud_script);
+                        }
+                        let perf_script = format!(
+                            "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({}, {});",
+                            stats_json, bridge_tok_js
+                        );
                         if let Some(vis) = bw.pool.visible_webview() {
-                            let toast_txt = if zh {
-                                format!("内存已压缩清理（共 {:.0} MB）", total_mb)
-                            } else {
-                                format!("Working set trimmed ({:.0} MB total)", total_mb)
-                            };
-                            if let Ok(json_msg) = serde_json::to_string(&toast_txt) {
-                                let script = format!(
-                                    "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({}, {}); window.__fynexo_toast__ && window.__fynexo_toast__({}, {});",
-                                    stats_json, bridge_tok_js, json_msg, bridge_tok_js
-                                );
-                                let _ = vis.evaluate_script(&script);
-                            }
+                            let _ = vis.evaluate_script(&perf_script);
                         }
                     }
                 }
@@ -1315,7 +1629,14 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         } else {
-                            bw.pool.resize_all(size.width, size.height);
+                            #[cfg(target_os = "windows")]
+                            {
+                                bw.recompute_dual_layout();
+                            }
+                            #[cfg(not(target_os = "windows"))]
+                            {
+                                bw.pool.resize_all(ContentBounds::default());
+                            }
                             if bw.was_minimized {
                                 bw.was_minimized = false;
                                 #[cfg(target_os = "windows")]
@@ -1329,11 +1650,29 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             }
             Event::WindowEvent {
                 window_id,
+                event: WindowEvent::ScaleFactorChanged { .. },
+                ..
+            } => {
+                #[cfg(target_os = "windows")]
+                if let Some(&wid) = win_by_tao_id.get(&window_id) {
+                    if let Some(bw) = windows.get_mut(&wid) {
+                        bw.recompute_dual_layout();
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                let _ = window_id;
+            }
+            Event::WindowEvent {
+                window_id,
                 event: WindowEvent::Moved(_),
                 ..
             } => {
                 if let Some(&wid) = win_by_tao_id.get(&window_id) {
                     if let Some(bw) = windows.get(&wid) {
+                        #[cfg(target_os = "windows")]
+                        unsafe {
+                            let _ = bw.hud_webview.controller().NotifyParentWindowPositionChanged();
+                        }
                         bw.pool.notify_parent_moved();
                     }
                 }
@@ -1348,11 +1687,22 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     if let Some(bw) = windows.get(&wid) {
                         let active_url = bw.tab_manager.lock_safe().active_url();
                         adblock::set_active_page_url(&active_url);
-                        if let Some(vis) = bw.pool.visible_webview() {
-                            let _ = vis.focus();
+                        if !bw.should_focus_content() {
                             #[cfg(target_os = "windows")]
-                            {
-                                let _ = vis.set_memory_usage_level(MemoryUsageLevel::Normal);
+                            let _ = bw.hud_webview.focus();
+                        } else {
+                            #[cfg(target_os = "windows")]
+                            let hud_wants_focus = is_hud_taking_focus(&bw.hud_webview);
+                            #[cfg(not(target_os = "windows"))]
+                            let hud_wants_focus = false;
+                            if !hud_wants_focus {
+                                if let Some(vis) = bw.pool.visible_webview() {
+                                    let _ = vis.focus();
+                                    #[cfg(target_os = "windows")]
+                                    {
+                                        let _ = vis.set_memory_usage_level(MemoryUsageLevel::Normal);
+                                    }
+                                }
                             }
                         }
                     }
@@ -1365,15 +1715,32 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                             b.tab_manager
                                 .lock_safe()
                                 .set_incognito(global_incog || b.incognito_window);
-                            let json_res = {
+                            let (hud_json_res, page_json_res, zoom_f) = {
                                 let st = state_for_event.lock_safe();
                                 #[cfg(target_os = "windows")]
                                 if let Some(vis) = b.pool.visible_webview() {
                                     adblock::sync_windows_custom_filters(vis, &st.adblock);
                                 }
-                                serialize_runtime_for_win(&st, &aurl, b.incognito_window)
+                                (
+                                    serialize_runtime_for_win(&st, "fynexo://settings", b.incognito_window),
+                                    serialize_runtime_for_win(&st, &aurl, b.incognito_window),
+                                    effective_zoom_for_url(&st, &aurl),
+                                )
                             };
-                            if let Ok(json) = json_res {
+                            #[cfg(target_os = "windows")]
+                            if let Ok(hjson) = hud_json_res {
+                                let hscript = format!(
+                                    "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
+                                    hjson, bridge_tok_js
+                                );
+                                let _ = b.hud_webview.evaluate_script(&hscript);
+                            }
+                            #[cfg(not(target_os = "windows"))]
+                            let _ = hud_json_res;
+                            if let Some(vis) = b.pool.visible_webview() {
+                                let _ = vis.zoom(zoom_f);
+                            }
+                            if let Ok(json) = page_json_res {
                                 let script = format!(
                                     "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
                                     json, bridge_tok_js
@@ -1419,6 +1786,23 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn target_hud_webview(
+    windows: &HashMap<usize, BrowserWindow>,
+    focused_win_id: usize,
+) -> Option<&wry::WebView> {
+    let bw = windows
+        .get(&focused_win_id)
+        .or_else(|| windows.values().next())?;
+    #[cfg(target_os = "windows")]
+    {
+        Some(&bw.hud_webview)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        bw.pool.visible_webview()
+    }
+}
+
 fn target_visible_webview(
     windows: &HashMap<usize, BrowserWindow>,
     focused_win_id: usize,
@@ -1460,13 +1844,20 @@ fn perform_switch_tab(
     reveal_scheduler: &RevealScheduler,
     bridge_tok_js: &str,
 ) {
-    let sz = bw.window.inner_size();
-    let win_size = (sz.width, sz.height);
+    let cbounds = bw.content_bounds_val();
+    let hud_ptr = bw.hud_opt().map(|w| w as *const wry::WebView);
+    let focus_tab = bw.should_focus_content();
     let old_id = bw.active_tab_id;
     if id == old_id && bw.pool.contains(id) {
         bw.pool.unpark_active(id, bridge_tok_js);
         if bw.pool.visible_id() != Some(id) && bw.pool.pending_reveal_id() != Some(id) {
-            bw.pool.reveal_tab(id, win_size, bridge_tok_js);
+            bw.pool.reveal_tab(
+                id,
+                cbounds,
+                hud_ptr.map(|p| unsafe { &*p }),
+                focus_tab,
+                bridge_tok_js,
+            );
         }
         return;
     }
@@ -1495,7 +1886,7 @@ fn perform_switch_tab(
     if bw.pool.contains(id) {
         let has_visible_backing = bw.pool.visible_id().is_some() && bw.pool.visible_id() != Some(id);
         if has_visible_backing {
-            bw.pool.prepare_pending_behind(id, win_size);
+            bw.pool.prepare_pending_behind(id, cbounds);
         }
         bw.pool.unpark_active(id, bridge_tok_js);
         if let Some(wv) = bw.pool.get_webview(id) {
@@ -1513,6 +1904,14 @@ fn perform_switch_tab(
             sync_tabs_and_mute(wv, &tab_state, is_tab_muted, bridge_tok_js);
             let nav_js = nav_state_js(wv, bridge_tok_js);
             let _ = wv.evaluate_script(&nav_js);
+            #[cfg(target_os = "windows")]
+            if let Ok(tabs_json) = serde_json::to_string(&tab_state) {
+                let hud_js = format!(
+                    "window.__fynexo_set_tabs__ && window.__fynexo_set_tabs__({}, {}); {}",
+                    tabs_json, bridge_tok_js, nav_js
+                );
+                let _ = bw.hud_webview.evaluate_script(&hud_js);
+            }
             if has_visible_backing {
                 let frame_script = format!(
                     "window.__fynexo_request_reveal_frame__ && window.__fynexo_request_reveal_frame__({});",
@@ -1525,7 +1924,13 @@ fn perform_switch_tab(
             let gen = bw.pool.set_pending_reveal(id);
             reveal_scheduler.schedule(bw.win_id, id, gen, std::time::Duration::from_millis(90));
         } else {
-            bw.pool.reveal_tab(id, win_size, bridge_tok_js);
+            bw.pool.reveal_tab(
+                id,
+                cbounds,
+                hud_ptr.map(|p| unsafe { &*p }),
+                focus_tab,
+                bridge_tok_js,
+            );
         }
     } else {
         let has_visible_backing = bw.pool.visible_id().is_some();
@@ -1546,6 +1951,8 @@ fn perform_switch_tab(
                     None,
                     bw.incognito_window,
                 );
+                let z = effective_zoom_for_url(&st, url);
+                let _ = tv.webview.zoom(z);
             }
             let _ = tv.webview.load_url(&target);
             bw.pool.insert_live(id, tv);
@@ -1558,6 +1965,7 @@ fn perform_switch_tab(
                     tab_id: id,
                     url: &target,
                     visible: !has_visible_backing,
+                    init_bounds: cbounds,
                 },
                 app_state,
                 &bw.tab_manager,
@@ -1573,8 +1981,21 @@ fn perform_switch_tab(
         }
 
         if !has_visible_backing {
-            bw.pool.reveal_tab(id, win_size, bridge_tok_js);
+            bw.pool.reveal_tab(
+                id,
+                cbounds,
+                hud_ptr.map(|p| unsafe { &*p }),
+                focus_tab,
+                bridge_tok_js,
+            );
         } else {
+            if let Ok(tabs_json) = serde_json::to_string(&tab_state) {
+                let hud_js = format!(
+                    "window.__fynexo_set_tabs__ && window.__fynexo_set_tabs__({}, {}); window.__fynexo_trigger_progress__ && window.__fynexo_trigger_progress__({});",
+                    tabs_json, bridge_tok_js, bridge_tok_js
+                );
+                bw.eval_hud(&hud_js);
+            }
             if let Some(vis) = bw.pool.visible_webview() {
                 sync_tabs_and_mute(vis, &tab_state, is_tab_muted, bridge_tok_js);
                 let prog_script = format!(
@@ -1583,7 +2004,7 @@ fn perform_switch_tab(
                 );
                 let _ = vis.evaluate_script(&prog_script);
             }
-            bw.pool.prepare_pending_behind(id, win_size);
+            bw.pool.prepare_pending_behind(id, cbounds);
             let gen = bw.pool.set_pending_reveal(id);
             reveal_scheduler.schedule(bw.win_id, id, gen, std::time::Duration::from_millis(4000));
         }
@@ -1631,10 +2052,22 @@ fn complete_pending_reveal(
     bw.pool.unpark_active(tab_id, bridge_tok_js);
     if let Some(wv) = bw.pool.get_webview(tab_id) {
         sync_tabs_and_mute(wv, &tab_state, is_tab_muted, bridge_tok_js);
+        #[cfg(target_os = "windows")]
+        {
+            let nav_js = nav_state_js(wv, bridge_tok_js);
+            let _ = bw.hud_webview.evaluate_script(&nav_js);
+        }
     }
-    let sz = bw.window.inner_size();
-    bw.pool
-        .reveal_tab(tab_id, (sz.width, sz.height), bridge_tok_js);
+    let cbounds = bw.content_bounds_val();
+    let hud_ptr = bw.hud_opt().map(|w| w as *const wry::WebView);
+    let focus_tab = bw.should_focus_content();
+    bw.pool.reveal_tab(
+        tab_id,
+        cbounds,
+        hud_ptr.map(|p| unsafe { &*p }),
+        focus_tab,
+        bridge_tok_js,
+    );
     apply_pool_policy(bw, app_state);
 }
 
@@ -1671,14 +2104,25 @@ fn build_resource_stats_json(windows: &HashMap<usize, BrowserWindow>) -> serde_j
         live_tabs += bw.pool.live_count();
         total_tabs += bw.tab_manager.lock_safe().tabs.len();
         #[cfg(target_os = "windows")]
-        for wv in bw.pool.all_webviews() {
-            let mut pid: u32 = 0;
+        {
+            let mut hpid: u32 = 0;
             unsafe {
-                if wv.webview().BrowserProcessId(&mut pid).is_ok()
-                    && pid != 0
-                    && !browser_pids.contains(&pid)
+                if bw.hud_webview.webview().BrowserProcessId(&mut hpid).is_ok()
+                    && hpid != 0
+                    && !browser_pids.contains(&hpid)
                 {
-                    browser_pids.push(pid);
+                    browser_pids.push(hpid);
+                }
+            }
+            for wv in bw.pool.all_webviews() {
+                let mut pid: u32 = 0;
+                unsafe {
+                    if wv.webview().BrowserProcessId(&mut pid).is_ok()
+                        && pid != 0
+                        && !browser_pids.contains(&pid)
+                    {
+                        browser_pids.push(pid);
+                    }
                 }
             }
         }
@@ -1794,7 +2238,12 @@ fn sync_foreground_env(
     push_runtime_for_url: Option<&str>,
     win_incognito: bool,
 ) {
-    let zoom_factor = state.config.default_zoom.clamp(0.5, 2.5);
+    let url_for_zoom = push_runtime_for_url.unwrap_or("");
+    let zoom_factor = if url_for_zoom.is_empty() {
+        state.config.default_zoom.clamp(0.5, 2.5)
+    } else {
+        effective_zoom_for_url(state, url_for_zoom)
+    };
     let _ = webview.zoom(zoom_factor);
 
     #[cfg(target_os = "windows")]
@@ -1832,13 +2281,8 @@ fn nav_state_js(webview: &wry::WebView, bridge_tok_js: &str) -> String {
     )
 }
 
-fn navigate_webview_history(
-    pool: &TabPool,
-    active_tab_id: usize,
-    forward: bool,
-    bridge_tok_js: &str,
-) {
-    let Some(fg) = pool.get_webview(active_tab_id) else {
+fn navigate_webview_history(bw: &BrowserWindow, forward: bool, bridge_tok_js: &str) {
+    let Some(fg) = bw.pool.get_webview(bw.active_tab_id) else {
         return;
     };
     let can_nav = if forward {
@@ -1858,6 +2302,6 @@ fn navigate_webview_history(
             bridge_tok_js,
             nav_state_js(fg, bridge_tok_js)
         );
-        let _ = fg.evaluate_script(&script);
+        bw.eval_hud_and_tabs(&script);
     }
 }
