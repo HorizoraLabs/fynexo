@@ -7,10 +7,15 @@ const PAGE_CSS: &str = include_str!("newtab.css");
 const PAGE_JS: &str = include_str!("newtab.js");
 
 fn assemble_template() -> String {
+    let shared_prelude = format!(
+        "{}\n{}",
+        crate::hud::defaults::defaults_script(),
+        include_str!("../hud/icons.js")
+    );
     PAGE_TEMPLATE
         .replacen("__FNX_NEWTAB_CSS__", PAGE_CSS, 1)
         .replacen("__FNX_NEWTAB_JS__", PAGE_JS, 1)
-        .replacen("__FNX_DEFAULTS__;", &crate::hud::defaults::defaults_script(), 1)
+        .replacen("__FNX_DEFAULTS__;", &shared_prelude, 1)
 }
 
 fn baked_parts() -> &'static (String, String) {

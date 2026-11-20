@@ -9,10 +9,15 @@ const PAGE_CSS: &str = include_str!("settings.css");
 const PAGE_JS: &str = include_str!("settings.js");
 
 fn assemble_template() -> String {
+    let shared_prelude = format!(
+        "{}\n{}",
+        crate::hud::defaults::defaults_script(),
+        include_str!("../hud/icons.js")
+    );
     PAGE_TEMPLATE
         .replacen("__FNX_SETTINGS_CSS__", PAGE_CSS, 1)
         .replacen("__FNX_SETTINGS_JS__", PAGE_JS, 1)
-        .replacen("__FNX_DEFAULTS__;", &crate::hud::defaults::defaults_script(), 1)
+        .replacen("__FNX_DEFAULTS__;", &shared_prelude, 1)
 }
 
 #[derive(Serialize)]

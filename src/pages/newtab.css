@@ -23,19 +23,27 @@
             padding: 0;
             -webkit-font-smoothing: antialiased;
             -webkit-tap-highlight-color: transparent;
+        }
+        html.zero-fx *, html.zero-fx *::before, html.zero-fx *::after {
             box-shadow: none !important;
             text-shadow: none !important;
             backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
         }
 
         html, body {
             width: 100%;
             min-height: 100vh;
-            background: var(--nt-bg);
+            background-color: var(--nt-bg);
             color: var(--nt-fg);
             font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             line-height: 1.45;
             overflow-x: hidden;
+        }
+
+        html:not(.has-wallpaper) body {
+            background-image: radial-gradient(ellipse 68% 38% at 50% 0%, color-mix(in srgb, var(--nt-accent) 7%, transparent), transparent 72%);
+            background-repeat: no-repeat;
         }
 
         button, input, a {
@@ -82,10 +90,10 @@
 
         .nt-shell {
             width: 100%;
-            max-width: 760px;
+            max-width: 640px;
             display: flex;
             flex-direction: column;
-            gap: 28px;
+            gap: 26px;
         }
 
         /* Whisper-quiet top status strip (borderless at rest) */
@@ -143,10 +151,13 @@
 
         html.has-wallpaper .nt-pill,
         html.has-wallpaper .nt-bang-chip,
+        html.has-wallpaper .nt-search-box,
         html.has-wallpaper .bm-card,
-        html.has-wallpaper .hist-row {
-            background: color-mix(in srgb, var(--nt-surface) 78%, transparent);
+        html.has-wallpaper .hist-list {
+            background: color-mix(in srgb, var(--nt-surface) 74%, transparent);
             border-color: rgba(255, 255, 255, 0.14);
+            backdrop-filter: blur(14px) saturate(135%);
+            -webkit-backdrop-filter: blur(14px) saturate(135%);
         }
         html.has-wallpaper .nt-pill:hover,
         html.has-wallpaper .nt-bang-chip:hover,
@@ -190,19 +201,19 @@
         }
 
         .nt-clock {
-            font-size: clamp(46px, 6.2vw, 62px);
-            font-weight: 700;
-            letter-spacing: -0.045em;
+            font-size: clamp(50px, 6.4vw, 66px);
+            font-weight: 650;
+            letter-spacing: -0.05em;
             line-height: 1;
             color: var(--nt-fg);
             font-variant-numeric: tabular-nums;
         }
 
         .nt-date-sub {
-            font-size: 12.5px;
+            font-size: 13px;
             font-weight: 500;
             color: var(--nt-dim);
-            letter-spacing: -0.01em;
+            letter-spacing: 0.01em;
         }
 
         .nt-custom-banner {
@@ -231,16 +242,17 @@
         }
 
         .nt-search-box {
+            position: relative;
             width: 100%;
-            min-height: 48px;
+            min-height: 52px;
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 7px 9px 7px 11px;
+            padding: 8px 10px 8px 10px;
             background: var(--nt-surface);
             border: 1px solid var(--nt-hairline);
             border-top-color: var(--nt-top-highlight);
-            border-radius: 12px;
+            border-radius: 14px;
             transition: border-color 0.15s ease, background 0.15s ease;
         }
         .nt-search-box:hover {
@@ -254,21 +266,27 @@
         }
 
         .nt-engine-btn {
-            height: 30px;
-            padding: 0 7px;
-            border-radius: 7px;
+            height: 32px;
+            padding: 0 9px;
+            border-radius: 8px;
             border: 1px solid var(--nt-hairline);
             background: color-mix(in srgb, var(--nt-fg) 4%, transparent);
-            color: var(--nt-dim);
-            font-size: 11.5px;
+            color: var(--nt-fg);
+            font-size: 12px;
             font-weight: 500;
             cursor: pointer;
             white-space: nowrap;
             display: inline-flex;
             align-items: center;
-            gap: 4px;
+            gap: 6px;
             flex-shrink: 0;
             transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+        }
+        .nt-engine-label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--nt-fg);
+            letter-spacing: -0.01em;
         }
         .nt-engine-btn:hover {
             border-color: var(--nt-hairline-hover);
@@ -506,14 +524,31 @@
             color: var(--nt-dim);
             font-size: 11.5px;
             font-weight: 450;
-            padding: 3px 10px;
+            padding: 4px 11px;
             border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
             cursor: pointer;
             transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+        }
+        .nt-bang-trig {
+            font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--nt-accent);
+            letter-spacing: -0.02em;
+        }
+        .nt-bang-name {
+            color: var(--nt-dim);
+            transition: color 0.12s ease;
         }
         .nt-bang-chip:hover {
             background: var(--nt-elevated);
             border-color: var(--nt-hairline-hover);
+            color: var(--nt-fg);
+        }
+        .nt-bang-chip:hover .nt-bang-name {
             color: var(--nt-fg);
         }
 
@@ -678,11 +713,11 @@
             cursor: pointer;
         }
 
-        /* Vercel Dashboard single-row 6-column compact shortcut capsules */
+        /* Vercel Dashboard auto-fit balanced shortcut capsules */
         .bm-grid {
             display: grid;
-            grid-template-columns: repeat(6, minmax(0, 1fr));
-            gap: 8px;
+            grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+            gap: 10px;
             width: 100%;
         }
 
@@ -690,12 +725,13 @@
             position: relative;
             display: flex;
             align-items: center;
-            gap: 8px;
-            height: 36px;
-            padding: 0 10px;
+            gap: 10px;
+            height: 42px;
+            padding: 0 12px;
             background: var(--nt-surface);
             border: 1px solid var(--nt-hairline);
-            border-radius: 8px;
+            border-top-color: rgba(255, 255, 255, 0.10);
+            border-radius: 10px;
             cursor: pointer;
             text-align: left;
             min-width: 0;
@@ -789,6 +825,7 @@
             transform: translateY(-50%);
             width: 20px;
             height: 20px;
+            padding: 0;
             border: none;
             border-radius: 5px;
             background: var(--nt-elevated);
@@ -796,12 +833,17 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 13px;
             line-height: 1;
             cursor: pointer;
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+        }
+        .bm-del svg {
+            width: 9px;
+            height: 9px;
+            display: block;
+            pointer-events: none;
         }
         .bm-card:hover .bm-del {
             opacity: 0.92;
@@ -813,13 +855,16 @@
             color: var(--nt-fg);
         }
 
-        /* Raycast Ghost List for Recent History: borderless, dividerless, hover reveal */
+        /* Structured Studio List for Recent History */
         .hist-list {
             display: flex;
             flex-direction: column;
             gap: 2px;
-            background: transparent;
-            border: none;
+            background: color-mix(in srgb, var(--nt-surface) 60%, transparent);
+            border: 1px solid var(--nt-hairline);
+            border-top-color: rgba(255, 255, 255, 0.09);
+            border-radius: 12px;
+            padding: 4px;
         }
 
         .hist-row {
@@ -827,8 +872,8 @@
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            height: 36px;
-            margin: 0 -10px;
+            height: 38px;
+            margin: 0;
             padding: 0 10px;
             border: none;
             border-radius: 8px;
@@ -836,13 +881,13 @@
             color: var(--nt-fg);
             text-align: left;
             cursor: pointer;
-            width: calc(100% + 20px);
+            width: 100%;
             transition: background 0.12s ease;
         }
         .hist-row:hover,
         .hist-row:focus-visible {
             outline: none;
-            background: var(--nt-surface);
+            background: var(--nt-elevated);
         }
 
         .hist-left {
@@ -912,6 +957,123 @@
         html.nt-alt-held .hist-kbd {
             opacity: 1;
             border-color: var(--nt-hairline-hover);
+        }
+
+        /* On-Page Start Page Customizer FAB & Studio Drawer */
+        .nt-customize-fab {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            z-index: 45;
+            height: 32px;
+            padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid var(--nt-hairline-hover);
+            background: color-mix(in srgb, var(--nt-surface) 82%, transparent);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            color: var(--nt-dim);
+            font-size: 11.5px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            transition: color 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+        }
+        .nt-customize-fab:hover,
+        .nt-customize-fab.active {
+            color: var(--nt-fg);
+            border-color: var(--nt-accent);
+            background: var(--nt-elevated);
+        }
+
+        .nt-customize-panel {
+            position: fixed;
+            right: 20px;
+            bottom: 60px;
+            z-index: 50;
+            width: 312px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid var(--nt-hairline-hover);
+            border-top-color: var(--nt-top-highlight);
+            background: color-mix(in srgb, var(--nt-surface) 92%, transparent);
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+            display: none;
+            flex-direction: column;
+            gap: 11px;
+        }
+        .nt-customize-panel.open {
+            display: flex;
+        }
+        .nt-cust-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--nt-hairline);
+        }
+        .nt-cust-title {
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--nt-fg);
+        }
+        .nt-cust-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .nt-cust-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .nt-cust-label {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--nt-dim);
+            white-space: nowrap;
+        }
+        .nt-cust-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .nt-cust-chip {
+            border: 1px solid var(--nt-hairline);
+            background: color-mix(in srgb, var(--nt-fg) 4%, transparent);
+            color: var(--nt-dim);
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+        }
+        .nt-cust-chip:hover {
+            color: var(--nt-fg);
+            border-color: var(--nt-hairline-hover);
+        }
+        .nt-cust-chip.active {
+            color: var(--nt-fg);
+            border-color: var(--nt-accent);
+            background: var(--nt-accent-soft);
+        }
+        .nt-cust-sliders {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+            max-width: 170px;
+        }
+        .nt-cust-sliders input[type="range"] {
+            width: 100%;
+            accent-color: var(--nt-accent);
+            cursor: pointer;
         }
 
         @media (max-width: 768px) {

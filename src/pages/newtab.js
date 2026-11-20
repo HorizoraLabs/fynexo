@@ -1,7 +1,7 @@
         __FNX_DEFAULTS__;
 
         const DEFAULT_NEWTAB_TITLE = 'Fynexo';
-        const DEFAULT_NEWTAB_SUBTITLE = 'Single-WebView studio browser · Zero-FX compositing';
+        const DEFAULT_NEWTAB_SUBTITLE = 'Modular studio browser · Deeply customizable UI & workflows';
 
         const boot = __FNX_BOOT_JSON__ || {};
         let config = Object.assign({
@@ -210,11 +210,19 @@
 
         function relativeTime(ts) {
             if (!ts) return '';
+            const zh = isZh();
             const diff = Math.max(0, Math.floor(Date.now() / 1000) - Number(ts));
-            if (diff < 60) return 'now';
-            if (diff < 3600) return Math.floor(diff / 60) + 'm';
-            if (diff < 86400) return Math.floor(diff / 3600) + 'h';
-            return Math.floor(diff / 86400) + 'd';
+            if (diff < 60) return zh ? '刚刚' : 'now';
+            if (diff < 3600) {
+                const m = Math.floor(diff / 60);
+                return zh ? `${m}分钟前` : `${m}m`;
+            }
+            if (diff < 86400) {
+                const h = Math.floor(diff / 3600);
+                return zh ? `${h}小时前` : `${h}h`;
+            }
+            const d = Math.floor(diff / 86400);
+            return zh ? `${d}天前` : `${d}d`;
         }
 
         function fillTpl(tpl, q) {
@@ -405,12 +413,17 @@
             }
 
             const zh = isZh();
+            syncDocLangAndTitle(zh, '起始页 · Fynexo', 'New Tab · Fynexo');
             const engObj = currentEngineObj();
             const engName = (engObj && engObj.name) || 'Google';
             const engBtn = document.getElementById('ntEngineBtn');
             if (engBtn) {
                 engBtn.textContent = '';
                 engBtn.appendChild(createSiteEmblem(engObj && engObj.url, engName));
+                const engLbl = document.createElement('span');
+                engLbl.className = 'nt-engine-label';
+                engLbl.textContent = engName;
+                engBtn.appendChild(engLbl);
                 const chev = createSvgEl('svg', { width: 10, height: 10, viewBox: '0 0 16 16', fill: 'none', class: 'nt-engine-chevron' });
                 chev.appendChild(createSvgEl('path', { d: 'M4.5 6.5L8 10l3.5-3.5', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
                 engBtn.appendChild(chev);
@@ -421,49 +434,18 @@
                 }
             }
             document.getElementById('ntSearchInput').placeholder = zh
-                ? `在 ${engName} 中搜索，输入 >命令、算式、!bang 或网址...`
-                : `Search ${engName}, >cmd, math, !gh, or enter URL...`;
+                ? `在 ${engName} 中搜索或输入网址，输入 > 执行命令...`
+                : `Search ${engName} or enter address, type > for commands...`;
 
-            const adOn = config.adblock !== false;
-            document.getElementById('ntShieldDot').classList.toggle('off', !adOn);
-            document.getElementById('ntShieldText').textContent = zh
-                ? (adOn ? (blockedAds > 0 ? `已拦截 · ${blockedAds}` : '广告拦截已开启') : '广告拦截已暂停')
-                : (adOn ? (blockedAds > 0 ? `Adblock · ${blockedAds}` : 'Adblock active') : 'Adblock paused');
+            const clearBtnEl = document.getElementById('ntClearBtn');
+            if (clearBtnEl) clearBtnEl.title = zh ? '清空输入' : 'Clear';
+            const hintEl = document.getElementById('ntSearchHint');
+            if (hintEl) hintEl.title = zh ? '按 / 键聚焦搜索框' : 'Press / to focus';
+            const goBtnEl = document.getElementById('ntGoBtn');
+            if (goBtnEl) goBtnEl.title = zh ? '前往 (Enter)' : 'Go (Enter)';
+            const engMenu = document.getElementById('ntEngineMenu');
+            if (engMenu) engMenu.setAttribute('aria-label', zh ? '选择搜索引擎' : 'Search engines');
 
-            const modeBtn = document.getElementById('btnModePill');
-            const modeTxt = document.getElementById('ntModeText');
-            if (modeBtn && modeTxt) {
-                const curMode = String(config.active_mode || 'auto').toLowerCase();
-                const profiles = Array.isArray(config.mode_profiles) ? config.mode_profiles : [];
-                const found = profiles.find(p => p && String(p.id || '').toLowerCase() === curMode);
-                modeBtn.classList.toggle('active', curMode !== 'default');
-                if (found) {
-                    const nm = zh ? (found.name_zh || found.name_en) : (found.name_en || found.name_zh);
-                    modeTxt.textContent = (found.icon ? found.icon + ' ' : '') + nm;
-                } else if (curMode === 'default') {
-                    modeTxt.textContent = zh ? '日常标准' : 'Standard';
-                } else {
-                    modeTxt.textContent = zh ? '✨ 自动模式' : '✨ Auto mode';
-                }
-                modeBtn.title = zh ? '点击循环切换场景模式（在设置页可自由定制）' : 'Click to cycle browser mode (customize in Settings)';
-            }
-
-            const incogBtn = document.getElementById('btnIncogPill');
-            const incogTxt = document.getElementById('ntIncogText');
-            incogBtn.classList.toggle('active', !!config.incognito);
-            incogTxt.textContent = zh
-                ? (config.incognito ? '无痕: 开启' : '无痕: 关闭')
-                : (config.incognito ? 'Private: Active' : 'Private: Off');
-
-            const langBtn = document.getElementById('btnLangPill');
-            if (langBtn) {
-                langBtn.textContent = zh ? '中文' : 'EN';
-                langBtn.title = zh ? 'Switch interface to English' : '切换界面为简体中文';
-            }
-            const prefsBtn = document.getElementById('btnPrefsPill');
-            if (prefsBtn) {
-                prefsBtn.title = zh ? '打开浏览器设置' : 'Open browser preferences';
-            }
             const scLbl = document.getElementById('ntShortcutsLabel');
             if (scLbl) scLbl.textContent = zh ? '常用网站' : 'Shortcuts';
             const btnToggleAdd = document.getElementById('btnToggleAddBm');
@@ -484,24 +466,31 @@
                 bangBar.textContent = '';
                 const quickBangs = zh
                     ? [
-                        ['!b', '!b 搜B站'],
-                        ['!gh', '!gh GitHub'],
-                        ['!yt', '!yt YouTube'],
-                        ['!tr', '!tr 翻译'],
-                        ['!w', '!w 维基百科']
+                        ['!b', '哔哩哔哩'],
+                        ['!gh', 'GitHub'],
+                        ['!yt', 'YouTube'],
+                        ['!tr', '谷歌翻译'],
+                        ['!w', '维基百科']
                     ]
                     : [
-                        ['!b', '!b Bilibili'],
-                        ['!gh', '!gh GitHub'],
-                        ['!yt', '!yt YouTube'],
-                        ['!tr', '!tr Translate'],
-                        ['!w', '!w Wikipedia']
+                        ['!b', 'Bilibili'],
+                        ['!gh', 'GitHub'],
+                        ['!yt', 'YouTube'],
+                        ['!tr', 'Translate'],
+                        ['!w', 'Wikipedia']
                     ];
-                quickBangs.forEach(([trig, label]) => {
+                quickBangs.forEach(([trig, siteName]) => {
                     const chip = document.createElement('button');
                     chip.type = 'button';
                     chip.className = 'nt-bang-chip';
-                    chip.textContent = label;
+                    const trigSpan = document.createElement('span');
+                    trigSpan.className = 'nt-bang-trig';
+                    trigSpan.textContent = trig;
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'nt-bang-name';
+                    nameSpan.textContent = siteName;
+                    chip.appendChild(trigSpan);
+                    chip.appendChild(nameSpan);
                     chip.onclick = () => {
                         const inp = document.getElementById('ntSearchInput');
                         if (!inp) return;
@@ -514,78 +503,6 @@
             }
 
             updateClock();
-            renderQuickTipsCard();
-        }
-
-        const TIPS_STORAGE_KEY = '__fnx_tips_hidden__';
-        function isTipsDismissed() {
-            try { return localStorage.getItem(TIPS_STORAGE_KEY) === '1'; } catch (_) { return false; }
-        }
-        function renderQuickTipsCard(forceShow) {
-            const card = document.getElementById('ntTipsCard');
-            const list = document.getElementById('ntTipsList');
-            const dismissBtn = document.getElementById('btnDismissTips');
-            const tipsPill = document.getElementById('btnTipsPill');
-            if (!card || !list || !dismissBtn) return;
-            const zh = isZh();
-            if (tipsPill) {
-                tipsPill.title = zh ? '显示/隐藏上手技巧' : 'Show or hide quick tips';
-                tipsPill.classList.toggle('active', !isTipsDismissed());
-            }
-            if (!forceShow && isTipsDismissed()) {
-                card.style.display = 'none';
-                return;
-            }
-            card.style.display = 'flex';
-            list.textContent = '';
-            const tips = zh
-                ? [
-                    ['/', '聚焦搜索'],
-                    ['>', '快捷命令面板'],
-                    ['1920*1080', '即时算数'],
-                    ['!gh', '直达站内搜'],
-                    ['右键划动', '浏览器手势'],
-                    ['🛡️ 盾牌', '点哪藏哪屏蔽区块']
-                ]
-                : [
-                    ['/', 'Focus search'],
-                    ['>', 'Command palette'],
-                    ['1920*1080', 'Calculator'],
-                    ['!gh', 'Direct site search'],
-                    ['Right-drag', 'Mouse gestures'],
-                    ['🛡️ Shield', 'Pick & hide elements']
-                ];
-            tips.forEach(([kbdTxt, descTxt]) => {
-                const it = document.createElement('span');
-                it.className = 'nt-tips-item';
-                const k = document.createElement('span');
-                k.className = 'nt-tips-kbd';
-                k.textContent = kbdTxt;
-                const d = document.createElement('span');
-                d.textContent = descTxt;
-                it.appendChild(k);
-                it.appendChild(d);
-                list.appendChild(it);
-            });
-            dismissBtn.textContent = zh ? '知道了' : 'Dismiss';
-        }
-        const btnTipsPillEl = document.getElementById('btnTipsPill');
-        if (btnTipsPillEl) {
-            btnTipsPillEl.onclick = () => {
-                const nextHidden = !isTipsDismissed();
-                try {
-                    if (nextHidden) localStorage.setItem(TIPS_STORAGE_KEY, '1');
-                    else localStorage.removeItem(TIPS_STORAGE_KEY);
-                } catch (_) {}
-                renderQuickTipsCard(!nextHidden);
-            };
-        }
-        const btnDismissTipsEl = document.getElementById('btnDismissTips');
-        if (btnDismissTipsEl) {
-            btnDismissTipsEl.onclick = () => {
-                try { localStorage.setItem(TIPS_STORAGE_KEY, '1'); } catch (_) {}
-                renderQuickTipsCard(false);
-            };
         }
 
         function renderBookmarks() {
@@ -631,9 +548,10 @@
                 const del = document.createElement('button');
                 del.type = 'button';
                 del.className = 'bm-del';
-                del.title = 'Remove shortcut';
-                del.setAttribute('aria-label', 'Remove shortcut');
-                del.textContent = '×';
+                const rmLabel = isZh() ? '移除常用网站' : 'Remove shortcut';
+                del.title = rmLabel;
+                del.setAttribute('aria-label', rmLabel);
+                del.appendChild(createIcon('closeSmall'));
                 del.onclick = (e) => {
                     e.stopPropagation();
                     sendIpc({ type: 'REMOVE_BOOKMARK', url: bm.url });
@@ -719,7 +637,7 @@
                 const row = document.createElement('button');
                 row.type = 'button';
                 row.className = 'hist-row';
-                row.title = `Open ${item.url || ''} (Alt+${idx + 1})`;
+                row.title = (isZh() ? '打开 ' : 'Open ') + `${item.url || ''} (Alt+${idx + 1})`;
                 row.onclick = () => sendIpc({ type: 'NAVIGATE', url: item.url });
 
                 const left = document.createElement('span');
@@ -786,10 +704,9 @@
                 if (!p || !p.id) continue;
                 const nmZh = p.name_zh || p.name_en || p.id;
                 const nmEn = p.name_en || p.name_zh || p.id;
-                const icon = p.icon ? p.icon + ' ' : '';
                 list.push([
-                    '切换' + icon + nmZh,
-                    'Mode: ' + icon + nmEn,
+                    '切换' + nmZh,
+                    'Mode: ' + nmEn,
                     (p.id + ' ' + nmZh + ' ' + nmEn + ' mode 模式').toLowerCase(),
                     setMode(p.id)
                 ]);
@@ -852,7 +769,7 @@
                     run: () => {
                         try { navigator.clipboard.writeText(String(calc.value)); } catch (_) {}
                         const tagEl = suggestEl.querySelector('.nt-suggest-item .nt-suggest-tag');
-                        if (tagEl) tagEl.textContent = isZh() ? '已复制 ✓' : 'Copied ✓';
+                        if (tagEl) tagEl.textContent = isZh() ? '已复制' : 'Copied';
                     }
                 });
             }
@@ -873,24 +790,67 @@
                 });
             }
 
+            const scTag = isZh() ? '常用' : 'Shortcut';
             bookmarks.forEach(b => {
                 const key = (b.url || '').toLowerCase();
                 if (!seen[key] && ((b.title || '').toLowerCase().includes(q) || key.includes(q))) {
                     seen[key] = true;
-                    matches.push({ kind: 'url', title: b.title || formatHost(b.url), url: b.url, tag: 'Shortcut' });
+                    matches.push({ kind: 'url', title: b.title || formatHost(b.url), url: b.url, tag: scTag });
                 }
             });
 
+            const recTag = isZh() ? '最近' : 'Recent';
             dedupeHistoryItems(historyItems).forEach(h => {
                 const key = canonicalHistoryUrl(h.url);
                 const cleanTitle = cleanHistoryTitle(h.title, h.url);
                 if (!seen[key] && (cleanTitle.toLowerCase().includes(q) || key.includes(q))) {
                     seen[key] = true;
-                    matches.push({ kind: 'url', title: cleanTitle, url: h.url, tag: 'Recent' });
+                    matches.push({ kind: 'url', title: cleanTitle, url: h.url, tag: recTag });
                 }
             });
 
-            ntSuggestItems = matches.slice(0, isPalette ? 14 : 6);
+            if (q && !isPalette && !q.startsWith('!')) {
+                const siteTag = isZh() ? '推荐站点' : 'Site';
+                const popularDomains = [
+                    ['GitHub', 'https://github.com', 'github git gh code repo'],
+                    ['YouTube', 'https://www.youtube.com', 'youtube yt video'],
+                    ['Bilibili', 'https://www.bilibili.com', 'bilibili bili b站 哔哩哔哩'],
+                    ['Google', 'https://www.google.com', 'google search'],
+                    ['Bing', 'https://www.bing.com', 'bing search'],
+                    ['Wikipedia', 'https://www.wikipedia.org', 'wikipedia wiki 维基百科'],
+                    ['Reddit', 'https://www.reddit.com', 'reddit forum'],
+                    ['X / Twitter', 'https://x.com', 'twitter x.com'],
+                    ['Stack Overflow', 'https://stackoverflow.com', 'stackoverflow stack qa'],
+                    ['MDN Web Docs', 'https://developer.mozilla.org', 'mdn mozilla web docs css js'],
+                    ['Crates.io (Rust)', 'https://crates.io', 'crates rust cargo'],
+                    ['Docs.rs (Rust)', 'https://docs.rs', 'docs.rs rust documentation'],
+                    ['npm Registry', 'https://www.npmjs.com', 'npm node package js'],
+                    ['Zhihu 知乎', 'https://www.zhihu.com', 'zhihu 知乎'],
+                    ['V2EX', 'https://www.v2ex.com', 'v2ex developer'],
+                    ['ChatGPT', 'https://chatgpt.com', 'chatgpt openai ai'],
+                    ['Claude', 'https://claude.ai', 'claude anthropic ai'],
+                    ['Gemini', 'https://gemini.google.com', 'gemini google ai']
+                ];
+                for (let i = 0; i < popularDomains.length; i++) {
+                    const d = popularDomains[i];
+                    const key = canonicalHistoryUrl(d[1]);
+                    if (!seen[key] && (d[0].toLowerCase().includes(q) || d[1].toLowerCase().includes(q) || d[2].includes(q))) {
+                        seen[key] = true;
+                        matches.push({ kind: 'url', title: d[0], url: d[1], tag: siteTag });
+                    }
+                }
+                const engObj = currentEngineObj(config.search_engine);
+                const engName = (engObj && engObj.name) || 'Google';
+                const searchUrl = resolveQuery(rawTrim, config.search_engine);
+                matches.push({
+                    kind: 'url',
+                    title: isZh() ? `使用 ${engName} 搜索 “${rawTrim}”` : `Search ${engName} for "${rawTrim}"`,
+                    url: searchUrl,
+                    tag: engName
+                });
+            }
+
+            ntSuggestItems = matches.slice(0, isPalette ? 14 : 7);
             ntSuggestIdx = calc || (isPalette && ntSuggestItems.length) ? 0 : -1;
 
             if (ntSuggestItems.length === 0) {
@@ -1128,46 +1088,6 @@
             toggleEngineMenu();
         };
 
-        const btnModePillEl = document.getElementById('btnModePill');
-        if (btnModePillEl) {
-            btnModePillEl.onclick = () => {
-                const profiles = Array.isArray(config.mode_profiles) ? config.mode_profiles : [];
-                const cycle = ['auto', 'default'].concat(profiles.map(p => p && p.id).filter(Boolean));
-                const cur = String(config.active_mode || 'auto').toLowerCase();
-                const idx = cycle.findIndex(id => String(id).toLowerCase() === cur);
-                config.active_mode = cycle[(idx + 1) % cycle.length];
-                applySurface();
-                sendIpc({ type: 'PATCH_HUD_PREFS', active_mode: config.active_mode });
-            };
-        }
-
-        document.getElementById('btnIncogPill').onclick = () => {
-            config.incognito = !config.incognito;
-            applySurface();
-            sendIpc({ type: 'SAVE_CONFIG', config: config });
-        };
-
-        document.getElementById('btnShieldPill').onclick = () => {
-            config.adblock = config.adblock === false;
-            applySurface();
-            sendIpc({ type: 'SAVE_CONFIG', config: config });
-        };
-
-        const btnLangPill = document.getElementById('btnLangPill');
-        if (btnLangPill) {
-            btnLangPill.onclick = () => {
-                config.language = isZh() ? 'en' : 'zh';
-                applySurface();
-                renderBookmarks();
-                renderHistory();
-                sendIpc({ type: 'PATCH_HUD_PREFS', language: config.language });
-            };
-        }
-        const btnPrefsPill = document.getElementById('btnPrefsPill');
-        if (btnPrefsPill) {
-            btnPrefsPill.onclick = () => sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings' });
-        }
-
         const addBar = document.getElementById('addBmBar');
         const addTitle = document.getElementById('addBmTitle');
         const addUrl = document.getElementById('addBmUrl');
@@ -1200,6 +1120,115 @@
         document.getElementById('btnClearHist').onclick = () => {
             sendIpc({ type: 'CLEAR_HISTORY' });
         };
+
+        // On-Page Start Page Live Customizer Studio
+        const custBtn = document.getElementById('ntCustomizeBtn');
+        const custPanel = document.getElementById('ntCustomizePanel');
+        const custDimRange = document.getElementById('ntCustDimRange');
+        const custBlurRange = document.getElementById('ntCustBlurRange');
+        const modClockBtn = document.getElementById('ntModClock');
+        const mod24hBtn = document.getElementById('ntMod24h');
+        const modScBtn = document.getElementById('ntModShortcuts');
+        const modHistBtn = document.getElementById('ntModHistory');
+
+        function syncNewtabCustomizerUI() {
+            const zh = isZh();
+            const nt = (styles && styles.newtab) || {};
+            document.documentElement.classList.toggle('zero-fx', !!config.enforce_perf);
+            const btnLbl = document.getElementById('ntCustomizeBtnLabel');
+            if (btnLbl) btnLbl.textContent = zh ? '定制起始页' : 'Customize';
+            const tEl = document.getElementById('ntCustTitle');
+            if (tEl) tEl.textContent = zh ? '起始页实时定制' : 'Start Page Studio';
+            const fullBtn = document.getElementById('ntCustFullBtn');
+            if (fullBtn) fullBtn.textContent = zh ? '完整工作台 →' : 'Full Studio →';
+            const wpLbl = document.getElementById('ntCustWpLabel');
+            if (wpLbl) wpLbl.textContent = zh ? '壁纸与渐变氛围' : 'Wallpaper & Ambience';
+            const dimLbl = document.getElementById('ntCustDimLabel');
+            if (dimLbl) dimLbl.textContent = zh ? '暗度 / 模糊' : 'Dim / Blur';
+            const colsLbl = document.getElementById('ntCustColsLabel');
+            if (colsLbl) colsLbl.textContent = zh ? '网格列数' : 'Grid Columns';
+            const modsLbl = document.getElementById('ntCustModsLabel');
+            if (modsLbl) modsLbl.textContent = zh ? '显示模块' : 'Modules';
+
+            const wpNamesZh = ['极简纯黑', '深空极光', '静谧深海', '暮光紫霞', '森系暗绿', '暖阳落日'];
+            const wpNamesEn = ['Minimal', 'Aurora', 'Ocean', 'Twilight', 'Forest', 'Sunset'];
+            const curWp = String(nt.background_image || '').trim();
+            document.querySelectorAll('[data-nt-wp]').forEach((chip, i) => {
+                chip.textContent = zh ? (wpNamesZh[i] || chip.textContent) : (wpNamesEn[i] || chip.textContent);
+                chip.classList.toggle('active', chip.getAttribute('data-nt-wp') === curWp);
+            });
+
+            if (custDimRange) custDimRange.value = String(nt.background_dim !== undefined ? nt.background_dim : 45);
+            if (custBlurRange) custBlurRange.value = String(nt.background_blur || 0);
+
+            const curCols = Number(nt.shortcuts_columns) || 0;
+            document.querySelectorAll('[data-nt-cols]').forEach((chip) => {
+                const c = Number(chip.getAttribute('data-nt-cols')) || 0;
+                if (c === 0) chip.textContent = zh ? '自适应' : 'Auto';
+                chip.classList.toggle('active', c === curCols);
+            });
+
+            if (modClockBtn) {
+                modClockBtn.textContent = zh ? '时钟' : 'Clock';
+                modClockBtn.classList.toggle('active', nt.show_clock !== false);
+            }
+            if (mod24hBtn) {
+                mod24hBtn.textContent = '24h';
+                mod24hBtn.classList.toggle('active', nt.use_24h_clock !== false);
+            }
+            if (modScBtn) {
+                modScBtn.textContent = zh ? '常用' : 'Shortcuts';
+                modScBtn.classList.toggle('active', nt.show_shortcuts !== false);
+            }
+            if (modHistBtn) {
+                modHistBtn.textContent = zh ? '最近' : 'Recent';
+                modHistBtn.classList.toggle('active', nt.show_history !== false);
+            }
+        }
+
+        function patchNewtabPref(patch) {
+            styles.newtab = Object.assign({}, styles.newtab || {}, patch);
+            applySurface();
+            renderHistory();
+            syncNewtabCustomizerUI();
+            sendIpc({ type: 'PATCH_HUD_PREFS', newtab_prefs: patch });
+        }
+
+        if (custBtn && custPanel) {
+            custBtn.onclick = (e) => {
+                e.stopPropagation();
+                syncNewtabCustomizerUI();
+                const open = custPanel.classList.toggle('open');
+                custBtn.classList.toggle('active', open);
+            };
+            custPanel.onclick = (e) => e.stopPropagation();
+            document.addEventListener('click', (e) => {
+                if (custPanel.classList.contains('open') && (!e.target.closest || (!e.target.closest('#ntCustomizePanel') && !e.target.closest('#ntCustomizeBtn')))) {
+                    custPanel.classList.remove('open');
+                    custBtn.classList.remove('active');
+                }
+            });
+            document.getElementById('ntCustFullBtn').onclick = () => {
+                sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-styles' });
+            };
+            document.querySelectorAll('[data-nt-wp]').forEach((chip) => {
+                chip.onclick = () => patchNewtabPref({ background_image: chip.getAttribute('data-nt-wp') || '' });
+            });
+            if (custDimRange) {
+                custDimRange.oninput = () => patchNewtabPref({ background_dim: Number(custDimRange.value) || 0 });
+            }
+            if (custBlurRange) {
+                custBlurRange.oninput = () => patchNewtabPref({ background_blur: Number(custBlurRange.value) || 0 });
+            }
+            document.querySelectorAll('[data-nt-cols]').forEach((chip) => {
+                chip.onclick = () => patchNewtabPref({ shortcuts_columns: Number(chip.getAttribute('data-nt-cols')) || 0 });
+            });
+            if (modClockBtn) modClockBtn.onclick = () => patchNewtabPref({ show_clock: (styles.newtab && styles.newtab.show_clock) === false });
+            if (mod24hBtn) mod24hBtn.onclick = () => patchNewtabPref({ use_24h_clock: (styles.newtab && styles.newtab.use_24h_clock) === false });
+            if (modScBtn) modScBtn.onclick = () => patchNewtabPref({ show_shortcuts: (styles.newtab && styles.newtab.show_shortcuts) === false });
+            if (modHistBtn) modHistBtn.onclick = () => patchNewtabPref({ show_history: (styles.newtab && styles.newtab.show_history) === false });
+            syncNewtabCustomizerUI();
+        }
 
         setInterval(updateClock, 15000);
 

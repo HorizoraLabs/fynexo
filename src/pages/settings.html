@@ -15,14 +15,14 @@ __FNX_SETTINGS_CSS__
             <div class="sidebar-top">
                 <div class="brand-header" style="display: flex; align-items: center; gap: 8px;">
                     <div class="brand-identity">
-                        <span class="brand-glyph" aria-hidden="true">✦</span>
+                        <svg class="brand-glyph" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.6l1.55 4.85L14.4 8l-4.85 1.55L8 14.4l-1.55-4.85L1.6 8l4.85-1.55L8 1.6z" fill="currentColor"/></svg>
                         <span class="brand-title">Preferences</span>
                     </div>
-                    <button type="button" class="action-btn compact" id="btnSettingsLang" title="切换界面语言 / Switch UI language" style="margin-left: auto;">中文 · EN</button>
+                    <button type="button" class="action-btn compact" id="btnSettingsLang" title="切换界面语言 / Switch UI language" style="margin-left: auto;">中文 / EN</button>
                 </div>
 
                 <div style="padding: 0 4px;">
-                    <input type="text" id="inputSettingsSearch" class="text-input" placeholder="🔍 搜索设置项..." style="width: 100%; height: 30px; font-size: 12px;">
+                    <input type="text" id="inputSettingsSearch" class="text-input" placeholder="Search settings..." style="width: 100%; height: 30px; font-size: 12px;">
                 </div>
 
                 <nav class="nav-list" id="sidebarNav" aria-label="Settings sections">
@@ -75,14 +75,14 @@ __FNX_SETTINGS_CSS__
                     <div class="nav-bottom">
                         <button type="button" class="nav-link" data-sec="sec-extensions">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6.2 2.5h3.6a1 1 0 0 1 1 1v1.1a1.4 1.4 0 0 0 2.4 1v0a1 1 0 0 1 1 1v3.6a1 1 0 0 1-1 1h-1.1a1.4 1.4 0 0 0-1 2.4v0a1 1 0 0 1-1 1H6.2a1 1 0 0 1-1-1v-1.1a1.4 1.4 0 0 0-2.4-1h0a1 1 0 0 1-1-1V6.6a1 1 0 0 1 1-1h1.1a1.4 1.4 0 0 0 1-2.4v0a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
-                            <span>内建 Extension</span>
+                            <span>Extensions</span>
                             <span class="nav-pill-count" id="extNavCount">0</span>
                         </button>
                     </div>
                 </nav>
             </div>
 
-            <div class="sidebar-footer">Single-WebView · v0.1.0</div>
+            <div class="sidebar-footer" id="sidebarFooterText">Fynexo Studio · v0.1.0</div>
         </aside>
 
         <main class="workspace">
@@ -140,7 +140,20 @@ __FNX_SETTINGS_CSS__
                     <div class="sec-header">
                         <div>
                             <h2 class="sec-title">Browsing &amp; tabs</h2>
-                            <p class="sec-desc">Homepage, User-Agent spoofing, page zoom, Zero-FX rendering, and session restore.</p>
+                            <p class="sec-desc">Homepage, User-Agent spoofing, page zoom, window architecture, and session restore.</p>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label">Interface language</div>
+                            <div class="set-hint">Switch all browser menus, Start Page, Settings, and notifications live without reloading.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <div class="seg-group" id="langModeGroup">
+                                <button type="button" class="seg-btn" data-lang="zh">简体中文</button>
+                                <button type="button" class="seg-btn" data-lang="en">English</button>
+                            </div>
                         </div>
                     </div>
 
@@ -212,13 +225,23 @@ __FNX_SETTINGS_CSS__
                         </div>
                     </div>
 
-                    <div class="set-row" style="border-bottom: none;">
+                    <div class="set-row">
                         <div class="set-meta">
                             <div class="set-label">Restore tabs &amp; scroll position</div>
                             <div class="set-hint">Reopens previous tabs and restores scroll depth on launch.</div>
                         </div>
                         <div class="set-ctrl">
                             <button type="button" id="btnRestoreToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Restore session"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row" style="border-bottom: none;">
+                        <div class="set-meta">
+                            <div class="set-label">Allow Console JS Eval &amp; Native DevTools</div>
+                            <div class="set-hint">Enables executing expressions in DevDrawer Console REPL and opening native F12 DevTools in release builds. Keep off when browsing untrusted sites.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnAllowPageEvalToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Allow console JS eval"></button>
                         </div>
                     </div>
                     <div class="set-block" style="border-top: 1px solid var(--fnx-hairline); margin-top: 8px; padding-top: 12px;">
@@ -412,6 +435,16 @@ __FNX_SETTINGS_CSS__
                         <div class="set-ctrl">
                             <button type="button" class="action-btn compact" id="btnPerfDisableHeavyExt">Disable heavy</button>
                             <button type="button" class="action-btn compact" id="btnPerfManageExt">Manage</button>
+                        </div>
+                    </div>
+
+                    <div class="set-row desktop-only-sec">
+                        <div class="set-meta">
+                            <div class="set-label"><span>Chrome native extension engine</span><span class="ext-mem-tag on" id="tagChromeExtRam">0 active</span></div>
+                            <div class="set-hint">Runs WebView2 Chrome/Edge extensions (.crx / Web Store); Ultra-Low preset turns this off at boot for zero overhead (restart after toggling).</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnChromeExtEngineToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Chrome extension engine"></button>
                         </div>
                     </div>
 
@@ -641,15 +674,16 @@ __FNX_SETTINGS_CSS__
                     </div>
                 </section>
 
-                <!-- 5C. 内建 Extension (Built-in Opt-In Modules + Custom CSS/JS + Supabase Cloud Store) -->
+                <!-- 5C. Extensions (Built-in Opt-In Modules + Chrome Extensions + Custom CSS/JS + Supabase Cloud Store) -->
                 <section class="sec-block" id="sec-extensions">
                     <div class="sec-header">
                         <div>
-                            <h2 class="sec-title">内建 Extension</h2>
+                            <h2 class="sec-title">Extensions &amp; ScriptForge</h2>
                             <p class="sec-desc">Opt-in memory-heavy modules (off by default), custom scripts, &amp; on-demand cloud store.</p>
                         </div>
                         <div class="seg-group" id="extSubTabs">
                             <button type="button" class="seg-btn active" data-subpane="pane-ext-builtin">Built-in</button>
+                            <button type="button" class="seg-btn desktop-only-inline" data-subpane="pane-ext-chrome" id="tabBtnExtChrome">Chrome Extensions</button>
                             <button type="button" class="seg-btn" data-subpane="pane-ext-custom">Installed</button>
                             <button type="button" class="seg-btn" data-subpane="pane-ext-cloud">Cloud Store</button>
                         </div>
@@ -658,6 +692,45 @@ __FNX_SETTINGS_CSS__
                     <!-- Sub-pane A: Built-in Opt-In Modules -->
                     <div class="sub-pane active" id="pane-ext-builtin">
                         <div id="builtinExtensionsList"></div>
+                    </div>
+
+                    <!-- Sub-pane A2: Windows Chrome / Edge Native Extensions -->
+                    <div class="sub-pane" id="pane-ext-chrome">
+                        <div class="sec-audit-banner clean" id="chromeExtEngineBanner" style="margin-bottom: 12px;">WebView2 Chrome Extension engine status</div>
+
+                        <div class="set-row align-top">
+                            <div class="set-meta">
+                                <div class="set-label" id="lblChromeStoreInstall">Install from Chrome / Edge Web Store</div>
+                                <div class="set-hint" id="hintChromeStoreInstall">Paste a Chrome Web Store / Edge Add-ons URL or 32-character extension ID to download &amp; install directly.</div>
+                            </div>
+                            <div class="set-ctrl" style="max-width: 460px; width: 100%;">
+                                <input type="text" id="inputChromeStoreUrl" class="text-input mono" spellcheck="false" placeholder="https://chromewebstore.google.com/detail/... or 32-char ID" style="flex: 1;">
+                                <button type="button" class="action-btn compact" id="btnInstallChromeStore">Install</button>
+                                <button type="button" class="action-btn compact" id="btnOpenChromeWebStore">Web Store</button>
+                            </div>
+                        </div>
+
+                        <div class="set-row align-top">
+                            <div class="set-meta">
+                                <div class="set-label" id="lblChromeLocalInstall">Import local .crx / .zip or unpacked folder</div>
+                                <div class="set-hint" id="hintChromeLocalInstall">Supports offline .crx3 / .zip archives or developer unpacked folder paths containing manifest.json.</div>
+                            </div>
+                            <div class="set-ctrl-col" style="max-width: 460px; width: 100%; gap: 8px;">
+                                <div style="display: flex; align-items: center; gap: 6px; width: 100%; justify-content: flex-end; flex-wrap: wrap;">
+                                    <input type="file" id="fileImportCrx" accept=".crx,.zip" style="display: none;">
+                                    <button type="button" class="action-btn compact" id="btnImportCrx">Import .crx / .zip</button>
+                                    <button type="button" class="action-btn compact" id="btnOpenChromeExtDir">Open folder</button>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
+                                    <input type="text" id="inputChromeExtDir" class="text-input mono" spellcheck="false" placeholder="C:\path\to\unpacked-extension" style="flex: 1;">
+                                    <button type="button" class="action-btn compact" id="btnInstallChromeDir">Load folder</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="rc-table" style="margin-top: 12px;">
+                            <div class="rc-rows" id="chromeExtensionsList"></div>
+                        </div>
                     </div>
 
                     <!-- Sub-pane B: Installed / Custom CSS & JS Extensions -->
@@ -693,12 +766,12 @@ __FNX_SETTINGS_CSS__
                                 <div class="field-box">
                                     <label class="field-label"><span id="lblRuleNoCode">No-code building blocks (click to add)</span><span class="field-tag" id="tagRuleNoCode">Zero-code</span></label>
                                     <div class="preset-chips" id="ruleNoCodeBar" style="margin-top: 2px;">
-                                        <button type="button" class="preset-chip" data-nocode="unblock_copy">🔓 Unblock Copy &amp; Right-Click</button>
-                                        <button type="button" class="preset-chip" data-nocode="links_newtab">🔗 Open External Links in New Tab</button>
-                                        <button type="button" class="preset-chip" data-nocode="clean_font">📖 Clean Reading Typography</button>
-                                        <button type="button" class="preset-chip" data-nocode="scroll_top_btn">⬆️ Floating Back-to-Top Button</button>
-                                        <button type="button" class="preset-chip" data-nocode="hide_popups">🧹 Hide Sticky Popups &amp; App Banners</button>
-                                        <button type="button" class="preset-chip" data-nocode="auto_click_skip">⚡ Auto-Expand / Skip Prompts</button>
+                                        <button type="button" class="preset-chip" data-nocode="unblock_copy">Unblock Copy &amp; Right-Click</button>
+                                        <button type="button" class="preset-chip" data-nocode="links_newtab">Open External Links in New Tab</button>
+                                        <button type="button" class="preset-chip" data-nocode="clean_font">Clean Reading Typography</button>
+                                        <button type="button" class="preset-chip" data-nocode="scroll_top_btn">Floating Back-to-Top Button</button>
+                                        <button type="button" class="preset-chip" data-nocode="hide_popups">Hide Sticky Popups &amp; App Banners</button>
+                                        <button type="button" class="preset-chip" data-nocode="auto_click_skip">Auto-Expand / Skip Prompts</button>
                                     </div>
                                 </div>
                                 <div class="field-box">
@@ -794,12 +867,12 @@ __FNX_SETTINGS_CSS__
                             <div class="field-box">
                                 <label class="field-label"><span id="lblPubNoCode">No-code building blocks (click to add)</span><span class="field-tag" id="tagPubNoCode">Zero-code</span></label>
                                 <div class="preset-chips" id="pubNoCodeBar" style="margin-top: 2px;">
-                                    <button type="button" class="preset-chip" data-pub-nocode="unblock_copy">🔓 Unblock Copy &amp; Right-Click</button>
-                                    <button type="button" class="preset-chip" data-pub-nocode="links_newtab">🔗 Open External Links in New Tab</button>
-                                    <button type="button" class="preset-chip" data-pub-nocode="clean_font">📖 Clean Reading Typography</button>
-                                    <button type="button" class="preset-chip" data-pub-nocode="scroll_top_btn">⬆️ Floating Back-to-Top Button</button>
-                                    <button type="button" class="preset-chip" data-pub-nocode="hide_popups">🧹 Hide Sticky Popups &amp; App Banners</button>
-                                    <button type="button" class="preset-chip" data-pub-nocode="auto_click_skip">⚡ Auto-Expand / Skip Prompts</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="unblock_copy">Unblock Copy &amp; Right-Click</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="links_newtab">Open External Links in New Tab</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="clean_font">Clean Reading Typography</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="scroll_top_btn">Floating Back-to-Top Button</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="hide_popups">Hide Sticky Popups &amp; App Banners</button>
+                                    <button type="button" class="preset-chip" data-pub-nocode="auto_click_skip">Auto-Expand / Skip Prompts</button>
                                 </div>
                             </div>
                             <div class="field-box">
@@ -874,6 +947,7 @@ __FNX_SETTINGS_CSS__
                                 <button type="button" class="action-btn compact" data-ui-preset="deck">经典双栏 (Deck)</button>
                                 <button type="button" class="action-btn compact" data-ui-preset="pill">大圆角胶囊 (Pill)</button>
                                 <button type="button" class="action-btn compact" data-ui-preset="vertical">左侧竖排边栏 (Sidebar)</button>
+                                <button type="button" class="action-btn compact" data-ui-preset="glass">亚克力毛玻璃 (Glass)</button>
                             </div>
                         </div>
                         <div class="set-row">

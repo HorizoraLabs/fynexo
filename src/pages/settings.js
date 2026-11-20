@@ -74,6 +74,7 @@
             ext_media_booster: false,
             ext_userscript_engine: true,
             ext_mouse_gestures: true,
+            chrome_extensions_enabled: true,
             site_overrides: {},
             search_engine: 'google',
             homepage: 'fynexo://newtab',
@@ -103,6 +104,8 @@
         }
         let rustBlockedAds = Number(boot.blocked_ads) || 0;
         let blockedAds = resolveTotalBlockedAds(rustBlockedAds);
+        let chromeExtensions = Array.isArray(boot.chrome_extensions) ? boot.chrome_extensions : [];
+        let chromeExtEngineActive = !!boot.chrome_ext_engine_active;
         let historyEntries = Array.isArray(boot.history) ? boot.history : [];
         let historyCount = historyEntries.length;
 
@@ -451,7 +454,7 @@
                 nm.textContent = item.name || item.id;
                 const activeTag = document.createElement('span');
                 activeTag.className = 'theme-active-tag';
-                activeTag.textContent = 'Active';
+                activeTag.textContent = isZh() ? '使用中' : 'Active';
                 nameWrap.appendChild(nm);
                 nameWrap.appendChild(activeTag);
 
@@ -466,7 +469,7 @@
                     const delBtn = document.createElement('button');
                     delBtn.type = 'button';
                     delBtn.className = 'theme-del-btn';
-                    delBtn.title = `Delete custom theme ${item.id}.json`;
+                    delBtn.title = isZh() ? `删除自定义主题 ${item.id}.json` : `Delete custom theme ${item.id}.json`;
                     delBtn.textContent = '×';
                     delBtn.onclick = (e) => {
                         e.stopPropagation();
@@ -480,7 +483,7 @@
 
                 const sub = document.createElement('div');
                 sub.className = 'theme-sub';
-                sub.textContent = item.description || 'Custom JSON palette';
+                sub.textContent = item.description || (isZh() ? '自定义 JSON 主题' : 'Custom JSON palette');
 
                 card.appendChild(preview);
                 card.appendChild(info);
@@ -496,7 +499,7 @@
                     }
                     renderColorTokensStudio();
                     applySettingsSurface();
-                    saveConfig(`Theme set to ${item.name || item.id}`);
+                    saveConfig(isZh() ? `已切换主题：${item.name || item.id}` : `Theme set to ${item.name || item.id}`);
                 };
 
                 card.onclick = selectThisTheme;
@@ -562,24 +565,24 @@
                 if (isDef) {
                     const pill = document.createElement('span');
                     pill.className = 'rc-active-pill';
-                    pill.textContent = 'Default';
+                    pill.textContent = isZh() ? '默认' : 'Default';
                     right.appendChild(pill);
                 }
                 if (!builtinIds.includes(eng.id) && list.length > 1) {
-                    right.appendChild(createCompactDeleteBtn('Remove custom search engine', () => {
+                    right.appendChild(createCompactDeleteBtn(isZh() ? '删除自定义搜索引擎' : 'Remove custom search engine', () => {
                         config.search_engines = list.filter(x => x.id !== eng.id);
                         if (config.search_engine === eng.id) {
                             config.search_engine = config.search_engines[0].id;
                         }
                         renderEngineTable();
-                        saveConfig('Removed search engine');
+                        saveConfig(isZh() ? '已删除搜索引擎' : 'Removed search engine');
                     }));
                 }
 
                 row.onclick = () => {
                     config.search_engine = eng.id;
                     renderEngineTable();
-                    saveConfig(`Search engine: ${eng.name || eng.id}`);
+                    saveConfig((isZh() ? '默认搜索引擎：' : 'Search engine: ') + (eng.name || eng.id));
                 };
 
                 row.appendChild(left);
@@ -597,7 +600,7 @@
             if (bangs.length === 0) {
                 const empty = document.createElement('div');
                 empty.className = 'rc-row-empty';
-                empty.textContent = 'No !bang triggers yet — add one below.';
+                empty.textContent = isZh() ? '暂无 !bang 快捷搜索指令 — 可在下方添加。' : 'No !bang triggers yet — add one below.';
                 tbl.appendChild(empty);
                 return;
             }
@@ -628,10 +631,10 @@
 
                 const right = document.createElement('div');
                 right.className = 'rc-right';
-                right.appendChild(createCompactDeleteBtn(`Remove ${trigStr}`, () => {
+                right.appendChild(createCompactDeleteBtn(isZh() ? `删除 ${trigStr}` : `Remove ${trigStr}`, () => {
                     config.bangs = bangs.filter((_, i) => i !== idx);
                     renderBangsTable();
-                    saveConfig(`Removed ${trigStr}`);
+                    saveConfig(isZh() ? `已删除指令 ${trigStr}` : `Removed ${trigStr}`);
                 }));
 
                 row.appendChild(left);
@@ -648,7 +651,7 @@
             if (bookmarks.length === 0) {
                 const empty = document.createElement('div');
                 empty.className = 'rc-row-empty';
-                empty.textContent = 'No shortcuts saved — add one below.';
+                empty.textContent = isZh() ? '暂无常用网站 — 可在下方添加。' : 'No shortcuts saved — add one below.';
                 tbl.appendChild(empty);
                 return;
             }
@@ -674,7 +677,7 @@
 
                 const right = document.createElement('div');
                 right.className = 'rc-right';
-                right.appendChild(createCompactDeleteBtn('Remove shortcut', () => {
+                right.appendChild(createCompactDeleteBtn(isZh() ? '移除常用网站' : 'Remove shortcut', () => {
                     sendIpc({ type: 'REMOVE_BOOKMARK', url: bm.url });
                 }));
 
@@ -721,21 +724,22 @@
         }
 
         function renderAdblockDomainLists() {
+            const zh = isZh();
             const bList = Array.isArray(adblockCfg.custom_blocked_domains) ? adblockCfg.custom_blocked_domains : [];
             const wList = Array.isArray(adblockCfg.whitelisted_domains) ? adblockCfg.whitelisted_domains : [];
 
-            renderDomainTable('blockedDomainsList', bList, 'No custom blocked domains.', (dom) => {
+            renderDomainTable('blockedDomainsList', bList, zh ? '暂无自定义屏蔽域名。' : 'No custom blocked domains.', (dom) => {
                 adblockCfg.custom_blocked_domains = bList.filter(x => x !== dom);
                 renderAdblockDomainLists();
                 sendIpc({ type: 'SAVE_ADBLOCK', adblock: adblockCfg });
-                showToast(`Unblocked ${dom}`);
+                showToast(zh ? `已移出屏蔽列表：${dom}` : `Unblocked ${dom}`);
             });
 
-            renderDomainTable('whitelistDomainsList', wList, 'No whitelisted domains.', (dom) => {
+            renderDomainTable('whitelistDomainsList', wList, zh ? '暂无白名单域名。' : 'No whitelisted domains.', (dom) => {
                 adblockCfg.whitelisted_domains = wList.filter(x => x !== dom);
                 renderAdblockDomainLists();
                 sendIpc({ type: 'SAVE_ADBLOCK', adblock: adblockCfg });
-                showToast(`Removed ${dom} from whitelist`);
+                showToast(zh ? `已移出白名单：${dom}` : `Removed ${dom} from whitelist`);
             });
         }
 
@@ -787,22 +791,24 @@
 
         function renderAuditBanner(el, audit, mode) {
             if (!el) return;
+            const zh = isZh();
             el.classList.remove('warn', 'clean');
             if (audit && audit.hasWarnings) {
                 el.classList.add('warn');
                 const prefix = mode === 'upload'
-                    ? 'Warning — upload will be flagged as "warning" in database: '
-                    : 'Security Warning — review source carefully before enabling: ';
+                    ? (zh ? '警告 — 上传后数据库将标为 warning：' : 'Warning — upload will be flagged as "warning" in database: ')
+                    : (zh ? '安全提示 — 启用前请核对代码：' : 'Security Warning — review source carefully before enabling: ');
                 el.textContent = prefix + audit.warnings.join(' · ');
             } else {
                 el.classList.add('clean');
                 el.textContent = mode === 'upload'
-                    ? 'Security check: Clean — upload enters queue as "unverified".'
-                    : 'Security check: Clean — no suspicious patterns detected.';
+                    ? (zh ? '安全检测通过 — 上传后将进入 unverified 待审队列。' : 'Security check: Clean — upload enters queue as "unverified".')
+                    : (zh ? '安全检测通过 — 未发现高风险接口调用。' : 'Security check: Clean — no suspicious patterns detected.');
             }
         }
 
         function renderSiteRulesList() {
+            const zh = isZh();
             const listEl = document.getElementById('rulesList');
             listEl.textContent = '';
 
@@ -810,7 +816,9 @@
                 const empty = document.createElement('div');
                 empty.className = 'rc-row-empty';
                 empty.style.borderBottom = 'none';
-                empty.textContent = 'No custom CSS/JS extensions configured. Click "+ Add Extension" or install from Cloud Store.';
+                empty.textContent = zh
+                    ? '暂无自定义 CSS/JS 扩展规则。点击「+ 新建扩展」或前往「Cloud Store」安装。'
+                    : 'No custom CSS/JS extensions configured. Click "+ Add Extension" or install from Cloud Store.';
                 listEl.appendChild(empty);
                 updateExtensionNavCount();
                 return;
@@ -872,37 +880,37 @@
                 sw.className = rule.enabled ? 'fnx-switch on' : 'fnx-switch';
                 sw.setAttribute('role', 'switch');
                 sw.setAttribute('aria-checked', rule.enabled ? 'true' : 'false');
-                sw.title = rule.enabled ? 'Disable rule' : 'Enable rule';
+                sw.title = rule.enabled ? (zh ? '停用规则' : 'Disable rule') : (zh ? '启用规则' : 'Enable rule');
                 sw.onclick = () => {
                     rule.enabled = !rule.enabled;
                     renderSiteRulesList();
                     if (cloudLoadedOnce) renderCloudExtensions();
                     sendIpc({ type: 'SAVE_RULES', rules: siteRules });
-                    showToast(`${rule.name || 'Rule'}: ${rule.enabled ? 'Enabled' : 'Disabled'}`);
+                    showToast(`${rule.name || (zh ? '规则' : 'Rule')}: ${rule.enabled ? (zh ? '已启用' : 'Enabled') : (zh ? '已停用' : 'Disabled')}`);
                 };
 
                 const pubBtn = document.createElement('button');
                 pubBtn.type = 'button';
                 pubBtn.className = 'action-btn compact';
-                pubBtn.textContent = 'Publish';
-                pubBtn.title = 'Upload extension to Supabase Cloud Store (starts as unverified)';
+                pubBtn.textContent = zh ? '发布' : 'Publish';
+                pubBtn.title = zh ? '上传扩展到 Supabase 云商店（需审核通过后公开）' : 'Upload extension to Supabase Cloud Store (starts as unverified)';
                 pubBtn.onclick = () => openPublishPanel(rule);
 
                 const editBtn = document.createElement('button');
                 editBtn.type = 'button';
                 editBtn.className = 'action-btn compact';
-                editBtn.textContent = 'Edit';
+                editBtn.textContent = zh ? '编辑' : 'Edit';
                 editBtn.onclick = () => openRuleEditor(rule);
 
                 right.appendChild(pubBtn);
                 right.appendChild(editBtn);
                 right.appendChild(sw);
-                right.appendChild(createCompactDeleteBtn('Delete rule', () => {
+                right.appendChild(createCompactDeleteBtn(zh ? '删除规则' : 'Delete rule', () => {
                     siteRules = siteRules.filter(x => x.id !== rule.id);
                     renderSiteRulesList();
                     if (cloudLoadedOnce) renderCloudExtensions();
                     sendIpc({ type: 'SAVE_RULES', rules: siteRules });
-                    showToast('Deleted rule');
+                    showToast(zh ? '已删除扩展规则' : 'Deleted rule');
                 }));
 
                 row.appendChild(left);
@@ -927,7 +935,10 @@
             const customEnabled = Array.isArray(siteRules)
                 ? siteRules.filter(r => r && r.enabled).length
                 : 0;
-            navBadge.textContent = String(active + customEnabled);
+            const chromeEnabled = Array.isArray(chromeExtensions)
+                ? chromeExtensions.filter(e => e && e.enabled).length
+                : 0;
+            navBadge.textContent = String(active + customEnabled + chromeEnabled);
         }
 
         // =========================================================================
@@ -997,6 +1008,7 @@
         }
 
         function renderCloudExtensions() {
+            const zh = isZh();
             const listEl = document.getElementById('cloudExtList');
             if (!listEl) return;
             listEl.textContent = '';
@@ -1006,7 +1018,9 @@
                 const empty = document.createElement('div');
                 empty.className = 'rc-row-empty';
                 empty.style.borderBottom = 'none';
-                empty.textContent = 'Supabase API not connected. Configure .env.local before build or enter your URL & Anon Key in API Config above.';
+                empty.textContent = zh
+                    ? '尚未连接 Supabase API。请构建前配置 .env.local，或在上方「API 配置」填入 URL 与 Anon Key。'
+                    : 'Supabase API not connected. Configure .env.local before build or enter your URL & Anon Key in API Config above.';
                 listEl.appendChild(empty);
                 return;
             }
@@ -1015,7 +1029,7 @@
                 const loadingRow = document.createElement('div');
                 loadingRow.className = 'rc-row-empty';
                 loadingRow.style.borderBottom = 'none';
-                loadingRow.textContent = 'Fetching extension catalog metadata from Supabase...';
+                loadingRow.textContent = zh ? '正在从 Supabase 获取云端扩展列表…' : 'Fetching extension catalog metadata from Supabase...';
                 listEl.appendChild(loadingRow);
                 return;
             }
@@ -1034,8 +1048,8 @@
                 empty.className = 'rc-row-empty';
                 empty.style.borderBottom = 'none';
                 empty.textContent = cloudCatalog.length === 0
-                    ? 'No verified extensions found in Supabase yet. Click Refresh or upload one above.'
-                    : 'No matching extensions for the current filter.';
+                    ? (zh ? '云商店暂无已验证扩展，请点击「刷新」或上传分享一个。' : 'No verified extensions found in Supabase yet. Click Refresh or upload one above.')
+                    : (zh ? '没有匹配当前筛选条件的扩展。' : 'No matching extensions for the current filter.');
                 listEl.appendChild(empty);
                 return;
             }
@@ -1079,8 +1093,8 @@
                 const inspBtn = document.createElement('button');
                 inspBtn.type = 'button';
                 inspBtn.className = 'action-btn compact';
-                inspBtn.textContent = 'Inspect';
-                inspBtn.title = 'Inspect CSS/JS source and run local security check';
+                inspBtn.textContent = zh ? '查源码' : 'Inspect';
+                inspBtn.title = zh ? '查看 CSS/JS 源码并执行本地安全审计' : 'Inspect CSS/JS source and run local security check';
                 inspBtn.onclick = () => inspectCloudExtension(item, inspBtn);
                 right.appendChild(inspBtn);
 
@@ -1091,8 +1105,8 @@
                         const updBtn = document.createElement('button');
                         updBtn.type = 'button';
                         updBtn.className = 'action-btn compact';
-                        updBtn.textContent = 'Update';
-                        updBtn.title = `Update from ${localVer || 'legacy'} to v${cloudVer}`;
+                        updBtn.textContent = zh ? '更新' : 'Update';
+                        updBtn.title = zh ? `从 ${localVer || '旧版'} 更新到 v${cloudVer}` : `Update from ${localVer || 'legacy'} to v${cloudVer}`;
                         updBtn.onclick = () => installCloudExtension(item, updBtn, false);
                         right.appendChild(updBtn);
                     }
@@ -1102,25 +1116,25 @@
                     sw.className = installedRule.enabled ? 'fnx-switch on' : 'fnx-switch';
                     sw.setAttribute('role', 'switch');
                     sw.setAttribute('aria-checked', installedRule.enabled ? 'true' : 'false');
-                    sw.title = installedRule.enabled ? 'Disable extension' : 'Enable extension';
+                    sw.title = installedRule.enabled ? (zh ? '停用扩展' : 'Disable extension') : (zh ? '启用扩展' : 'Enable extension');
                     sw.onclick = () => {
                         installedRule.enabled = !installedRule.enabled;
                         renderSiteRulesList();
                         renderCloudExtensions();
                         sendIpc({ type: 'SAVE_RULES', rules: siteRules });
-                        showToast(`${installedRule.name}: ${installedRule.enabled ? 'Enabled' : 'Disabled'}`);
+                        showToast(`${installedRule.name}: ${installedRule.enabled ? (zh ? '已启用' : 'Enabled') : (zh ? '已停用' : 'Disabled')}`);
                     };
 
                     const rmBtn = document.createElement('button');
                     rmBtn.type = 'button';
                     rmBtn.className = 'action-btn compact';
-                    rmBtn.textContent = 'Remove';
+                    rmBtn.textContent = zh ? '卸载' : 'Remove';
                     rmBtn.onclick = () => {
                         siteRules = siteRules.filter(x => x.id !== ruleId);
                         renderSiteRulesList();
                         renderCloudExtensions();
                         sendIpc({ type: 'SAVE_RULES', rules: siteRules });
-                        showToast(`Removed ${item.name}`);
+                        showToast(zh ? `已移除 ${item.name}` : `Removed ${item.name}`);
                     };
                     right.appendChild(rmBtn);
                     right.appendChild(sw);
@@ -1128,7 +1142,7 @@
                     const dlBtn = document.createElement('button');
                     dlBtn.type = 'button';
                     dlBtn.className = 'action-btn compact';
-                    dlBtn.textContent = 'Install';
+                    dlBtn.textContent = zh ? '安装' : 'Install';
                     dlBtn.onclick = () => installCloudExtension(item, dlBtn, false);
                     right.appendChild(dlBtn);
                 }
@@ -1150,7 +1164,7 @@
             sel.textContent = '';
             const allOpt = document.createElement('option');
             allOpt.value = 'all';
-            allOpt.textContent = 'All categories';
+            allOpt.textContent = isZh() ? '全部分类' : 'All categories';
             sel.appendChild(allOpt);
             cats.forEach((c) => {
                 const o = document.createElement('option');
@@ -1162,28 +1176,30 @@
         }
 
         async function fetchCloudCatalog(forceToast) {
+            const zh = isZh();
             const creds = getSupabaseCreds();
             if (!creds.isConfigured) {
                 syncCloudConfigInputs();
                 renderCloudExtensions();
-                if (forceToast) showToast('Enter Supabase URL & Anon Key first');
+                if (forceToast) showToast(zh ? '请先在 API 配置填写 Supabase URL 与 Anon Key' : 'Enter Supabase URL & Anon Key first');
                 return;
             }
             cloudLoading = true;
             renderCloudExtensions();
             try {
-                // Metadata only, strictly verified entries (status=eq.verified)
                 const rows = await supabaseRequest(
                     '?select=id,slug,name,category,domain,description,author,version,size_bytes&status=eq.verified&order=downloads.desc'
                 );
                 cloudCatalog = Array.isArray(rows) ? rows : [];
                 cloudLoadedOnce = true;
                 refreshCloudCategorySelect();
-                setCloudHint(`Connected · ${cloudCatalog.length} verified extension${cloudCatalog.length === 1 ? '' : 's'} (CSS/JS downloaded only on Install).`);
-                if (forceToast) showToast('Cloud catalog refreshed');
+                setCloudHint(zh
+                    ? `已连接 · 共 ${cloudCatalog.length} 个已审核扩展（点击安装时才按需下载源码）。`
+                    : `Connected · ${cloudCatalog.length} verified extension${cloudCatalog.length === 1 ? '' : 's'} (CSS/JS downloaded only on Install).`);
+                if (forceToast) showToast(zh ? '云商店目录已刷新' : 'Cloud catalog refreshed');
             } catch (err) {
-                setCloudHint(`Supabase fetch failed: ${err.message || err}`);
-                if (forceToast) showToast('Failed to load cloud catalog');
+                setCloudHint((zh ? '云端获取失败：' : 'Supabase fetch failed: ') + (err.message || err));
+                if (forceToast) showToast(zh ? '无法加载云商店目录' : 'Failed to load cloud catalog');
             } finally {
                 cloudLoading = false;
                 renderCloudExtensions();
@@ -1219,13 +1235,16 @@
             renderSiteRulesList();
             renderCloudExtensions();
             sendIpc({ type: 'SAVE_RULES', rules: siteRules });
-            showToast(`${existingIdx >= 0 ? 'Updated' : 'Installed'}: ${ruleObj.name} (v${ruleObj.version})`);
+            showToast(isZh()
+                ? `${existingIdx >= 0 ? '已更新' : '已安装'}：${ruleObj.name} (v${ruleObj.version})`
+                : `${existingIdx >= 0 ? 'Updated' : 'Installed'}: ${ruleObj.name} (v${ruleObj.version})`);
         }
 
         function openCloudInspector(meta, full, audit) {
+            const zh = isZh();
             const panel = document.getElementById('cloudInspectorPanel');
             if (!panel) return;
-            document.getElementById('inspExtTitle').textContent = full.name || meta.name || 'Extension Source';
+            document.getElementById('inspExtTitle').textContent = full.name || meta.name || (zh ? '扩展源码审查' : 'Extension Source');
             const sizeKb = `${Math.max(1, Math.round(new Blob([full.css || '', full.js || '']).size / 1024))} KB`;
             document.getElementById('inspExtMeta').textContent = [
                 full.domain || meta.domain || '*',
@@ -1237,7 +1256,7 @@
             const badge = document.getElementById('inspAuditBadge');
             badge.classList.remove('warn', 'clean');
             badge.classList.add(audit.hasWarnings ? 'warn' : 'clean');
-            badge.textContent = audit.hasWarnings ? `Warning (${audit.warnings.length})` : 'Clean';
+            badge.textContent = audit.hasWarnings ? (zh ? `警告 (${audit.warnings.length})` : `Warning (${audit.warnings.length})`) : (zh ? '安全' : 'Clean');
             renderAuditBanner(document.getElementById('inspAuditBanner'), audit, 'inspect');
 
             document.getElementById('inspExtCss').value = (full.css && full.css.trim()) ? full.css : '/* No CSS */';
@@ -1249,13 +1268,13 @@
             const cloudVer = full.version || meta.version || '';
             const needsUpdate = installedRule && cloudVer && String(installedRule.version || '') !== String(cloudVer);
             if (audit.hasWarnings) {
-                instBtn.textContent = needsUpdate ? 'Trust & Update' : 'Trust & Install';
+                instBtn.textContent = needsUpdate ? (zh ? '信任并更新' : 'Trust & Update') : (zh ? '信任并安装' : 'Trust & Install');
             } else if (needsUpdate) {
-                instBtn.textContent = 'Update';
+                instBtn.textContent = zh ? '更新' : 'Update';
             } else if (installedRule) {
-                instBtn.textContent = 'Reinstall';
+                instBtn.textContent = zh ? '重新安装' : 'Reinstall';
             } else {
-                instBtn.textContent = 'Install';
+                instBtn.textContent = zh ? '安装' : 'Install';
             }
             instBtn.disabled = false;
             instBtn.onclick = () => {
@@ -1269,17 +1288,18 @@
 
         async function inspectCloudExtension(meta, btn) {
             if (!meta || !meta.id) return;
-            const prevLabel = btn ? btn.textContent : 'Inspect';
+            const zh = isZh();
+            const prevLabel = btn ? btn.textContent : (zh ? '查源码' : 'Inspect');
             if (btn) {
                 btn.disabled = true;
-                btn.textContent = 'Loading...';
+                btn.textContent = zh ? '加载中…' : 'Loading...';
             }
             try {
                 const full = await fetchExtensionPayload(meta);
                 const audit = auditExtensionPayload(full.css, full.js, full.domain);
                 openCloudInspector(meta, full, audit);
             } catch (err) {
-                showToast(`Inspect failed: ${err.message || err}`);
+                showToast((zh ? '源码查看失败：' : 'Inspect failed: ') + (err.message || err));
             } finally {
                 if (btn) {
                     btn.disabled = false;
@@ -1290,17 +1310,18 @@
 
         async function installCloudExtension(meta, btn, forceTrust) {
             if (!meta || !meta.id) return;
-            const prevLabel = btn ? btn.textContent : 'Install';
+            const zh = isZh();
+            const prevLabel = btn ? btn.textContent : (zh ? '安装' : 'Install');
             if (btn) {
                 btn.disabled = true;
-                btn.textContent = 'Downloading...';
+                btn.textContent = zh ? '下载中…' : 'Downloading...';
             }
             try {
                 const full = await fetchExtensionPayload(meta);
                 const audit = auditExtensionPayload(full.css, full.js, full.domain);
                 if (audit.hasWarnings && !forceTrust) {
                     openCloudInspector(meta, full, audit);
-                    showToast('Security Warning detected — review source before installing');
+                    showToast(zh ? '检测到高风险脚本调用 — 请核对源码后再确认安装' : 'Security Warning detected — review source before installing');
                     if (btn) {
                         btn.disabled = false;
                         btn.textContent = prevLabel;
@@ -1313,7 +1334,7 @@
                     btn.disabled = false;
                     btn.textContent = prevLabel;
                 }
-                showToast(`Install failed: ${err.message || err}`);
+                showToast((zh ? '安装失败：' : 'Install failed: ') + (err.message || err));
             }
         }
 
@@ -1347,10 +1368,11 @@
         }
 
         async function submitPublishedExtension() {
+            const zh = isZh();
             const creds = getSupabaseCreds();
             if (!creds.isConfigured) {
                 syncCloudConfigInputs();
-                showToast('Set Supabase URL & Anon Key in API Config first');
+                showToast(zh ? '请先在 API 配置填写 Supabase URL 与 Anon Key' : 'Set Supabase URL & Anon Key in API Config first');
                 return;
             }
             const name = document.getElementById('pubExtName').value.trim();
@@ -1361,19 +1383,21 @@
             const css = document.getElementById('pubExtCss').value;
             const js = document.getElementById('pubExtJs').value;
 
-            if (!name) return showToast('Enter an extension name');
-            if (!css.trim() && !js.trim()) return showToast('Provide CSS or JS to upload');
+            if (!name) return showToast(zh ? '请输入扩展名称' : 'Enter an extension name');
+            if (!css.trim() && !js.trim()) return showToast(zh ? '请填写至少一段 CSS 或 JS 代码' : 'Provide CSS or JS to upload');
             const payloadBytes = new Blob([css, js]).size;
             if (payloadBytes > 100 * 1024) {
-                return showToast(`CSS + JS exceeds 100 KB limit (${Math.ceil(payloadBytes / 1024)} KB)`);
+                return showToast(zh
+                    ? `CSS + JS 体积超出 100 KB 上限 (${Math.ceil(payloadBytes / 1024)} KB)`
+                    : `CSS + JS exceeds 100 KB limit (${Math.ceil(payloadBytes / 1024)} KB)`);
             }
 
             const audit = auditExtensionPayload(css, js, domain);
             const btn = document.getElementById('btnSubmitPublish');
-            const prevText = btn ? btn.textContent : 'Submit for verification';
+            const prevText = btn ? btn.textContent : (zh ? '提交审核' : 'Submit for verification');
             if (btn) {
                 btn.disabled = true;
-                btn.textContent = 'Uploading...';
+                btn.textContent = zh ? '上传中…' : 'Uploading...';
             }
             try {
                 const slugBase = name
@@ -1416,12 +1440,16 @@
                 }
                 document.getElementById('publishExtPanel').classList.remove('open');
                 if (audit.hasWarnings) {
-                    showToast(`已上传 "${name}"（数据库已标为 Warning，需人工重点审核）`);
+                    showToast(zh
+                        ? `已上传 "${name}"（数据库已标为 Warning，需人工重点审核）`
+                        : `Uploaded "${name}" (flagged Warning for review)`);
                 } else {
-                    showToast(`已上传 "${name}"（状态：unverified），验证通过后将在 Cloud Store 显示`);
+                    showToast(zh
+                        ? `已上传 "${name}"（状态：unverified），验证通过后将在 Cloud Store 显示`
+                        : `Uploaded "${name}" (status: unverified), visible in Cloud Store after review`);
                 }
             } catch (err) {
-                showToast(`Upload failed: ${err.message || err}`);
+                showToast((zh ? '上传失败：' : 'Upload failed: ') + (err.message || err));
             } finally {
                 if (btn) {
                     btn.disabled = false;
@@ -1627,6 +1655,171 @@
             updateExtensionNavCount();
         }
 
+        function bytesToBase64Chunked(uint8) {
+            let bin = '';
+            const step = 0x4000;
+            for (let i = 0; i < uint8.length; i += step) {
+                bin += String.fromCharCode.apply(null, uint8.subarray(i, i + step));
+            }
+            return btoa(bin);
+        }
+
+        function renderChromeExtensionsPane() {
+            const zh = isZh();
+            const tabBtn = document.getElementById('tabBtnExtChrome');
+            if (tabBtn) tabBtn.textContent = zh ? 'Chrome 扩展' : 'Chrome Extensions';
+            const banner = document.getElementById('chromeExtEngineBanner');
+            if (banner) {
+                const wantEn = config.chrome_extensions_enabled !== false;
+                if (chromeExtEngineActive) {
+                    banner.className = 'sec-audit-banner clean';
+                    banner.textContent = zh
+                        ? 'WebView2 原生 Chrome 扩展引擎已启动：支持从 Chrome / Edge 商店直装或导入 .crx / .zip / 本地已解压目录（注意：依赖 chrome.tabs / bookmarks / sidePanel 等壳层 API 的扩展可能部分受限）。'
+                        : 'WebView2 native Chrome extension engine is active: supports Web Store direct install or local .crx / .zip / unpacked folders.';
+                } else {
+                    banner.className = 'sec-audit-banner warn';
+                    banner.textContent = wantEn
+                        ? (zh ? '已开启扩展开关，请重启浏览器后加载 WebView2 扩展引擎。' : 'Extension engine enabled — restart Fynexo to activate.')
+                        : (zh ? 'Chrome 扩展引擎当前在「性能与内存」中关闭（极低功耗）。可在下方预装扩展，或前往「性能与内存」开启后重启生效。' : 'Chrome extension engine is currently off in Performance settings; enable & restart to run installed extensions.');
+                }
+            }
+
+            setPlainRowI18n(document.getElementById('lblChromeStoreInstall'), '从 Chrome / Edge 应用商店下载安装', 'Install from Chrome / Edge Web Store');
+            setPlainRowI18n(document.getElementById('hintChromeStoreInstall'), '粘贴 Chrome 商店 / Edge 外接程序链接，或直接填入 32 位扩展 ID 一键下载解压安装。', 'Paste a Chrome Web Store / Edge Add-ons URL or 32-character extension ID to download & install directly.');
+            setPlainRowI18n(document.getElementById('lblChromeLocalInstall'), '导入本地 .crx / .zip 或已解压扩展文件夹', 'Import local .crx / .zip or unpacked folder');
+            setPlainRowI18n(document.getElementById('hintChromeLocalInstall'), '支持本地离线 .crx3 / .zip 包，或输入包含 manifest.json 的开发者目录路径。', 'Supports offline .crx3 / .zip archives or developer unpacked folder paths containing manifest.json.');
+
+            const stInp = document.getElementById('inputChromeStoreUrl');
+            if (stInp) stInp.placeholder = zh ? '粘贴 Chrome 商店网址或 32 位 ID（如 cjpalhdlnbpafiamejdnhcphjbkeiagm）' : 'https://chromewebstore.google.com/detail/... or 32-char ID';
+            const btnInst = document.getElementById('btnInstallChromeStore');
+            if (btnInst) btnInst.textContent = zh ? '下载安装' : 'Install';
+            const btnStore = document.getElementById('btnOpenChromeWebStore');
+            if (btnStore) btnStore.textContent = zh ? '逛 Chrome 商店' : 'Web Store';
+            const btnCrx = document.getElementById('btnImportCrx');
+            if (btnCrx) btnCrx.textContent = zh ? '导入 .crx / .zip' : 'Import .crx / .zip';
+            const btnOpenDir = document.getElementById('btnOpenChromeExtDir');
+            if (btnOpenDir) btnOpenDir.textContent = zh ? '打开扩展目录' : 'Open folder';
+            const dirInp = document.getElementById('inputChromeExtDir');
+            if (dirInp) dirInp.placeholder = zh ? '例如 C:\\Extensions\\my-extension（含 manifest.json）' : 'C:\\path\\to\\unpacked-extension';
+            const btnDir = document.getElementById('btnInstallChromeDir');
+            if (btnDir) btnDir.textContent = zh ? '加载目录' : 'Load folder';
+
+            const listEl = document.getElementById('chromeExtensionsList');
+            if (!listEl) return;
+            listEl.textContent = '';
+            if (!Array.isArray(chromeExtensions) || chromeExtensions.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'set-hint';
+                empty.style.padding = '14px';
+                empty.textContent = zh
+                    ? '暂未安装任何 Chrome 扩展。逛 Chrome 商店时顶部会自动出现一键安装胶囊，也可在此粘贴商店链接或导入 .crx 文件。'
+                    : 'No Chrome extensions installed yet. Paste a Web Store URL above or browse Chrome Web Store for 1-click install.';
+                listEl.appendChild(empty);
+                updateExtensionNavCount();
+                return;
+            }
+
+            const frag = document.createDocumentFragment();
+            chromeExtensions.forEach((ext) => {
+                if (!ext) return;
+                const row = document.createElement('div');
+                row.className = 'rc-row';
+                row.style.gap = '10px';
+
+                if (ext.icon_data_url) {
+                    const img = document.createElement('img');
+                    img.src = ext.icon_data_url;
+                    img.alt = '';
+                    img.style.cssText = 'width: 22px; height: 22px; border-radius: 5px; object-fit: contain; flex-shrink: 0;';
+                    row.appendChild(img);
+                } else {
+                    const ico = document.createElement('span');
+                    ico.style.cssText = 'width: 22px; height: 22px; border-radius: 5px; background: var(--fnx-accent-bg); color: var(--fnx-accent); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;';
+                    ico.textContent = String(ext.name || 'C').trim().charAt(0).toUpperCase();
+                    row.appendChild(ico);
+                }
+
+                const mid = document.createElement('div');
+                mid.className = 'rc-mid';
+                const titleLine = document.createElement('div');
+                titleLine.style.cssText = 'display: flex; align-items: center; gap: 6px; flex-wrap: wrap;';
+                const nm = document.createElement('span');
+                nm.className = 'rc-name';
+                nm.textContent = ext.name;
+                titleLine.appendChild(nm);
+
+                const verTag = document.createElement('span');
+                verTag.className = 'ext-mem-tag' + (ext.enabled ? ' on' : '');
+                verTag.textContent = `v${ext.version || '1.0'} · ~25 MB`;
+                titleLine.appendChild(verTag);
+
+                const sub = document.createElement('span');
+                sub.className = 'rc-url';
+                sub.textContent = ext.description || (ext.runtime_id || ext.id);
+                mid.appendChild(titleLine);
+                mid.appendChild(sub);
+                row.appendChild(mid);
+
+                if (ext.popup_path) {
+                    const pBtn = document.createElement('button');
+                    pBtn.type = 'button';
+                    pBtn.className = 'action-btn compact';
+                    pBtn.textContent = zh ? '弹窗' : 'Popup';
+                    pBtn.onclick = () => sendIpc({ type: 'OPEN_CHROME_EXT_POPUP', id: ext.id });
+                    row.appendChild(pBtn);
+                }
+                if (ext.options_path) {
+                    const oBtn = document.createElement('button');
+                    oBtn.type = 'button';
+                    oBtn.className = 'action-btn compact';
+                    oBtn.textContent = zh ? '选项' : 'Options';
+                    oBtn.onclick = () => sendIpc({ type: 'OPEN_CHROME_EXT_OPTIONS', id: ext.id });
+                    row.appendChild(oBtn);
+                }
+
+                const pinBtn = document.createElement('button');
+                pinBtn.type = 'button';
+                pinBtn.className = 'action-btn compact';
+                pinBtn.textContent = ext.pinned ? (zh ? '已固定' : 'Pinned') : (zh ? '固定顶栏' : 'Pin');
+                pinBtn.onclick = () => {
+                    ext.pinned = !ext.pinned;
+                    renderChromeExtensionsPane();
+                    sendIpc({ type: 'PIN_CHROME_EXT', id: ext.id });
+                };
+                row.appendChild(pinBtn);
+
+                const sw = document.createElement('button');
+                sw.type = 'button';
+                sw.className = ext.enabled ? 'fnx-switch on' : 'fnx-switch';
+                sw.setAttribute('role', 'switch');
+                sw.setAttribute('aria-checked', ext.enabled ? 'true' : 'false');
+                sw.onclick = () => {
+                    ext.enabled = !ext.enabled;
+                    renderChromeExtensionsPane();
+                    syncPerformanceSection();
+                    sendIpc({ type: 'TOGGLE_CHROME_EXT', id: ext.id, enabled: ext.enabled });
+                };
+                row.appendChild(sw);
+
+                const delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'rc-del';
+                delBtn.title = zh ? '卸载扩展' : 'Uninstall extension';
+                delBtn.textContent = '×';
+                delBtn.onclick = () => {
+                    chromeExtensions = chromeExtensions.filter((x) => x.id !== ext.id);
+                    renderChromeExtensionsPane();
+                    syncPerformanceSection();
+                    sendIpc({ type: 'REMOVE_CHROME_EXT', id: ext.id });
+                };
+                row.appendChild(delBtn);
+
+                frag.appendChild(row);
+            });
+            listEl.appendChild(frag);
+            updateExtensionNavCount();
+        }
+
         function parseUserscriptHeader(jsCode) {
             const src = String(jsCode || '');
             const blockMatch = src.match(/\/\/\s*==UserScript==([\s\S]*?)\/\/\s*==\/UserScript==/);
@@ -1640,6 +1833,8 @@
                 runAt: 'document-end',
                 matches: [],
                 includes: [],
+                grants: [],
+                connects: [],
                 domain: '*'
             };
 
@@ -1657,6 +1852,8 @@
                 else if (key === 'run-at') meta.runAt = val;
                 else if (key === 'match') meta.matches.push(val);
                 else if (key === 'include') meta.includes.push(val);
+                else if (key === 'grant') meta.grants.push(val);
+                else if (key === 'connect') meta.connects.push(val);
             }
 
             const patterns = meta.matches.concat(meta.includes);
@@ -1803,7 +2000,7 @@
             window.__fynexo_recording_keybind__ = false;
             renderKeybindsGrid();
             sendIpc({ type: 'SAVE_KEYBINDS', keybinds: keybinds });
-            showToast(`Bound shortcut: ${combo}`);
+            showToast(isZh() ? `已绑定快捷键：${combo}` : `Bound shortcut: ${combo}`);
         }, true);
 
         const SECTION_I18N = {
@@ -1886,12 +2083,12 @@
                 descEn: 'Incognito mode, browsing history, cache/cookies cleanup, profile paths, and setup backup.'
             },
             'sec-extensions': {
-                navZh: '内建扩展与脚本',
-                navEn: '内建 Extension',
-                titleZh: '内建扩展与 ScriptForge 用户脚本',
-                titleEn: '内建 Extension',
-                descZh: '所有扩展按需开启（关闭时零内存占用），并内置用户脚本引擎与社区分享商店。',
-                descEn: 'Opt-in memory-heavy modules (off by default), custom scripts, & on-demand cloud store.'
+                navZh: '扩展与脚本',
+                navEn: 'Extensions',
+                titleZh: '扩展程序与 ScriptForge 脚本',
+                titleEn: 'Extensions & ScriptForge',
+                descZh: '所有扩展按需开启（关闭时零内存占用），并支持 Chrome 扩展、用户脚本引擎与社区云商店。',
+                descEn: 'Opt-in memory-heavy modules (off by default), Chrome extensions, custom scripts, & on-demand cloud store.'
             }
         };
 
@@ -1913,8 +2110,9 @@
 
         const NO_CODE_BLOCKS = {
             unblock_copy: {
-                chipZh: '🔓 解除禁止复制与右键',
-                chipEn: '🔓 Unblock Copy & Right-Click',
+                icon: 'unlock',
+                chipZh: '解除禁止复制与右键',
+                chipEn: 'Unblock Copy & Right-Click',
                 nameZh: '解除禁止复制与右键',
                 nameEn: 'Unblock Copy & Right-Click',
                 css: [
@@ -1935,8 +2133,9 @@
                 ].join('\n')
             },
             links_newtab: {
-                chipZh: '🔗 外链强制新标签打开',
-                chipEn: '🔗 Open External Links in New Tab',
+                icon: 'externalLink',
+                chipZh: '外链强制新标签打开',
+                chipEn: 'Open External Links in New Tab',
                 nameZh: '外链强制新标签页打开',
                 nameEn: 'Open External Links in New Tab',
                 css: '',
@@ -1961,8 +2160,9 @@
                 ].join('\n')
             },
             clean_font: {
-                chipZh: '📖 舒适阅读字体与行距',
-                chipEn: '📖 Clean Reading Typography',
+                icon: 'reader',
+                chipZh: '舒适阅读字体与行距',
+                chipEn: 'Clean Reading Typography',
                 nameZh: '舒适阅读排版增强',
                 nameEn: 'Clean Reading Typography',
                 css: [
@@ -1975,8 +2175,9 @@
                 jsBody: ''
             },
             scroll_top_btn: {
-                chipZh: '⬆️ 悬浮回到顶部按钮',
-                chipEn: '⬆️ Floating Back-to-Top Button',
+                icon: 'chevUp',
+                chipZh: '悬浮回到顶部按钮',
+                chipEn: 'Floating Back-to-Top Button',
                 nameZh: '悬浮一键回到顶部',
                 nameEn: 'Floating Back-to-Top Button',
                 css: '',
@@ -2006,8 +2207,9 @@
                 grants: ['GM_registerMenuCommand']
             },
             hide_popups: {
-                chipZh: '🧹 屏蔽常见悬浮弹窗遮罩',
-                chipEn: '🧹 Hide Sticky Popups & App Banners',
+                icon: 'broom',
+                chipZh: '屏蔽常见悬浮弹窗遮罩',
+                chipEn: 'Hide Sticky Popups & App Banners',
                 nameZh: '屏蔽悬浮弹窗与 App 引导横幅',
                 nameEn: 'Hide Sticky Popups & App Banners',
                 css: [
@@ -2021,8 +2223,9 @@
                 jsBody: ''
             },
             auto_click_skip: {
-                chipZh: '⚡ 自动点击跳过/展开按钮',
-                chipEn: '⚡ Auto-Expand / Skip Prompts',
+                icon: 'bolt',
+                chipZh: '自动点击跳过/展开按钮',
+                chipEn: 'Auto-Expand / Skip Prompts',
                 nameZh: '自动展开全文与跳过弹窗',
                 nameEn: 'Auto-Expand / Skip Prompts',
                 css: '',
@@ -2106,17 +2309,17 @@
         }
 
         const MODE_FEATURE_DEFS = [
-            ['adblock', '🛡️ 广告拦截', '🛡️ Adblock Shield'],
-            ['force_dark', '🌙 智能夜间', '🌙 Force Dark'],
-            ['ext_side_panel', '📑 侧边栏工具', '📑 Side Panel'],
-            ['ext_reader_mode', '📖 纯净阅读', '📖 Reader Mode'],
-            ['ext_gh_harmonizer', '🐙 GitHub 美化', '🐙 GitHub Fix'],
-            ['ext_yt_ad_skipper', '▶️ YT 去广告', '▶️ YT Ad Skip'],
-            ['ext_media_booster', '🔊 音量增强', '🔊 Audio Boost'],
-            ['ext_userscript_engine', '📜 油猴脚本', '📜 ScriptForge'],
-            ['ext_mouse_gestures', '🖱️ 鼠标手势', '🖱️ Gestures'],
-            ['dev_drawer_access', '🛠️ 开发者抽屉菜单', '🛠️ DevDrawer Menu'],
-            ['fps_hud', '📊 FPS 帧率监视', '📊 FPS Overlay']
+            ['adblock', 'shield', '广告拦截', 'Adblock Shield'],
+            ['force_dark', 'moon', '智能夜间', 'Force Dark'],
+            ['ext_side_panel', 'sidepanel', '侧边栏工具', 'Side Panel'],
+            ['ext_reader_mode', 'reader', '纯净阅读', 'Reader Mode'],
+            ['ext_gh_harmonizer', 'siteGitHub', 'GitHub 美化', 'GitHub Fix'],
+            ['ext_yt_ad_skipper', 'play', 'YT 去广告', 'YT Ad Skip'],
+            ['ext_media_booster', 'volumeUp', '音量增强', 'Audio Boost'],
+            ['ext_userscript_engine', 'code', '油猴脚本', 'ScriptForge'],
+            ['ext_mouse_gestures', 'mouse', '鼠标手势', 'Gestures'],
+            ['dev_drawer_access', 'terminal', '开发者抽屉菜单', 'DevDrawer Menu'],
+            ['fps_hud', 'chart', 'FPS 帧率监视', 'FPS Overlay']
         ];
 
         function ensureModeProfilesList() {
@@ -2143,24 +2346,28 @@
 
             stratEl.textContent = '';
             const stratItems = [
-                { id: 'auto', label: zh ? '✨ 自动按网站切换 (推荐)' : '✨ Auto by Site' },
-                { id: 'default', label: zh ? '日常标准 (无特殊模式)' : 'Standard (No Mode)' }
+                { id: 'auto', icon: 'spark', label: zh ? '自动按网站切换 (推荐)' : 'Auto by Site' },
+                { id: 'default', icon: '', label: zh ? '日常标准 (无特殊模式)' : 'Standard (No Mode)' }
             ];
             profiles.forEach((p) => {
                 if (!p || !p.id) return;
                 const nm = zh ? (p.name_zh || p.name_en) : (p.name_en || p.name_zh);
-                stratItems.push({ id: p.id, label: (p.icon ? p.icon + ' ' : '') + nm });
+                stratItems.push({ id: p.id, icon: resolveModeIconName(p.icon, p.id), label: nm });
             });
             stratItems.forEach((it) => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = curPref === String(it.id).toLowerCase() ? 'preset-chip active' : 'preset-chip';
+                if (it.icon) {
+                    setBtnIconAndText(btn, it.icon, it.label);
+                } else {
+                    btn.textContent = it.label;
+                }
                 btn.style.fontWeight = curPref === String(it.id).toLowerCase() ? '600' : '500';
                 if (curPref === String(it.id).toLowerCase()) {
                     btn.style.borderColor = 'var(--fnx-accent)';
                     btn.style.color = 'var(--fnx-fg)';
                 }
-                btn.textContent = it.label;
                 btn.onclick = () => {
                     config.active_mode = it.id;
                     renderModeProfilesSection();
@@ -2183,13 +2390,16 @@
 
                 const titleWrap = document.createElement('div');
                 titleWrap.style.cssText = 'display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px;';
-                const iconInp = document.createElement('input');
-                iconInp.type = 'text';
-                iconInp.className = 'text-input';
-                iconInp.style.cssText = 'width: 44px; text-align: center; padding: 4px;';
-                iconInp.value = p.icon || '✨';
-                iconInp.onchange = () => {
-                    p.icon = iconInp.value.trim() || '✨';
+                const iconBtn = document.createElement('button');
+                iconBtn.type = 'button';
+                iconBtn.className = 'action-btn compact';
+                iconBtn.style.cssText = 'width: 34px; height: 30px; padding: 0;';
+                const curIconKey = resolveModeIconName(p.icon, p.id);
+                iconBtn.appendChild(createIcon(curIconKey));
+                iconBtn.title = zh ? '点击切换模式图标' : 'Click to cycle mode icon';
+                iconBtn.onclick = () => {
+                    const iIdx = MODE_ICON_CYCLE.indexOf(curIconKey);
+                    p.icon = MODE_ICON_CYCLE[(iIdx + 1) % MODE_ICON_CYCLE.length];
                     renderModeProfilesSection();
                     saveConfig(zh ? '已更新模式图标' : 'Updated mode icon');
                 };
@@ -2209,7 +2419,7 @@
                 const idTag = document.createElement('span');
                 idTag.className = 'field-tag';
                 idTag.textContent = p.id;
-                titleWrap.appendChild(iconInp);
+                titleWrap.appendChild(iconBtn);
                 titleWrap.appendChild(nameInp);
                 titleWrap.appendChild(idTag);
                 headRow.appendChild(titleWrap);
@@ -2239,15 +2449,16 @@
                 featLbl.textContent = zh ? '该模式下启用的功能（点击随时自由调整开启/关闭）：' : 'Features active in this mode (click to customize):';
                 const featChips = document.createElement('div');
                 featChips.className = 'preset-chips';
-                MODE_FEATURE_DEFS.forEach(([key, zhL, enL]) => {
+                MODE_FEATURE_DEFS.forEach(([key, iconKey, zhL, enL]) => {
                     const on = !!p[key];
                     const b = document.createElement('button');
                     b.type = 'button';
                     b.className = 'preset-chip';
-                    b.textContent = (on ? '✓ ' : '✕ ') + (zh ? zhL : enL);
+                    setBtnIconAndText(b, iconKey, zh ? zhL : enL);
                     b.style.borderColor = on ? 'var(--fnx-accent)' : 'var(--fnx-hairline)';
+                    b.style.background = on ? 'var(--fnx-accent-bg, rgba(122,136,247,0.14))' : 'transparent';
                     b.style.color = on ? 'var(--fnx-fg)' : 'var(--fnx-secondary)';
-                    b.style.opacity = on ? '1' : '0.62';
+                    b.style.opacity = on ? '1' : '0.58';
                     b.onclick = () => {
                         p[key] = !on;
                         renderModeProfilesSection();
@@ -2367,26 +2578,40 @@
         }
 
         function setPlainRowI18n(el, zhText, enText) {
-            if (!el) return;
-            if (!el.dataset.enText) el.dataset.enText = el.textContent;
-            el.textContent = isZh() ? zhText : (enText || el.dataset.enText);
+            setRichI18nText(el, zhText, enText, isZh());
+        }
+
+        function setRowPairI18n(ctrlId, lblZh, lblEn, hintZh, hintEn) {
+            const el = document.getElementById(ctrlId);
+            const row = el && el.closest('.set-row');
+            if (!row) return;
+            const zh = isZh();
+            const lblEl = row.querySelector('.set-label > span:first-child') || row.querySelector('.set-label');
+            setRichI18nText(lblEl, lblZh, lblEn, zh);
+            if (hintZh) {
+                setRichI18nText(row.querySelector('.set-hint'), hintZh, hintEn === undefined ? null : hintEn, zh);
+            }
         }
 
         function applySettingsLocalization() {
             const zh = isZh();
+            syncDocLangAndTitle(zh, '偏好设置 · Fynexo', 'Preferences · Fynexo');
+
             const brandTitle = document.querySelector('.brand-title');
             if (brandTitle) brandTitle.textContent = zh ? '偏好设置' : 'Preferences';
 
             const langBtn = document.getElementById('btnSettingsLang');
             if (langBtn) {
-                langBtn.textContent = zh ? '中文 · 切换 EN' : 'EN · 切换中文';
+                langBtn.textContent = zh ? '中文 / EN' : 'EN / 中文';
             }
             const searchInp = document.getElementById('inputSettingsSearch');
             if (searchInp) {
                 searchInp.placeholder = zh
-                    ? '🔍 搜索设置 (深色 / 端口 / 手势)...'
-                    : '🔍 Search settings...';
+                    ? '搜索设置 (深色 / 端口 / 手势)...'
+                    : 'Search settings...';
             }
+            const footerEl = document.getElementById('sidebarFooterText');
+            if (footerEl) footerEl.textContent = zh ? 'Fynexo Studio 工作室 · v0.1.0' : 'Fynexo Studio · v0.1.0';
 
             const navGroups = document.querySelectorAll('.nav-group-label');
             const zhGroups = ['界面与外观', '日常浏览', '隐私与拦截'];
@@ -2410,7 +2635,7 @@
                     if (secId === 'sec-styles' && descEl.firstChild && descEl.firstChild.nodeType === 3) {
                         descEl.firstChild.textContent = zh ? info.prefixZh : info.prefixEn;
                     } else if (info.descZh && info.descEn && descEl.id !== 'shortcutsHint') {
-                        descEl.textContent = zh ? info.descZh : info.descEn;
+                        setRichI18nText(descEl, info.descZh, info.descEn, zh);
                     }
                 }
             });
@@ -2427,10 +2652,21 @@
                 const row = ctrlEl && ctrlEl.closest('.set-row');
                 if (!row) return;
                 const [lblZh, lblEn, hintZh] = VISUAL_ROW_I18N[ctrlId];
-                setPlainRowI18n(row.querySelector('.set-label'), lblZh, lblEn);
-                setPlainRowI18n(row.querySelector('.set-hint'), hintZh, null);
+                setRichI18nText(row.querySelector('.set-label'), lblZh, lblEn, zh);
+                setRichI18nText(row.querySelector('.set-hint'), hintZh, null, zh);
             });
+
             [
+                ['langModeGroup', '界面语言', 'Interface language', '实时切换浏览器全部菜单、起始页、偏好设置与提示文案（无需刷新页面）'],
+                ['inputHomepage', '新标签起始页网址', 'New tab homepage', '打开新标签页时默认加载的页面地址'],
+                ['uaModeGroup', '浏览器身份标识 (User-Agent)', 'User-Agent', '实时切换系统默认、桌面 Chrome、手机或自定义 UA 请求头'],
+                ['btnZoomOut', '默认网页缩放比例', 'Default page zoom', '所有浏览标签页的基础缩放大小'],
+                ['btnRestoreToggle', '重启恢复上次标签与滚动位置', 'Restore tabs & scroll position', '重新启动浏览器时自动恢复上次未关闭的网页及浏览位置'],
+                ['btnAllowPageEvalToggle', '允许控制台 JS 执行与原生 DevTools', 'Allow Console JS Eval & Native DevTools', '开启后可在 DevDrawer 控制台执行交互式 JS 表达式，并在 Release 构建中打开 F12 原生开发者工具（默认关闭以防恶意脚本滥用）'],
+                ['btnCustomColorsToggle', '自定义调色盘', 'Custom color palette', '可视化调节界面色彩 Token 并导出为独立主题 `.json` 文件'],
+                ['btnAdblockToggle', '网络广告与追踪拦截盾', 'Network ad & tracker shield', '内置 65+ 常见广告与追踪器域名黑名单及自定义过滤规则'],
+                ['btnIncognitoToggle', '无痕隐私模式', 'Private / Incognito mode', '开启后暂停本地历史记录与标签会话写入'],
+                ['btnClearHistory', '配置文件与缓存目录', 'Profile storage & cache', '包含 JSON 配置文件、浏览历史、Cookie 与 WebView 本地缓存'],
                 ['btnPerfToggle', 'Zero-FX 渲染过滤', 'Zero-FX rendering filter', '移除外部网页高耗阴影与高斯模糊（默认关闭以保留网页原本光影特效，低配设备可开启）'],
                 ['btnEfficiencyToggle', 'Edge 风格后台能效压缩', 'Edge-style Efficiency Mode', '自动将后台非当前标签降级为低内存水位（释放显存与位图缓存，切回页面无需重载）'],
                 ['perfCacheModeGroup', '后台缓存标签上限', 'Background cached tab limit', '保留多少个近期打开的普通标签在后台秒切；超出后自动回收最久未用的标签'],
@@ -2440,23 +2676,110 @@
                 ['btnHwAccelToggle', 'GPU 硬件加速', 'GPU hardware acceleration', '启用显卡光栅化与零拷贝合成以保证视频与滚动流畅（关闭可省独显/集显显存，需重启生效）'],
                 ['btnPerfAdblockToggle', '网络广告与追踪拦截盾', 'Network Adblock Shield', '拦截臃肿广告脚本与追踪器；开启后反而能大幅加快加载并降低每标签 RAM'],
                 ['btnPerfManageExt', '内建功能模块与扩展开销', 'Built-in opt-in modules & extensions', '当前启用的高耗扩展都会增加每页内存，未启用模块为 0 内存占用'],
+                ['btnChromeExtEngineToggle', 'Chrome 原生扩展引擎 (WebView2)', 'Chrome native extension engine', '启用 Windows WebView2 Chrome/Edge 扩展支持；「极低」预设会在下次启动时关闭以节省基础开销'],
                 ['btnPerfToggleWinMode', '窗口架构对内存的影响', 'Window architecture mode', '多窗口支持独立进程/无痕隔离（每个额外窗口约 +80~150 MB）；单窗口可控制在单一窗口内'],
-                ['btnHttpsFirstToggle', 'HTTPS 优先安全连接 (HTTPS-First)', 'Always use HTTPS (HTTPS-First)', '访问外部 http:// 网站时自动升级为加密 https://（本地开发域名仍保留 http://）'],
+                ['btnHttpsFirstToggle', 'HTTPS 优先安全连接 (HTTPS-First)', 'Always use HTTPS (HTTPS-First)', '访问外部 `http://` 网站时自动升级为加密 `https://`（本地开发域名仍保留 `http://`）'],
                 ['inputDownloadsDir', '下载文件保存目录', 'Downloads folder', '自定义下载保存目录（留空则使用系统默认“下载”文件夹）'],
-                ['windowModeGroup', '窗口架构模式', 'Window architecture', '多窗口（默认）支持 Ctrl+N 新开独立窗口及隔离无痕窗口；单窗口则全部收口在同一窗口内']
-            ].forEach(([id, lblZh, lblEn, hintZh]) => {
-                const el = document.getElementById(id);
-                const row = el && el.closest('.set-row');
-                if (!row) return;
-                const lblSpan = row.querySelector('.set-label > span:first-child') || row.querySelector('.set-label');
-                setPlainRowI18n(lblSpan, lblZh, lblEn);
-                setPlainRowI18n(row.querySelector('.set-hint'), hintZh, null);
-            });
+                ['windowModeGroup', '窗口架构模式', 'Window architecture', '多窗口（默认）支持 Ctrl+N 新开独立窗口及隔离无痕窗口；单窗口则全部收口在同一窗口内'],
+                ['btnImportRules', '自定义与云端扩展规则 (`rules.json`)', 'Custom & downloaded extensions (`rules.json`)', '支持 CSS 与 ScriptForge (`// ==UserScript==` 与 `GM_*` API)，关闭状态 0 内存占用。']
+            ].forEach(([id, lblZh, lblEn, hintZh]) => setRowPairI18n(id, lblZh, lblEn, hintZh));
+
             document.querySelectorAll('#windowModeGroup .seg-btn').forEach((b) => {
                 if (b.dataset.wm === 'multi') b.textContent = zh ? '多窗口（默认）' : 'Multi-Window';
                 else if (b.dataset.wm === 'single') b.textContent = zh ? '单窗口' : 'Single-Window';
             });
+            document.querySelectorAll('#uaModeGroup .seg-btn').forEach((b) => {
+                if (b.dataset.ua === 'default') b.textContent = zh ? '系统默认' : 'System';
+                else if (b.dataset.ua === 'desktop') b.textContent = zh ? '桌面端' : 'Desktop';
+                else if (b.dataset.ua === 'mobile') b.textContent = zh ? '手机端' : 'Mobile';
+                else if (b.dataset.ua === 'custom') b.textContent = zh ? '自定义' : 'Custom';
+            });
 
+            // Appearance section buttons, Palette Studio & Themes
+            setPlainRowI18n(document.getElementById('btnImportTheme'), '导入 .json', 'Import .json');
+            setPlainRowI18n(document.getElementById('btnExportTheme'), '导出 .json', 'Export .json');
+            setPlainRowI18n(document.getElementById('btnOpenThemesDir'), '打开 themes/', 'Open themes/');
+            setPlainRowI18n(document.getElementById('btnSaveAsTheme'), '保存主题 .json', 'Save theme .json');
+            const newThemeInp = document.getElementById('inputNewThemeName');
+            if (newThemeInp) newThemeInp.placeholder = zh ? '主题名称（例如 Solarized）' : 'Theme name (e.g. Solarized)';
+            const palStudioHead = document.querySelector('#paletteStudio .set-block-head');
+            if (palStudioHead) {
+                setRichI18nText(palStudioHead.querySelector('.set-label'), '可视化调色盘', 'Visual Color Designer', zh);
+                setRichI18nText(palStudioHead.querySelector('.set-hint'), '实时拾取色板并导出为独立 `themes/*.json` 主题文件。', 'Pick swatches live — export as standalone `themes/*.json`.', zh);
+            }
+            const themeBlockHead = document.querySelector('#sec-appearance > .set-block .set-block-head');
+            if (themeBlockHead) {
+                setRichI18nText(themeBlockHead.querySelector('.set-label'), '主题皮肤', 'Themes', zh);
+            }
+
+            // General homepage preset chips
+            document.querySelectorAll('#sec-general [data-hp="fynexo://newtab"]').forEach((chip) => {
+                chip.textContent = zh ? '起始页' : 'Start page';
+            });
+
+            // Performance section headers & actions
+            setPlainRowI18n(document.getElementById('btnPerfRefreshRam'), '刷新实时 RAM', 'Refresh RAM');
+            setPlainRowI18n(document.getElementById('btnPerfFlushRam'), '释放闲置内存', 'Flush idle RAM');
+            setPlainRowI18n(document.getElementById('lblPerfEstKicker'), '当前配置预估多进程内存', 'Estimated Typical RAM Footprint');
+            setPlainRowI18n(document.getElementById('lblPerfLiveKicker'), '实时多进程内存监视', 'Live Multi-Process Memory');
+            setPlainRowI18n(document.getElementById('lblPerfPresets'), '性能与功耗预设档位', 'Performance Quality Preset');
+            setPlainRowI18n(document.getElementById('hintPerfPresets'), '像游戏画质预设一样 1 键切换，无需理解底层参数', '1-click tuning for beginners — like game graphics presets');
+            setPlainRowI18n(document.getElementById('grpPerfMem'), '内存控制与休眠策略', 'Memory & Sleeping Tabs');
+            setPlainRowI18n(document.getElementById('grpPerfGpu'), '渲染过滤与硬件加速', 'Rendering & Hardware');
+            setPlainRowI18n(document.getElementById('grpPerfModules'), '各模块对内存的影响', 'Features Affecting Memory');
+
+            // Search & !Bangs
+            const searchBlocks = document.querySelectorAll('#sec-search .set-block');
+            if (searchBlocks[0]) {
+                setRichI18nText(searchBlocks[0].querySelector('.set-label'), '搜索引擎列表', 'Search engines', zh);
+                setRichI18nText(searchBlocks[0].querySelector('.set-hint'), '点击任意一行设为默认搜索引擎，模板支持 `{query}` 占位符。', 'Click any row to make it default. Templates use `{query}`.', zh);
+            }
+            if (searchBlocks[1]) {
+                setRichI18nText(searchBlocks[1].querySelector('.set-label'), '!Bang 快捷搜索指令', '!Bang triggers', zh);
+                setRichI18nText(searchBlocks[1].querySelector('.set-hint'), '在地址栏或起始页输入如 `!gh wry`、`!yt music` 直接跳转对应站内搜索。', 'Type e.g. `!gh wry` or `!yt music` in the address bar or start page.', zh);
+            }
+            const engNameInp = document.getElementById('inputEngName');
+            if (engNameInp) engNameInp.placeholder = zh ? '名称（如 Kagi）' : 'Name (e.g. Kagi)';
+            setPlainRowI18n(document.getElementById('btnAddEngine'), '+ 添加', '+ Add');
+            const bangNameInp = document.getElementById('inputBangName');
+            if (bangNameInp) bangNameInp.placeholder = zh ? '名称' : 'Name';
+            setPlainRowI18n(document.getElementById('btnAddBang'), '+ 添加', '+ Add');
+
+            // Shortcuts add row
+            const scTitleInp = document.getElementById('inputScTitle');
+            if (scTitleInp) scTitleInp.placeholder = zh ? '名称（如 Hacker News）' : 'Name (e.g. Hacker News)';
+            setPlainRowI18n(document.getElementById('btnAddShortcut'), '+ 添加快捷网站', '+ Add shortcut');
+
+            // Adblock shield
+            setPlainRowI18n(document.getElementById('btnImportAdblock'), '导入 .json', 'Import .json');
+            setPlainRowI18n(document.getElementById('btnExportAdblock'), '导出 .json', 'Export .json');
+            const adCols = document.querySelectorAll('#sec-rules .domain-col-head > span:first-child');
+            if (adCols[0]) adCols[0].textContent = zh ? '自定义黑名单域名' : 'Blocked domains';
+            if (adCols[1]) adCols[1].textContent = zh ? '白名单放行域名' : 'Whitelisted domains';
+            setPlainRowI18n(document.getElementById('btnAddBlockDomain'), '+ 屏蔽', '+ Block');
+            setPlainRowI18n(document.getElementById('btnAddWhiteDomain'), '+ 放行', '+ Allow');
+
+            // Privacy & Data
+            setPlainRowI18n(document.getElementById('btnImportBundle'), '导入全量备份 .json', 'Import setup .json');
+            setPlainRowI18n(document.getElementById('btnExportBundle'), '导出全量备份 .json', 'Export setup .json');
+            setPlainRowI18n(document.getElementById('btnClearSiteData'), '清空缓存与 Cookie', 'Clear cache & cookies');
+            setPlainRowI18n(document.getElementById('btnOpenDataDir'), '打开配置目录', 'Profile folder');
+            setPlainRowI18n(document.getElementById('btnOpenDownloadsDir'), '下载文件夹', 'Downloads');
+
+            // Extensions sub-tabs, custom editor & cloud store
+            const extTabLabels = {
+                'pane-ext-builtin': ['内建模块', 'Built-in'],
+                'pane-ext-chrome': ['Chrome 扩展', 'Chrome Extensions'],
+                'pane-ext-custom': ['自定义与已安装', 'Installed'],
+                'pane-ext-cloud': ['云端扩展商店', 'Cloud Store']
+            };
+            document.querySelectorAll('#extSubTabs .seg-btn').forEach((btn) => {
+                const pair = extTabLabels[btn.dataset.subpane];
+                if (pair) btn.textContent = zh ? pair[0] : pair[1];
+            });
+            setPlainRowI18n(document.getElementById('btnImportRules'), '导入 .json', 'Import .json');
+            setPlainRowI18n(document.getElementById('btnExportRules'), '导出 .json', 'Export .json');
+            setPlainRowI18n(document.getElementById('btnResetRules'), '恢复默认', 'Reset');
             setPlainRowI18n(document.getElementById('lblRuleNoCode'), '零代码积木工坊（点击一键填入）', 'No-code building blocks (click to add)');
             setPlainRowI18n(document.getElementById('tagRuleNoCode'), '零代码', 'Zero-code');
             setPlainRowI18n(document.getElementById('lblPubNoCode'), '零代码积木工坊（点击一键填入）', 'No-code building blocks (click to add)');
@@ -2468,11 +2791,123 @@
             setPlainRowI18n(document.getElementById('btnCancelRule'), '取消', 'Cancel');
             setPlainRowI18n(document.getElementById('btnNewRule'), '+ 新建扩展', '+ Add Extension');
             setPlainRowI18n(document.getElementById('btnImportUserscript'), '+ 导入 .user.js', '+ Import .user.js');
+            const ruleNameLbl = document.querySelector('#ruleEditorPanel label[for="ruleNameInput"] > span');
+            if (ruleNameLbl) ruleNameLbl.textContent = zh ? '扩展名称' : 'Extension name';
+            const ruleNameInp = document.getElementById('ruleNameInput');
+            if (ruleNameInp) ruleNameInp.placeholder = zh ? '干净阅读去干扰' : 'Clean Distractions';
+            const ruleDomLbl = document.querySelector('#ruleEditorPanel label[for="ruleDomainInput"] > span:first-child');
+            if (ruleDomLbl) ruleDomLbl.textContent = zh ? '匹配域名' : 'Domain pattern';
+            const ruleDomTag = document.querySelector('#ruleEditorPanel label[for="ruleDomainInput"] .field-tag');
+            if (ruleDomTag) ruleDomTag.textContent = zh ? '* 或 example.com' : '* or example.com';
+
+            // Cloud Store controls
+            const cloudSearchInp = document.getElementById('inputCloudSearch');
+            if (cloudSearchInp) cloudSearchInp.placeholder = zh ? '搜索云端扩展…' : 'Search cloud extensions...';
+            setPlainRowI18n(document.getElementById('btnCloudUpload'), '+ 上传扩展', '+ Upload Extension');
+            setPlainRowI18n(document.getElementById('btnToggleCloudCfg'), 'API 配置', 'API Config');
+            setPlainRowI18n(document.getElementById('btnRefreshCloud'), '刷新', 'Refresh');
+            setPlainRowI18n(document.getElementById('btnSaveCloudCfg'), '保存并连接', 'Save & Connect');
+            setPlainRowI18n(document.getElementById('btnSubmitPublish'), '提交审核', 'Submit for verification');
+            setPlainRowI18n(document.getElementById('btnCancelPublish'), '取消', 'Cancel');
+            setPlainRowI18n(document.getElementById('btnInspClose'), '关闭', 'Close');
+            const pubLabels = [
+                ['label[for="pubExtName"] > span:first-child', '扩展名称', 'Extension name'],
+                ['label[for="pubExtDomain"] > span:first-child', '匹配域名', 'Domain pattern'],
+                ['label[for="pubExtAuthor"] > span:first-child', '作者昵称', 'Author'],
+                ['label[for="pubExtCategory"] > span:first-child', '分类', 'Category'],
+                ['label[for="pubExtDesc"] > span:first-child', '扩展简介', 'Description'],
+                ['label[for="pubExtCss"] > span:first-child', '自定义 CSS', 'Custom CSS'],
+                ['label[for="pubExtJs"] > span:first-child', '自定义 JS', 'Custom JS'],
+                ['label[for="inspExtCss"] > span:first-child', 'CSS 源码（只读）', 'CSS Source (read-only)'],
+                ['label[for="inspExtJs"] > span:first-child', 'JS 源码（只读）', 'JS Source (read-only)']
+            ];
+            pubLabels.forEach(([sel, zTxt, eTxt]) => {
+                const el = document.querySelector(`#pane-ext-cloud ${sel}`);
+                if (el) el.textContent = zh ? zTxt : eTxt;
+            });
+            refreshCloudCategorySelect();
+
+            // Component Studio sub-tabs, select options, switches, presets & JSON toolbar
+            document.querySelectorAll('#studioSubTabs .seg-btn').forEach((btn) => {
+                if (btn.dataset.subpane === 'pane-studio-visual') btn.textContent = zh ? '可视化调整' : 'Visual controls';
+                else if (btn.dataset.subpane === 'pane-studio-json') btn.textContent = 'styles.json';
+            });
+            const uiPresetLabels = {
+                compact: ['极简紧凑', 'Compact (1-row)'],
+                deck: ['经典双栏', 'Deck (2-row)'],
+                pill: ['大圆角胶囊', 'Pill Capsule'],
+                vertical: ['左侧竖排边栏', 'Left Sidebar']
+            };
+            document.querySelectorAll('[data-ui-preset]').forEach((btn) => {
+                const pair = uiPresetLabels[btn.dataset.uiPreset];
+                if (pair) btn.textContent = zh ? pair[0] : pair[1];
+            });
+            setRowPairI18n(
+                'qsTopbarLayout',
+                '顶栏 / 侧边栏布局方式',
+                'Header layout & shortcuts bar',
+                '`topbar.layout` · `topbar.bookmarks_bar`',
+                '`topbar.layout` · `topbar.bookmarks_bar`'
+            );
+            const firstPresetRow = document.querySelector('#pane-studio-visual .set-row');
+            if (firstPresetRow) {
+                setRichI18nText(firstPresetRow.querySelector('.set-label'), '一键界面风格预设', 'One-click UI layout preset', zh);
+                setRichI18nText(firstPresetRow.querySelector('.set-hint'), '不懂像素参数也没关系，点一下即可套用整套顶栏比例与圆角风格。', 'Apply complete chrome proportions and corner radii in one click.', zh);
+            }
+            applySelectOptionsI18n('qsTopbarLayout', { deck: '双层顶栏 (2行)', compact: '单行紧凑', vertical: '左侧竖排边栏' }, { deck: 'Layered deck (2-row)', compact: 'Compact (1-row)', vertical: 'Vertical sidebar (left)' }, zh);
+            applySelectOptionsI18n('qsBookmarksBar', { always: '始终显示', newtab: '仅起始页显示', hidden: '隐藏' }, { always: 'Always show', newtab: 'Start page only', hidden: 'Hidden' }, zh);
+            applySelectOptionsI18n('qsAddrMode', { inline: '顶部直输', modal: '居中弹窗' }, { inline: 'Inline input', modal: 'Modal' }, zh);
+            applySelectOptionsI18n('qsAddrPos', { center: '居中', right: '靠右', left: '靠左' }, { center: 'Center', right: 'Right', left: 'Left' }, zh);
+            applySelectOptionsI18n('qsMobilePos', { bottom: '底部', top: '顶部' }, { bottom: 'Bottom', top: 'Top' }, zh);
+            applySelectOptionsI18n('qsNtCols', { '0': '自动 (6 列)', '2': '2 列', '3': '3 列', '4': '4 列', '5': '5 列', '6': '6 列' }, { '0': 'Auto (6 cols)', '2': '2 columns', '3': '3 columns', '4': '4 columns', '5': '5 columns', '6': '6 columns' }, zh);
+
+            const switchLabelMap = [
+                ['#qsBtnCopyToggle', '复制', 'Copy'],
+                ['#qsBtnStarToggle', '收藏', 'Star'],
+                ['#qsBtnShieldToggle', '拦截盾', 'Shield'],
+                ['#qsBtnDlToggle', '下载', 'Downloads'],
+                ['#qsTabDotToggle', '网站标', 'Badge'],
+                ['#qsFullWidthToggle', '宽屏', 'Wide'],
+                ['#qsNtClockToggle', '大时钟', 'Clock'],
+                ['#qsNt24hToggle', '24小时制', '24h'],
+                ['#qsNtScToggle', '常用网站', 'Shortcuts'],
+                ['#qsNtHistToggle', '历史记录', 'History']
+            ];
+            switchLabelMap.forEach(([idSel, zTxt, eTxt]) => {
+                const btn = document.querySelector(idSel);
+                const sp = btn && btn.previousElementSibling;
+                if (sp && sp.classList.contains('switch-status')) sp.textContent = zh ? zTxt : eTxt;
+            });
+
+            setPlainRowI18n(document.getElementById('btnNtWallpaperUpload'), '上传图片', 'Upload');
+            setPlainRowI18n(document.getElementById('btnNtWallpaperClear'), '清除', 'Clear');
+            const wpLabels = [
+                ['', '默认无壁纸', 'None'],
+                ['linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #311042 100%)', '深空极光', 'Aurora Dark'],
+                ['linear-gradient(135deg, #082f49 0%, #0f172a 55%, #022c22 100%)', '静谧深海', 'Abyssal Ocean'],
+                ['linear-gradient(135deg, #2e1065 0%, #4c1d95 45%, #831843 100%)', '暮光紫霞', 'Twilight Dusk'],
+                ['linear-gradient(135deg, #052e16 0%, #14532d 50%, #0f172a 100%)', '森系暗绿', 'Deep Forest'],
+                ['linear-gradient(135deg, #431407 0%, #7c2d12 48%, #3b0764 100%)', '暖阳落日', 'Warm Sunset']
+            ];
+            document.querySelectorAll('[data-wp]').forEach((btn, i) => {
+                const pair = wpLabels[i];
+                if (pair) btn.textContent = zh ? pair[1] : pair[2];
+            });
+            setPlainRowI18n(document.getElementById('btnReloadJson'), '重新加载', 'Reload');
+            setPlainRowI18n(document.getElementById('btnResetJson'), '重置默认', 'Reset');
+            setPlainRowI18n(document.getElementById('btnSaveJson'), '应用并保存', 'Apply & save');
+            const jsonAutoHint = document.querySelector('#jsonStatus > span:last-child');
+            if (jsonAutoHint) jsonAutoHint.textContent = zh ? '窗口聚焦时自动刷新同步' : 'Auto-reloads on window focus';
+
+            // Keybinds header buttons
+            setPlainRowI18n(document.getElementById('btnImportKeybinds'), '导入 .json', 'Import .json');
+            setPlainRowI18n(document.getElementById('btnExportKeybinds'), '导出 .json', 'Export .json');
+            setPlainRowI18n(document.getElementById('btnResetKeybinds'), '恢复默认', 'Reset defaults');
 
             document.querySelectorAll('#ruleNoCodeBar [data-nocode], #pubNoCodeBar [data-pub-nocode]').forEach((chip) => {
                 const key = chip.dataset.nocode || chip.dataset.pubNocode;
                 const b = key && NO_CODE_BLOCKS[key];
-                if (b) chip.textContent = zh ? b.chipZh : b.chipEn;
+                if (b) setBtnIconAndText(chip, b.icon, zh ? b.chipZh : b.chipEn);
             });
         }
 
@@ -2500,6 +2935,11 @@
                 inpDlDir.placeholder = zh ? '系统默认下载文件夹（Downloads）' : 'Default system Downloads folder';
             }
             if (btnResetDlDir) btnResetDlDir.textContent = zh ? '恢复默认' : 'Default';
+
+            const curLang = isZh() ? 'zh' : 'en';
+            document.querySelectorAll('#langModeGroup .seg-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.lang === curLang);
+            });
 
             const uaMode = (config.user_agent_mode || 'default').toLowerCase();
             document.querySelectorAll('#uaModeGroup .seg-btn').forEach(b => {
@@ -2535,6 +2975,7 @@
                     : 'Network ad & tracker interception is currently paused.');
 
             setSwitchState('btnRestoreToggle', config.restore_session !== false);
+            setSwitchState('btnAllowPageEvalToggle', !!config.allow_page_eval);
 
             document.getElementById('btnClearHistory').textContent = historyCount > 0
                 ? (zh ? `清空历史记录 (${historyCount})` : `Clear history (${historyCount})`)
@@ -2611,7 +3052,7 @@
 
         function saveConfig(msg) {
             sendIpc({ type: 'SAVE_CONFIG', config: config });
-            showToast(msg || 'Preferences saved');
+            showToast(msg || (isZh() ? '设置已保存' : 'Preferences saved'));
         }
 
         function pushStyles(msg) {
@@ -2619,8 +3060,8 @@
             applySettingsSurface();
             syncFormControls();
             sendIpc({ type: 'SAVE_STYLES', styles: styles });
-            setJsonStatus(false, 'Applied live and persisted to styles.json.');
-            showToast(msg || 'Styles updated');
+            setJsonStatus(false, isZh() ? '已实时应用并保存到 styles.json。' : 'Applied live and persisted to styles.json.');
+            showToast(msg || (isZh() ? '界面样式已更新' : 'Styles updated'));
         }
 
         function bindJsonFilePicker(btnId, inputId, ipcType, extraProps) {
@@ -2652,7 +3093,7 @@
         document.getElementById('btnCopyThemesDir').onclick = () => {
             if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
                 navigator.clipboard.writeText(themesDir).then(() => {
-                    showToast('Copied themes folder path');
+                    showToast(isZh() ? '已复制主题文件夹路径' : 'Copied themes folder path');
                 }).catch(() => sendIpc({ type: 'OPEN_THEMES_DIR' }));
             } else {
                 sendIpc({ type: 'OPEN_THEMES_DIR' });
@@ -2673,7 +3114,9 @@
                 styles.colors.use_custom_colors = false;
             }
             renderColorTokensStudio();
-            pushStyles(styles.colors.use_custom_colors ? 'Visual color designer enabled' : 'Using JSON theme preset');
+            pushStyles(styles.colors.use_custom_colors
+                ? (isZh() ? '已启用自定义调色盘' : 'Visual color designer enabled')
+                : (isZh() ? '已恢复使用主题预设配色' : 'Using JSON theme preset'));
         };
 
         document.getElementById('btnSaveAsTheme').onclick = () => {
@@ -2694,9 +3137,10 @@
         };
 
         document.getElementById('btnAddEngine').onclick = () => {
+            const zh = isZh();
             const nm = document.getElementById('inputEngName').value.trim();
             const u = document.getElementById('inputEngUrl').value.trim();
-            if (!nm || !u) return showToast('Enter engine name and URL');
+            if (!nm || !u) return showToast(zh ? '请输入搜索引擎名称与网址' : 'Enter engine name and URL');
             const id = nm.toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || ('eng-' + Date.now());
             const list = getEngines().slice();
             const fullUrl = /^https?:\/\//i.test(u) ? u : ('https://' + u);
@@ -2708,14 +3152,15 @@
             document.getElementById('inputEngName').value = '';
             document.getElementById('inputEngUrl').value = '';
             renderEngineTable();
-            saveConfig(`Added search engine: ${nm}`);
+            saveConfig(zh ? `已添加并切换搜索引擎：${nm}` : `Added search engine: ${nm}`);
         };
 
         document.getElementById('btnAddBang').onclick = () => {
+            const zh = isZh();
             let trig = document.getElementById('inputBangTrig').value.trim().toLowerCase();
             const nm = document.getElementById('inputBangName').value.trim();
             const u = document.getElementById('inputBangUrl').value.trim();
-            if (!trig || !u) return showToast('Enter !trigger and search URL');
+            if (!trig || !u) return showToast(zh ? '请输入 !指令 与搜索网址模板' : 'Enter !trigger and search URL');
             if (!trig.startsWith('!')) trig = '!' + trig;
             const fullUrl = /^https?:\/\//i.test(u) ? u : ('https://' + u);
             const list = getBangs().filter(x => (x.trigger || '').toLowerCase() !== trig);
@@ -2725,13 +3170,13 @@
             document.getElementById('inputBangName').value = '';
             document.getElementById('inputBangUrl').value = '';
             renderBangsTable();
-            saveConfig(`Saved bang ${trig}`);
+            saveConfig(zh ? `已保存 !Bang 指令：${trig}` : `Saved bang ${trig}`);
         };
 
         const inputHp = document.getElementById('inputHomepage');
         inputHp.onchange = () => {
             const val = inputHp.value.trim();
-            if (val) { config.homepage = val; saveConfig('Homepage updated'); }
+            if (val) { config.homepage = val; saveConfig(isZh() ? '已更新新标签页地址' : 'Homepage updated'); }
         };
         const inputDlDir = document.getElementById('inputDownloadsDir');
         if (inputDlDir) {
@@ -2753,7 +3198,20 @@
         document.querySelectorAll('.preset-chip').forEach(chip => {
             chip.onclick = () => {
                 const hp = chip.dataset.hp;
-                if (hp) { config.homepage = hp; inputHp.value = hp; saveConfig(`Homepage: ${hp}`); }
+                if (hp) {
+                    config.homepage = hp;
+                    inputHp.value = hp;
+                    saveConfig((isZh() ? '已设置主页：' : 'Homepage: ') + hp);
+                }
+            };
+        });
+
+        document.querySelectorAll('#langModeGroup .seg-btn').forEach(btn => {
+            btn.onclick = () => {
+                const nextLang = btn.dataset.lang === 'en' ? 'en' : 'zh';
+                config.language = nextLang;
+                renderAllSections();
+                saveConfig(nextLang === 'en' ? 'Switched interface to English' : '已切换为简体中文界面');
             };
         });
 
@@ -2761,12 +3219,12 @@
             btn.onclick = () => {
                 config.user_agent_mode = btn.dataset.ua;
                 syncFormControls();
-                saveConfig(`User-Agent mode: ${btn.textContent}`);
+                saveConfig((isZh() ? 'UA 模式：' : 'User-Agent mode: ') + btn.textContent);
             };
         });
         document.getElementById('inputCustomUa').onchange = (e) => {
             config.custom_user_agent = e.target.value.trim();
-            saveConfig('Custom User-Agent updated');
+            saveConfig(isZh() ? '已更新自定义 User-Agent' : 'Custom User-Agent updated');
         };
         document.getElementById('btnZoomOut').onclick = () => sendIpc({ type: 'SET_ZOOM', delta: -0.1 });
         document.getElementById('btnZoomReset').onclick = () => sendIpc({ type: 'SET_ZOOM', zoom: 1.0 });
@@ -2778,7 +3236,7 @@
         document.getElementById('btnAddShortcut').onclick = () => {
             const u = document.getElementById('inputScUrl').value.trim();
             const t = document.getElementById('inputScTitle').value.trim();
-            if (!u) return showToast('Enter shortcut URL');
+            if (!u) return showToast(isZh() ? '请输入快捷网站网址' : 'Enter shortcut URL');
             sendIpc({ type: 'ADD_BOOKMARK', title: t, url: u });
             document.getElementById('inputScTitle').value = '';
             document.getElementById('inputScUrl').value = '';
@@ -2796,7 +3254,9 @@
         document.getElementById('btnIncognitoToggle').onclick = () => {
             config.incognito = !config.incognito;
             syncFormControls();
-            saveConfig(config.incognito ? 'Private mode active' : 'Private mode off');
+            saveConfig(config.incognito
+                ? (isZh() ? '已开启无痕模式' : 'Private mode active')
+                : (isZh() ? '已关闭无痕模式' : 'Private mode off'));
         };
         document.getElementById('btnHttpsFirstToggle').onclick = () => {
             config.https_first = !(config.https_first !== false);
@@ -2864,6 +3324,9 @@
             const zeroFx = !!cfg.enforce_perf;
             const adOn = cfg.adblock !== false;
             const extCount = countHeavyExtensions(cfg);
+            const chromeEnabled = cfg.chrome_extensions_enabled !== false
+                ? (Array.isArray(chromeExtensions) ? chromeExtensions.filter((e) => e && e.enabled).length : 0)
+                : 0;
 
             const baseMin = hw ? 105 : 90;
             const baseMax = hw ? 145 : 125;
@@ -2874,9 +3337,9 @@
             const trimBonus = trim ? 0.90 : 1.0;
             const fxBonus = zeroFx ? 0.92 : 1.0;
 
-            const minMb = Math.round((baseMin + slots * perTabMin + extOver + adPen) * trimBonus * fxBonus);
-            const maxMb = Math.max(minMb + 20, Math.round((baseMax + slots * perTabMax + extOver * 1.6 + adPen * 1.8) * trimBonus * fxBonus));
-            return { minMb, maxMb, extCount };
+            const minMb = Math.round((baseMin + slots * perTabMin + extOver + adPen) * trimBonus * fxBonus + chromeEnabled * 18);
+            const maxMb = Math.max(minMb + 20, Math.round((baseMax + slots * perTabMax + extOver * 1.6 + adPen * 1.8) * trimBonus * fxBonus + chromeEnabled * 32));
+            return { minMb, maxMb, extCount, chromeEnabled };
         }
 
         function applyPerfPresetClient(preset) {
@@ -2888,6 +3351,7 @@
                 config.tab_sleep_minutes = 5;
                 config.enforce_perf = true;
                 config.reduce_animations = true;
+                config.chrome_extensions_enabled = false;
                 config.ext_side_panel = false;
                 config.ext_reader_mode = false;
                 config.ext_yt_ad_skipper = false;
@@ -2900,6 +3364,7 @@
                 config.tab_sleep_minutes = 15;
                 config.enforce_perf = false;
                 config.reduce_animations = false;
+                config.chrome_extensions_enabled = true;
             } else if (preset === 'medium') {
                 config.tab_cache_mode = 'medium';
                 config.efficiency_mode = true;
@@ -2907,6 +3372,7 @@
                 config.tab_sleep_minutes = 30;
                 config.enforce_perf = false;
                 config.reduce_animations = false;
+                config.chrome_extensions_enabled = true;
             } else if (preset === 'high') {
                 config.tab_cache_mode = 'smooth';
                 config.efficiency_mode = false;
@@ -2914,6 +3380,7 @@
                 config.tab_sleep_minutes = 0;
                 config.enforce_perf = false;
                 config.reduce_animations = false;
+                config.chrome_extensions_enabled = true;
             }
         }
 
@@ -2999,9 +3466,12 @@
                 const chromeBaseline = 560;
                 const savedPct = Math.max(0, Math.round(((chromeBaseline - mid) / chromeBaseline) * 100));
                 const slots = cacheSlotLimitFor(config.tab_cache_mode);
+                const chromeTxt = est.chromeEnabled > 0
+                    ? (zh ? ` + ${est.chromeEnabled} 个 Chrome 扩展` : ` + ${est.chromeEnabled} Chrome ext`)
+                    : '';
                 estDetail.textContent = zh
-                    ? `包含多进程内核 + 最多 ${slots} 个后台热标签（已开 ${est.extCount} 个重扩展）${savedPct > 10 ? ` · 相比常规多开约省 ${savedPct}% RAM` : ''}`
-                    : `Includes WebView2 multi-process + up to ${slots} live tab slots (${est.extCount} heavy ext on)${savedPct > 10 ? ` · ~${savedPct}% lighter than unthrottled Chrome` : ''}`;
+                    ? `包含多进程内核 + 最多 ${slots} 个后台热标签（已开 ${est.extCount} 个重模块${chromeTxt}）${savedPct > 10 ? ` · 相比常规多开约省 ${savedPct}% RAM` : ''}`
+                    : `Includes WebView2 multi-process + up to ${slots} live tab slots (${est.extCount} heavy ext${chromeTxt})${savedPct > 10 ? ` · ~${savedPct}% lighter than unthrottled Chrome` : ''}`;
             }
 
             document.querySelectorAll('#perfPresetGrid .perf-preset-card').forEach((card) => {
@@ -3035,6 +3505,7 @@
             setSwitchState('btnReduceAnimToggle', !!config.reduce_animations);
             setSwitchState('btnHwAccelToggle', config.hw_accel !== false);
             setSwitchState('btnPerfAdblockToggle', config.adblock !== false);
+            setSwitchState('btnChromeExtEngineToggle', config.chrome_extensions_enabled !== false);
 
             const curCm = String(config.tab_cache_mode || 'balanced').toLowerCase();
             document.querySelectorAll('#perfCacheModeGroup .seg-btn').forEach((b) => {
@@ -3068,6 +3539,14 @@
             setTag('tagHwRam', config.hw_accel !== false ? 'GPU 加速中 · 改后重启' : '低显存软件模式 · 改后重启', config.hw_accel !== false ? 'GPU On · Restart on change' : 'Low VRAM · Restart on change', config.hw_accel !== false);
             setTag('tagPerfAdblockRam', config.adblock !== false ? '已省 ~35–75 MB 广告' : '未拦截广告 (+~50 MB)', config.adblock !== false ? 'Saves ~35–75 MB' : '+~50 MB ad scripts', config.adblock !== false);
             setTag('tagPerfExtRam', est.extCount > 0 ? `已开 ${est.extCount} 个 (+~${est.extCount * 18} MB)` : '全部关闭 · 0 MB', est.extCount > 0 ? `${est.extCount} active (+~${est.extCount * 18} MB)` : '0 MB when off', est.extCount === 0);
+            const ceOn = config.chrome_extensions_enabled !== false;
+            const ceNeedRestart = ceOn !== chromeExtEngineActive ? (zh ? ' · 改后重启' : ' · Restart') : '';
+            setTag(
+                'tagChromeExtRam',
+                ceOn ? `已启用 ${est.chromeEnabled} 个扩展 (+~${est.chromeEnabled * 25} MB)${ceNeedRestart}` : `引擎关闭 · 0 MB${ceNeedRestart}`,
+                ceOn ? `${est.chromeEnabled} active (+~${est.chromeEnabled * 25} MB)${ceNeedRestart}` : `Engine off · 0 MB${ceNeedRestart}`,
+                !ceOn || est.chromeEnabled === 0
+            );
 
             const hintExt = document.getElementById('hintPerfExtSummary');
             if (hintExt) {
@@ -3169,7 +3648,9 @@
         document.getElementById('btnPerfAdblockToggle').onclick = () => {
             config.adblock = !(config.adblock !== false);
             syncFormControls();
-            saveConfig(config.adblock ? 'Network adblock enabled' : 'Network adblock paused');
+            saveConfig(config.adblock
+                ? (isZh() ? '已开启网络广告与追踪拦截' : 'Network adblock enabled')
+                : (isZh() ? '已暂停网络广告拦截' : 'Network adblock paused'));
         };
         document.getElementById('btnPerfDisableHeavyExt').onclick = () => {
             config.ext_side_panel = false;
@@ -3183,6 +3664,70 @@
         document.getElementById('btnPerfManageExt').onclick = () => {
             switchSettingsView('sec-extensions', true);
         };
+        const btnCeEngine = document.getElementById('btnChromeExtEngineToggle');
+        if (btnCeEngine) {
+            btnCeEngine.onclick = () => {
+                config.chrome_extensions_enabled = !(config.chrome_extensions_enabled !== false);
+                config.perf_preset = 'custom';
+                syncFormControls();
+                renderChromeExtensionsPane();
+                saveConfig(config.chrome_extensions_enabled
+                    ? (isZh() ? '已开启 Chrome 原生扩展引擎（重启后生效）' : 'Chrome extension engine enabled (restart to apply)')
+                    : (isZh() ? '已关闭 Chrome 原生扩展引擎（重启后零内存占用）' : 'Chrome extension engine disabled (restart for 0 MB)'));
+            };
+        }
+        const btnInstStore = document.getElementById('btnInstallChromeStore');
+        const inpStoreUrl = document.getElementById('inputChromeStoreUrl');
+        if (btnInstStore && inpStoreUrl) {
+            const doStoreInst = () => {
+                const raw = inpStoreUrl.value.trim();
+                if (!raw) return showToast(isZh() ? '请粘贴 Chrome/Edge 商店链接或 32 位 ID' : 'Enter store URL or 32-char extension ID');
+                sendIpc({ type: 'INSTALL_CHROME_EXT_STORE', input: raw });
+            };
+            btnInstStore.onclick = doStoreInst;
+            inpStoreUrl.onkeydown = (ev) => {
+                if (ev.key === 'Enter') { ev.preventDefault(); doStoreInst(); }
+            };
+        }
+        const btnOpenWebStore = document.getElementById('btnOpenChromeWebStore');
+        if (btnOpenWebStore) {
+            btnOpenWebStore.onclick = () => sendIpc({ type: 'NEW_TAB', url: 'https://chromewebstore.google.com/' });
+        }
+        const inpFileCrx = document.getElementById('fileImportCrx');
+        const btnImpCrx = document.getElementById('btnImportCrx');
+        if (btnImpCrx && inpFileCrx) {
+            btnImpCrx.onclick = () => inpFileCrx.click();
+            inpFileCrx.addEventListener('change', (ev) => {
+                const file = ev.target.files && ev.target.files[0];
+                if (!file) return;
+                if (file.size > 48 * 1024 * 1024) {
+                    showToast(isZh() ? '扩展文件超过 48 MB 上限' : 'Extension archive exceeds 48 MB limit');
+                    ev.target.value = '';
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const buf = new Uint8Array(reader.result || new ArrayBuffer(0));
+                    const b64 = bytesToBase64Chunked(buf);
+                    sendIpc({ type: 'INSTALL_CHROME_EXT_FILE', filename: file.name || 'extension.crx', base64: b64 });
+                };
+                reader.readAsArrayBuffer(file);
+                ev.target.value = '';
+            });
+        }
+        const btnInstDir = document.getElementById('btnInstallChromeDir');
+        const inpExtDir = document.getElementById('inputChromeExtDir');
+        if (btnInstDir && inpExtDir) {
+            btnInstDir.onclick = () => {
+                const p = inpExtDir.value.trim();
+                if (!p) return showToast(isZh() ? '请输入已解压扩展文件夹路径' : 'Enter unpacked extension folder path');
+                sendIpc({ type: 'INSTALL_CHROME_EXT_DIR', path: p });
+            };
+        }
+        const btnOpenCeDir = document.getElementById('btnOpenChromeExtDir');
+        if (btnOpenCeDir) {
+            btnOpenCeDir.onclick = () => sendIpc({ type: 'OPEN_CHROME_EXT_DIR' });
+        }
         document.getElementById('btnPerfToggleWinMode').onclick = () => {
             config.window_mode = String(config.window_mode || 'multi').toLowerCase() === 'single' ? 'multi' : 'single';
             syncFormControls();
@@ -3193,7 +3738,16 @@
         document.getElementById('btnRestoreToggle').onclick = () => {
             config.restore_session = !(config.restore_session !== false);
             syncFormControls();
-            saveConfig(config.restore_session ? 'Session restore enabled' : 'Session restore disabled');
+            saveConfig(config.restore_session
+                ? (isZh() ? '已开启重启自动恢复上次页面' : 'Session restore enabled')
+                : (isZh() ? '已关闭重启恢复会话' : 'Session restore disabled'));
+        };
+        document.getElementById('btnAllowPageEvalToggle').onclick = () => {
+            config.allow_page_eval = !config.allow_page_eval;
+            syncFormControls();
+            saveConfig(config.allow_page_eval
+                ? (isZh() ? '已开启控制台 JS 执行与原生 DevTools（新标签生效原生开关）' : 'Console JS Eval & Native DevTools enabled')
+                : (isZh() ? '已关闭控制台 JS 执行与原生 DevTools' : 'Console JS Eval & Native DevTools disabled'));
         };
 
         document.getElementById('btnClearHistory').onclick = () => {
@@ -3212,29 +3766,33 @@
         document.getElementById('btnAdblockToggle').onclick = () => {
             config.adblock = !(config.adblock !== false);
             syncFormControls();
-            saveConfig(config.adblock ? 'Network adblock enabled' : 'Network adblock paused');
+            saveConfig(config.adblock
+                ? (isZh() ? '已开启网络广告与追踪拦截' : 'Network adblock enabled')
+                : (isZh() ? '已暂停网络广告拦截' : 'Network adblock paused'));
         };
         document.getElementById('btnAddBlockDomain').onclick = () => {
+            const zh = isZh();
             const inp = document.getElementById('inputBlockDomain');
             const v = inp.value.trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
-            if (!v || !v.includes('.')) return showToast('Enter a valid domain (e.g. ads.example.com)');
+            if (!v || !v.includes('.')) return showToast(zh ? '请输入有效域名（如 ads.example.com）' : 'Enter a valid domain (e.g. ads.example.com)');
             adblockCfg.custom_blocked_domains = adblockCfg.custom_blocked_domains || [];
             if (!adblockCfg.custom_blocked_domains.includes(v)) adblockCfg.custom_blocked_domains.push(v);
             inp.value = '';
             renderAdblockDomainLists();
             sendIpc({ type: 'SAVE_ADBLOCK', adblock: adblockCfg });
-            showToast(`Blocked ${v}`);
+            showToast(zh ? `已屏蔽域名：${v}` : `Blocked ${v}`);
         };
         document.getElementById('btnAddWhiteDomain').onclick = () => {
+            const zh = isZh();
             const inp = document.getElementById('inputWhiteDomain');
             const v = inp.value.trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
-            if (!v || !v.includes('.')) return showToast('Enter a valid domain (e.g. example.org)');
+            if (!v || !v.includes('.')) return showToast(zh ? '请输入有效域名（如 example.org）' : 'Enter a valid domain (e.g. example.org)');
             adblockCfg.whitelisted_domains = adblockCfg.whitelisted_domains || [];
             if (!adblockCfg.whitelisted_domains.includes(v)) adblockCfg.whitelisted_domains.push(v);
             inp.value = '';
             renderAdblockDomainLists();
             sendIpc({ type: 'SAVE_ADBLOCK', adblock: adblockCfg });
-            showToast(`Whitelisted ${v}`);
+            showToast(zh ? `已加入白名单：${v}` : `Whitelisted ${v}`);
         };
 
         bindJsonFilePicker('btnImportRules', 'fileImportRules', 'IMPORT_RULES_JSON');
@@ -3251,6 +3809,7 @@
                 if (files.length === 0) return;
                 let remaining = files.length;
                 let importedCount = 0;
+                let disabledCount = 0;
                 let lastName = '';
 
                 files.forEach((file, idx) => {
@@ -3258,6 +3817,7 @@
                     reader.onload = () => {
                         const js = String(reader.result || '');
                         if (js.trim()) {
+                            const zh = isZh();
                             const meta = parseUserscriptHeader(js);
                             const baseFileName = (file.name || 'script.user.js')
                                 .replace(/\.user\.js$/i, '')
@@ -3265,19 +3825,47 @@
                                 .trim();
                             const nm = (meta && meta.name) ? meta.name : (baseFileName || 'Userscript');
                             const dom = (meta && meta.domain) ? meta.domain : '*';
+                            const audit = auditExtensionPayload('', js, dom);
+                            const grants = (meta && Array.isArray(meta.grants)) ? meta.grants : [];
+                            const connects = (meta && Array.isArray(meta.connects)) ? meta.connects : [];
+                            const matches = (meta && Array.isArray(meta.matches)) ? meta.matches.concat(meta.includes || []) : [];
+                            const riskyGrants = grants.filter(g => /^(GM_xmlhttpRequest|GM\.xmlHttpRequest|unsafeWindow|GM_openInTab)$/i.test(g));
+
+                            let shouldEnable = true;
+                            if (riskyGrants.length > 0 || connects.length > 0 || audit.hasWarnings) {
+                                const msgLines = [
+                                    zh
+                                        ? `即将导入 ScriptForge 用户脚本：「${nm}」`
+                                        : `Importing ScriptForge userscript: "${nm}"`,
+                                    `${zh ? '作用域 (@match / domain)' : 'Scope (@match / domain)'}: ${matches.length > 0 ? matches.slice(0, 3).join(', ') : dom}`,
+                                    `${zh ? '申请权限 (@grant)' : 'Permissions (@grant)'}: ${grants.length > 0 ? grants.join(', ') : (zh ? '无特殊声明' : 'none declared')}`,
+                                    `${zh ? '外连域名 (@connect)' : 'Network (@connect)'}: ${connects.length > 0 ? connects.join(', ') : (zh ? '未限制（跟随页面同域策略）' : 'unspecified')}`,
+                                ];
+                                if (audit.hasWarnings) {
+                                    msgLines.push(`${zh ? '安全提示' : 'Security notice'}: ${audit.warnings.slice(0, 3).join('; ')}`);
+                                }
+                                msgLines.push(
+                                    zh
+                                        ? '点击「确定」确认信任并立即启用；点击「取消」将以停用状态导入供你先审查源码。'
+                                        : 'Click OK to trust and enable now, or Cancel to import disabled for code review.'
+                                );
+                                shouldEnable = window.confirm(msgLines.join('\n\n'));
+                            }
+
                             const slug = nm.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'userscript';
                             const id = `${slug}-${Date.now() % 10000}-${idx}`;
                             const entry = {
                                 id: id,
                                 name: nm,
                                 domain: dom,
-                                enabled: true,
+                                enabled: shouldEnable,
                                 css: '',
                                 js: js
                             };
                             if (meta && meta.version) entry.version = meta.version;
                             siteRules.push(entry);
                             importedCount += 1;
+                            if (!shouldEnable) disabledCount += 1;
                             lastName = nm;
                         }
                         remaining -= 1;
@@ -3286,11 +3874,17 @@
                             if (importedCount > 0) {
                                 renderSiteRulesList();
                                 sendIpc({ type: 'SAVE_RULES', rules: siteRules });
-                                showToast(importedCount === 1
-                                    ? `Imported ScriptForge script: ${lastName}`
-                                    : `Imported ${importedCount} ScriptForge scripts`);
+                                if (disabledCount > 0) {
+                                    showToast(isZh()
+                                        ? `已导入 ${importedCount} 个脚本（其中 ${disabledCount} 个默认停用，请审查源码后启用）`
+                                        : `Imported ${importedCount} scripts (${disabledCount} disabled pending review)`);
+                                } else {
+                                    showToast(importedCount === 1
+                                        ? (isZh() ? `已导入 ScriptForge 脚本：${lastName}` : `Imported ScriptForge script: ${lastName}`)
+                                        : (isZh() ? `已导入 ${importedCount} 个 ScriptForge 脚本` : `Imported ${importedCount} ScriptForge scripts`));
+                                }
                             } else {
-                                showToast('Selected file was empty');
+                                showToast(isZh() ? '所选文件内容为空' : 'Selected file was empty');
                             }
                         }
                     };
@@ -3383,7 +3977,7 @@
         document.getElementById('btnSaveRule').onclick = () => {
             const css = document.getElementById('ruleCssInput').value;
             const js = document.getElementById('ruleJsInput').value;
-            if (!css.trim() && !js.trim()) return showToast('Provide CSS or JS for this rule');
+            if (!css.trim() && !js.trim()) return showToast(isZh() ? '请填写至少一段 CSS 或 JS 代码' : 'Provide CSS or JS for this rule');
 
             const parsedMeta = parseUserscriptHeader(js);
             const nm = document.getElementById('ruleNameInput').value.trim() || (parsedMeta && parsedMeta.name) || 'Custom rule';
@@ -3407,7 +4001,7 @@
             document.getElementById('ruleEditorPanel').classList.remove('open');
             renderSiteRulesList();
             sendIpc({ type: 'SAVE_RULES', rules: siteRules });
-            showToast(`Saved rule: ${nm}`);
+            showToast(isZh() ? `已保存扩展规则：${nm}` : `Saved rule: ${nm}`);
         };
 
         bindJsonFilePicker('btnImportKeybinds', 'fileImportKeybinds', 'IMPORT_KEYBINDS_JSON');
@@ -3417,34 +4011,37 @@
         document.getElementById('qsDeskTopToggle').onclick = () => {
             styles.topbar = styles.topbar || {};
             styles.topbar.visible_on_desktop = styles.topbar.visible_on_desktop === false ? true : false;
-            pushStyles(styles.topbar.visible_on_desktop ? 'Desktop topbar shown' : 'Desktop topbar hidden');
+            pushStyles(isZh()
+                ? (styles.topbar.visible_on_desktop ? '已显示桌面顶部栏' : '已隐藏桌面顶部栏')
+                : (styles.topbar.visible_on_desktop ? 'Desktop topbar shown' : 'Desktop topbar hidden'));
         };
         document.getElementById('qsTopbarLayout').onchange = (e) => {
             styles.topbar = styles.topbar || {};
             styles.topbar.layout = e.target.value;
+            const zh = isZh();
             const msg = e.target.value === 'vertical'
-                ? 'Switched to left vertical sidebar'
+                ? (zh ? '已切换为左侧竖排边栏' : 'Switched to left vertical sidebar')
                 : e.target.value === 'deck'
-                    ? 'Switched to 2-row layered deck'
-                    : 'Switched to single-row compact bar';
+                    ? (zh ? '已切换为经典双层顶栏' : 'Switched to 2-row layered deck')
+                    : (zh ? '已切换为单行紧凑顶栏' : 'Switched to single-row compact bar');
             pushStyles(msg);
         };
         document.getElementById('qsBookmarksBar').onchange = (e) => {
             styles.topbar = styles.topbar || {};
             styles.topbar.bookmarks_bar = e.target.value;
-            pushStyles('Shortcuts bar: ' + e.target.value);
+            pushStyles((isZh() ? '书签栏显示：' : 'Shortcuts bar: ') + e.target.value);
         };
         document.getElementById('qsTopbarHeight').onchange = (e) => {
             styles.topbar = styles.topbar || {};
             styles.topbar.height = e.target.value.trim() || '40px';
-            pushStyles('Nav bar height updated');
+            pushStyles(isZh() ? '已更新顶栏高度' : 'Nav bar height updated');
         };
         const qsTitlebarInput = document.getElementById('qsTitlebarHeight');
         if (qsTitlebarInput) {
             qsTitlebarInput.onchange = (e) => {
                 styles.topbar = styles.topbar || {};
                 styles.topbar.titlebar_height = e.target.value.trim() || '42px';
-                pushStyles('Titlebar height updated');
+                pushStyles(isZh() ? '已更新标签行高度' : 'Titlebar height updated');
             };
         }
         const qsVertWInput = document.getElementById('qsVertWidth');
@@ -3452,127 +4049,131 @@
             qsVertWInput.onchange = (e) => {
                 styles.topbar = styles.topbar || {};
                 styles.topbar.vertical_width = e.target.value.trim() || '216px';
-                pushStyles('Vertical tab sidebar width updated');
+                pushStyles(isZh() ? '已更新竖排边栏宽度' : 'Vertical tab sidebar width updated');
             };
         }
         [
-            ['qsBtnCopyToggle', 'show_copy_btn', 'Copy URL button'],
-            ['qsBtnStarToggle', 'show_star_btn', 'Bookmark button'],
-            ['qsBtnShieldToggle', 'show_shield_btn', 'Shield button'],
-            ['qsBtnDlToggle', 'show_downloads_btn', 'Downloads button']
-        ].forEach(([elId, field, label]) => {
+            ['qsBtnCopyToggle', 'show_copy_btn', '复制网址按钮', 'Copy URL button'],
+            ['qsBtnStarToggle', 'show_star_btn', '收藏按钮', 'Bookmark button'],
+            ['qsBtnShieldToggle', 'show_shield_btn', '拦截盾按钮', 'Shield button'],
+            ['qsBtnDlToggle', 'show_downloads_btn', '下载按钮', 'Downloads button']
+        ].forEach(([elId, field, zhLabel, enLabel]) => {
             const btn = document.getElementById(elId);
             if (!btn) return;
             btn.onclick = () => {
                 styles.topbar = styles.topbar || {};
                 const next = styles.topbar[field] === false;
                 styles.topbar[field] = next;
-                pushStyles(`${label} ${next ? 'shown' : 'hidden'}`);
+                pushStyles(isZh()
+                    ? `${zhLabel}${next ? '已显示' : '已隐藏'}`
+                    : `${enLabel} ${next ? 'shown' : 'hidden'}`);
             };
         });
         document.getElementById('qsAddrMode').onchange = (e) => {
             styles.address_bar = styles.address_bar || {};
             styles.address_bar.mode = e.target.value;
-            pushStyles('Address bar mode: ' + e.target.value);
+            pushStyles((isZh() ? '地址栏样式：' : 'Address bar mode: ') + e.target.value);
         };
         document.getElementById('qsAddrPos').onchange = (e) => {
             styles.address_bar = styles.address_bar || {};
             styles.address_bar.position = e.target.value;
-            pushStyles('Omnibox aligned ' + e.target.value);
+            pushStyles((isZh() ? '地址栏对齐：' : 'Omnibox aligned ') + e.target.value);
         };
         document.getElementById('qsAddrWidth').onchange = (e) => {
             styles.address_bar = styles.address_bar || {};
             styles.address_bar.width = e.target.value.trim() || '320px';
-            pushStyles('Address capsule width updated');
+            pushStyles(isZh() ? '已更新地址栏宽度' : 'Address capsule width updated');
         };
         const tabHInput = document.getElementById('qsTabHeight');
         if (tabHInput) {
             tabHInput.onchange = (e) => {
                 styles.tabs = styles.tabs || {};
                 styles.tabs.height = e.target.value.trim() || '36px';
-                pushStyles('Tab item height updated');
+                pushStyles(isZh() ? '已更新标签高度' : 'Tab item height updated');
             };
         }
         document.getElementById('qsTabWidth').onchange = (e) => {
             styles.tabs = styles.tabs || {};
             styles.tabs.width = e.target.value.trim() || '152px';
-            pushStyles('Tab width updated');
+            pushStyles(isZh() ? '已更新标签宽度' : 'Tab width updated');
         };
         document.getElementById('qsTabRadius').onchange = (e) => {
             styles.tabs = styles.tabs || {};
             styles.tabs.border_radius = e.target.value.trim() || '7px';
-            pushStyles('Tab corner radius updated');
+            pushStyles(isZh() ? '已更新标签圆角' : 'Tab corner radius updated');
         };
         const tabGapInput = document.getElementById('qsTabGap');
         if (tabGapInput) {
             tabGapInput.onchange = (e) => {
                 styles.tabs = styles.tabs || {};
                 styles.tabs.gap = e.target.value.trim() || '0px';
-                pushStyles('Tab spacing (gap) updated');
+                pushStyles(isZh() ? '已更新标签间距' : 'Tab spacing (gap) updated');
             };
         }
         document.getElementById('qsTabDotToggle').onclick = () => {
             styles.tabs = styles.tabs || {};
             styles.tabs.show_indicator_dot = styles.tabs.show_indicator_dot === false ? true : false;
-            pushStyles('Updated tab badge');
+            pushStyles(isZh() ? '已更新网站图标徽标显示' : 'Updated tab badge');
         };
         document.getElementById('qsMobilePos').onchange = (e) => {
             styles.mobile_bar = styles.mobile_bar || {};
             styles.mobile_bar.position = e.target.value;
-            pushStyles('Mobile bar docked to ' + e.target.value);
+            pushStyles((isZh() ? '手机底栏位置：' : 'Mobile bar docked to ') + e.target.value);
         };
         document.getElementById('qsMobileHeight').onchange = (e) => {
             styles.mobile_bar = styles.mobile_bar || {};
             styles.mobile_bar.height = e.target.value.trim() || '54px';
-            pushStyles('Mobile bar height updated');
+            pushStyles(isZh() ? '已更新手机底栏高度' : 'Mobile bar height updated');
         };
         document.getElementById('qsFullWidthToggle').onclick = () => {
             styles.settings_page = styles.settings_page || {};
             styles.settings_page.full_width = styles.settings_page.full_width === false ? true : false;
-            pushStyles('Workspace width updated');
+            pushStyles(isZh() ? '已更新设置页宽屏模式' : 'Workspace width updated');
         };
 
         document.getElementById('qsNtTitle').onchange = (e) => {
             styles.newtab = styles.newtab || {};
             styles.newtab.title = e.target.value;
-            pushStyles('Start page title updated');
+            pushStyles(isZh() ? '已更新起始页标题' : 'Start page title updated');
         };
         document.getElementById('qsNtSub').onchange = (e) => {
             styles.newtab = styles.newtab || {};
             styles.newtab.subtitle = e.target.value;
-            pushStyles('Start page subtitle updated');
+            pushStyles(isZh() ? '已更新起始页副标题' : 'Start page subtitle updated');
         };
         document.getElementById('qsNtCols').onchange = (e) => {
             styles.newtab = styles.newtab || {};
             styles.newtab.shortcuts_columns = Number(e.target.value) || 0;
-            pushStyles('Shortcuts grid columns updated');
+            pushStyles(isZh() ? '已更新常用网站列数' : 'Shortcuts grid columns updated');
         };
         document.getElementById('qsNtClockToggle').onclick = () => {
             styles.newtab = styles.newtab || {};
             styles.newtab.show_clock = styles.newtab.show_clock === false ? true : false;
-            pushStyles('Start page clock updated');
+            pushStyles(isZh() ? '已切换起始页大时钟显示' : 'Start page clock updated');
         };
         document.getElementById('qsNt24hToggle').onclick = () => {
             styles.newtab = styles.newtab || {};
             styles.newtab.use_24h_clock = styles.newtab.use_24h_clock === false ? true : false;
-            pushStyles('Clock format updated');
+            pushStyles(isZh() ? '已切换小时制格式' : 'Clock format updated');
         };
         document.getElementById('qsNtScToggle').onclick = () => {
             styles.newtab = styles.newtab || {};
             styles.newtab.show_shortcuts = styles.newtab.show_shortcuts === false ? true : false;
-            pushStyles('Start page shortcuts visibility updated');
+            pushStyles(isZh() ? '已更新常用网站模块显示' : 'Start page shortcuts visibility updated');
         };
         document.getElementById('qsNtHistToggle').onclick = () => {
             styles.newtab = styles.newtab || {};
             styles.newtab.show_history = styles.newtab.show_history === false ? true : false;
-            pushStyles('Start page history visibility updated');
+            pushStyles(isZh() ? '已更新最近访问记录显示' : 'Start page history visibility updated');
         };
         const qsNtWpEl = document.getElementById('qsNtWallpaper');
         if (qsNtWpEl) {
             qsNtWpEl.onchange = (e) => {
                 styles.newtab = styles.newtab || {};
                 styles.newtab.background_image = e.target.value.trim();
-                pushStyles(styles.newtab.background_image ? 'Start page wallpaper updated' : 'Start page wallpaper cleared');
+                pushStyles(isZh()
+                    ? (styles.newtab.background_image ? '已更新起始页壁纸' : '已清除起始页壁纸')
+                    : (styles.newtab.background_image ? 'Start page wallpaper updated' : 'Start page wallpaper cleared'));
             };
         }
         const btnWpUp = document.getElementById('btnNtWallpaperUpload');
@@ -3584,14 +4185,14 @@
                 e.target.value = '';
                 if (!file) return;
                 if (file.size > 4 * 1024 * 1024) {
-                    showToast('Please choose an image under 4 MB');
+                    showToast(isZh() ? '请选择小于 4 MB 的图片文件' : 'Please choose an image under 4 MB');
                     return;
                 }
                 const reader = new FileReader();
                 reader.onload = () => {
                     styles.newtab = styles.newtab || {};
                     styles.newtab.background_image = String(reader.result || '');
-                    pushStyles('Start page wallpaper uploaded');
+                    pushStyles(isZh() ? '已上传并应用起始页壁纸' : 'Start page wallpaper uploaded');
                 };
                 reader.readAsDataURL(file);
             });
@@ -3601,7 +4202,7 @@
             btnWpClr.onclick = () => {
                 styles.newtab = styles.newtab || {};
                 styles.newtab.background_image = '';
-                pushStyles('Start page wallpaper cleared');
+                pushStyles(isZh() ? '已清除起始页壁纸' : 'Start page wallpaper cleared');
             };
         }
         const qsNtDimEl = document.getElementById('qsNtDim');
@@ -3610,7 +4211,7 @@
                 styles.newtab = styles.newtab || {};
                 const n = Math.max(0, Math.min(90, Number(e.target.value) || 0));
                 styles.newtab.background_dim = Math.round(n);
-                pushStyles(`Wallpaper dim set to ${styles.newtab.background_dim}%`);
+                pushStyles(isZh() ? `壁纸暗度设为 ${styles.newtab.background_dim}%` : `Wallpaper dim set to ${styles.newtab.background_dim}%`);
             };
         }
         const qsNtBlurEl = document.getElementById('qsNtBlur');
@@ -3619,7 +4220,7 @@
                 styles.newtab = styles.newtab || {};
                 const n = Math.max(0, Math.min(24, Number(e.target.value) || 0));
                 styles.newtab.background_blur = Math.round(n);
-                pushStyles(`Wallpaper blur set to ${styles.newtab.background_blur}px`);
+                pushStyles(isZh() ? `壁纸模糊设为 ${styles.newtab.background_blur}px` : `Wallpaper blur set to ${styles.newtab.background_blur}px`);
             };
         }
 
@@ -3660,6 +4261,16 @@
                 topbar: { layout: 'vertical', vertical_width: '216px', height: '40px', titlebar_height: '42px' },
                 tabs: { height: '32px', width: '204px', border_radius: '8px', gap: '4px' },
                 address_bar: { border_radius: '8px', height: '29px' }
+            },
+            glass: {
+                msgZh: '已切换为「亚克力毛玻璃」风格',
+                msgEn: 'Applied Frosted Glass preset',
+                topbar: {
+                    background: 'color-mix(in srgb, var(--fnx-panel) 76%, transparent)',
+                    custom_css: 'backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);'
+                },
+                tabs: { border_radius: '10px' },
+                address_bar: { border_radius: '10px' }
             }
         };
 
@@ -3692,9 +4303,9 @@
             validateTimer = setTimeout(() => {
                 try {
                     JSON.parse(jsonEditorEl.value);
-                    setJsonStatus(false, 'Syntax valid — click Apply & save or press Ctrl+S.');
+                    setJsonStatus(false, isZh() ? 'JSON 语法正确 — 点击“应用并保存”或按 Ctrl+S 生效。' : 'Syntax valid — click Apply & save or press Ctrl+S.');
                 } catch (err) {
-                    setJsonStatus(true, 'Syntax error: ' + err.message);
+                    setJsonStatus(true, (isZh() ? '语法错误：' : 'Syntax error: ') + err.message);
                 }
             }, 180);
         });
@@ -3708,20 +4319,20 @@
                 syncFormControls();
                 jsonEditorEl.value = JSON.stringify(styles, null, 2);
                 sendIpc({ type: 'SAVE_STYLES', styles: styles });
-                setJsonStatus(false, 'Valid JSON — applied live and saved to disk.');
-                showToast('Saved styles.json');
+                setJsonStatus(false, isZh() ? 'JSON 校验通过 — 已实时应用并保存到磁盘。' : 'Valid JSON — applied live and saved to disk.');
+                showToast(isZh() ? '已保存 styles.json' : 'Saved styles.json');
             } catch (err) {
-                setJsonStatus(true, 'Invalid JSON: ' + err.message);
+                setJsonStatus(true, (isZh() ? 'JSON 格式错误：' : 'Invalid JSON: ') + err.message);
             }
         };
 
         document.getElementById('btnReloadJson').onclick = () => {
             sendIpc({ type: 'RELOAD_STYLES' });
-            showToast('Reloaded JSON files from disk');
+            showToast(isZh() ? '已从磁盘重新加载 JSON 配置' : 'Reloaded JSON files from disk');
         };
         document.getElementById('btnResetJson').onclick = () => {
             sendIpc({ type: 'RESET_STYLES' });
-            showToast('Reset component styles to defaults');
+            showToast(isZh() ? '已恢复组件默认样式' : 'Reset component styles to defaults');
         };
 
         jsonEditorEl.addEventListener('keydown', (e) => {
@@ -3896,7 +4507,7 @@
                 id: slug,
                 name_zh: `自定义模式 ${n}`,
                 name_en: `Custom Mode ${n}`,
-                icon: '⚡',
+                icon: 'bolt',
                 auto_domains: [],
                 adblock: true,
                 force_dark: false,
@@ -4108,6 +4719,7 @@
             renderShortcutsTable();
             renderAdblockDomainLists();
             renderBuiltinExtensions();
+            renderChromeExtensionsPane();
             renderSiteRulesList();
             renderCloudExtensions();
             renderKeybindsGrid();
@@ -4136,6 +4748,8 @@
             if (payload.data_dir) dataDir = payload.data_dir;
             if (typeof payload.blocked_ads === 'number') rustBlockedAds = payload.blocked_ads;
             blockedAds = resolveTotalBlockedAds(rustBlockedAds);
+            if (Array.isArray(payload.chrome_extensions)) chromeExtensions = payload.chrome_extensions;
+            if (typeof payload.chrome_ext_engine_active === 'boolean') chromeExtEngineActive = payload.chrome_ext_engine_active;
             if (Array.isArray(payload.history)) {
                 historyEntries = payload.history;
                 historyCount = historyEntries.length;
