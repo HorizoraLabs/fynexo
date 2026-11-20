@@ -6,9 +6,14 @@
                     -webkit-font-smoothing: antialiased;
                     font-variant-numeric: tabular-nums;
                     -webkit-tap-highlight-color: transparent;
+                }
+                #__fynexo_shell__.zero-fx *,
+                #__fynexo_shell__.zero-fx *::before,
+                #__fynexo_shell__.zero-fx *::after {
                     box-shadow: none !important;
                     text-shadow: none !important;
                     backdrop-filter: none !important;
+                    -webkit-backdrop-filter: none !important;
                 }
                 button, input {
                     font-family: inherit;
@@ -241,6 +246,7 @@
                     color: var(--fnx-fg);
                 }
                 .fnx-tab-monogram {
+                    position: relative;
                     width: 16px;
                     height: 16px;
                     font-size: 12px;
@@ -254,6 +260,42 @@
                     border: none;
                     letter-spacing: -0.02em;
                     transition: opacity 0.14s ease, filter 0.14s ease;
+                }
+                .fnx-tab-fav-img {
+                    position: absolute;
+                    inset: 0;
+                    width: 15px;
+                    height: 15px;
+                    margin: auto;
+                    border-radius: 3px;
+                    object-fit: contain;
+                    opacity: 0;
+                    pointer-events: none;
+                    transition: opacity 0.14s ease;
+                }
+                .fnx-tab-monogram.has-fav .fnx-tab-fav-img {
+                    opacity: 1;
+                }
+                .fnx-tab-monogram.has-fav .fnx-tab-fav-txt {
+                    opacity: 0;
+                }
+                @keyframes fnxTabSpin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                .fnx-tab-item.active.is-loading .fnx-tab-monogram > * {
+                    opacity: 0 !important;
+                }
+                .fnx-tab-item.active.is-loading .fnx-tab-monogram::after {
+                    content: '';
+                    position: absolute;
+                    width: 13px;
+                    height: 13px;
+                    border-radius: 50%;
+                    border: 1.6px solid var(--fnx-accent);
+                    border-top-color: transparent;
+                    animation: fnxTabSpin 0.65s linear infinite;
+                    pointer-events: none;
                 }
                 .fnx-tab-item:not(.active) .fnx-tab-monogram {
                     opacity: 0.65;
@@ -353,10 +395,35 @@
                 #__fynexo_addr_slot__:hover:not(.editing) {
                     border-color: var(--fnx-border-hover) !important;
                     background: var(--fnx-hover) !important;
+                    opacity: 1 !important;
+                }
+                #__fynexo_addr_slot__.is-newtab-route:not(.editing) {
+                    background: color-mix(in srgb, var(--fnx-surface) 45%, transparent) !important;
+                    border-color: color-mix(in srgb, var(--fnx-border) 55%, transparent) !important;
+                    opacity: 0.78;
+                }
+                #__fynexo_addr_slot__.is-newtab-route:not(.editing) .fnx-addr-hint {
+                    display: inline-flex !important;
+                    align-items: center;
+                    height: 18px;
+                    padding: 0 5px;
+                    margin-right: 4px;
+                    border-radius: 4px;
+                    border: 1px solid color-mix(in srgb, var(--fnx-border-hover) 70%, transparent);
+                    background: color-mix(in srgb, var(--fnx-fg) 4%, transparent);
+                    color: var(--fnx-muted);
+                    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+                    font-size: 10px;
+                    font-weight: 500;
+                    letter-spacing: 0.02em;
+                    opacity: 0.75;
+                    pointer-events: none;
+                    flex-shrink: 0;
                 }
                 #__fynexo_addr_slot__.editing {
                     border-color: var(--fnx-accent) !important;
                     background: var(--fnx-bg) !important;
+                    opacity: 1 !important;
                 }
 
                 #__fynexo_address_btn__ {
@@ -967,7 +1034,7 @@
                     border: none;
                     color: var(--fnx-fg);
                     opacity: 0.84;
-                    width: 38px;
+                    width: 44px;
                     height: 100%;
                     display: flex;
                     align-items: center;

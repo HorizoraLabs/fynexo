@@ -372,9 +372,143 @@
                     ['path', { d: 'M8 1.8v1.5M8 12.7v1.5M1.8 8h1.5M12.7 8h1.5M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }]
                 ]);
                 break;
+            case 'puzzle':
+                svg = buildSvg(14, 14, '0 0 16 16', [
+                    ['path', { d: 'M6.2 3.6a1.4 1.4 0 0 1 2.8 0h2.4a1 1 0 0 1 1 1v2.6a1.4 1.4 0 0 1 0 2.8v2.6a1 1 0 0 1-1 1H9a1.4 1.4 0 0 0-2.8 0H3.6a1 1 0 0 1-1-1V10a1.4 1.4 0 0 0 0-2.8V4.6a1 1 0 0 1 1-1h2.6z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'spark':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['path', { d: 'M8 1.8l1.45 4.75L14.2 8l-4.75 1.45L8 14.2l-1.45-4.75L1.8 8l4.75-1.45L8 1.8z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'chart':
+            case 'fps':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['path', { d: 'M3.5 12.8V8.5M8 12.8V3.8M12.5 12.8V6.2', stroke: 'currentColor', 'stroke-width': '1.6', 'stroke-linecap': 'round' }]
+                ]);
+                break;
+            case 'edit':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['path', { d: 'M11.2 2.4l2.4 2.4-7.6 7.6-3.1.7.7-3.1 7.6-7.6z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'wireframe':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['rect', { x: '2.4', y: '2.4', width: '11.2', height: '11.2', rx: '1.4', stroke: 'currentColor', 'stroke-width': '1.35' }],
+                    ['path', { d: 'M2.6 6.4h10.8M6.6 6.4v7', stroke: 'currentColor', 'stroke-width': '1.35' }]
+                ]);
+                break;
+            case 'device':
+            case 'mobile':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['rect', { x: '4.2', y: '2', width: '7.6', height: '12', rx: '1.6', stroke: 'currentColor', 'stroke-width': '1.35' }],
+                    ['path', { d: 'M6.8 11.6h2.4', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }]
+                ]);
+                break;
+            case 'target':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['circle', { cx: '8', cy: '8', r: '5', stroke: 'currentColor', 'stroke-width': '1.35' }],
+                    ['path', { d: 'M8 1.8v2.1M8 12.1v2.1M1.8 8h2.1M12.1 8h2.1', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linecap': 'round' }],
+                    ['circle', { cx: '8', cy: '8', r: '1.2', fill: 'currentColor' }]
+                ]);
+                break;
+            case 'eyedropper':
+            case 'palette':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['path', { d: 'M10.8 2.4l2.8 2.8-1.5 1.5-2.8-2.8 1.5-1.5zM9.6 3.6L3.8 9.4l-.8 3.6 3.6-.8 5.8-5.8', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'key':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['circle', { cx: '5.3', cy: '8', r: '2.5', stroke: 'currentColor', 'stroke-width': '1.4' }],
+                    ['path', { d: 'M7.8 8h5.7M11.3 8v2.2M13.2 8v1.6', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }]
+                ]);
+                break;
+            case 'hash':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['path', { d: 'M6 2.8l-1.2 10.4M11.2 2.8L10 13.2M2.8 6.2h10.4M2.4 9.8h10.4', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }]
+                ]);
+                break;
+            case 'unlock':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['rect', { x: '3.2', y: '7.4', width: '9.6', height: '6.4', rx: '1.8', stroke: 'currentColor', 'stroke-width': '1.4' }],
+                    ['path', { d: 'M5.4 7.4V5.1a2.6 2.6 0 0 1 4.9-1.1', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }]
+                ]);
+                break;
+            case 'broom':
+            case 'clean':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['path', { d: 'M10.5 2.4L6.8 8.2M4.5 7.4l4.8 3.2-2.6 3.2-4.8-3.2 2.6-3.2z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'bolt':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['path', { d: 'M9 2L4.2 8.8h3.7l-.7 5.2 4.8-6.8H8.3L9 2z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'mouse':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['path', { d: 'M4 2.4l8.4 6.2-3.7.7 2 3.8-1.6.8-2-3.8-3.1 2.4V2.4z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'terminal':
+            case 'tools':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['rect', { x: '2.2', y: '2.8', width: '11.6', height: '10.4', rx: '1.8', stroke: 'currentColor', 'stroke-width': '1.35' }],
+                    ['path', { d: 'M4.8 6.2L7 8l-2.2 1.8M8.2 10.2h2.8', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'sliders':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['path', { d: 'M2.5 4.5h11M2.5 8h11M2.5 11.5h11', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }],
+                    ['circle', { cx: '5.5', cy: '4.5', r: '1.5', fill: 'currentColor' }],
+                    ['circle', { cx: '10.5', cy: '8', r: '1.5', fill: 'currentColor' }],
+                    ['circle', { cx: '6.5', cy: '11.5', r: '1.5', fill: 'currentColor' }]
+                ]);
+                break;
+            case 'folder':
+                svg = buildSvg(13, 13, '0 0 16 16', [
+                    ['path', { d: 'M2 4.3A1.3 1.3 0 0 1 3.3 3h2.9l1.4 1.5h5.1A1.3 1.3 0 0 1 14 5.8v5.9a1.3 1.3 0 0 1-1.3 1.3H3.3A1.3 1.3 0 0 1 2 11.7V4.3Z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
             default:
                 return document.createElement('span');
         }
         iconCache[name] = svg;
         return svg.cloneNode(true);
+    }
+
+    const MODE_ICON_CYCLE = ['code', 'reader', 'media', 'spark', 'cpu', 'shield', 'globe'];
+
+    function resolveModeIconName(rawIcon, modeId) {
+        const raw = String(rawIcon || '').trim().toLowerCase();
+        if (MODE_ICON_CYCLE.includes(raw)) return raw;
+        if (raw === 'bolt' || raw === 'developer' || raw === 'study') {
+            if (raw === 'developer') return 'code';
+            if (raw === 'study') return 'reader';
+            return 'bolt';
+        }
+        const id = String(modeId || '').toLowerCase();
+        if (id === 'developer') return 'code';
+        if (id === 'study') return 'reader';
+        if (id === 'media') return 'media';
+        return 'spark';
+    }
+
+    function setBtnIconAndText(btn, iconName, text) {
+        if (!btn) return;
+        btn.textContent = '';
+        if (iconName) {
+            const ic = createIcon(iconName);
+            ic.style.flexShrink = '0';
+            btn.appendChild(ic);
+        }
+        if (text !== undefined && text !== null && String(text) !== '') {
+            btn.appendChild(document.createTextNode(String(text)));
+        }
+        btn.style.display = 'inline-flex';
+        btn.style.alignItems = 'center';
+        btn.style.justifyContent = 'center';
+        btn.style.gap = '5px';
     }

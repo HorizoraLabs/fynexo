@@ -60,6 +60,62 @@ const SAFE_MATH_HELPER: &str = r#"function evalSafeMathExpr(raw) {
    } catch (_) {
       return null;
    }
+}
+
+function serializeRichRaw(el) {
+   let out = '';
+   if (!el || !el.childNodes) return out;
+   el.childNodes.forEach((n) => {
+      if (n.nodeType === 3) out += n.textContent || '';
+      else if (n.nodeType === 1 && n.tagName === 'CODE') out += '`' + (n.textContent || '') + '`';
+      else if (n.nodeType === 1) out += n.textContent || '';
+   });
+   return out;
+}
+
+function setRichI18nText(el, zhText, enText, zh) {
+   if (!el) return;
+   if (el.dataset.enRaw === undefined) {
+      el.dataset.enRaw = (enText !== undefined && enText !== null) ? String(enText) : serializeRichRaw(el);
+   }
+   const raw = zh ? String(zhText || el.dataset.enRaw) : ((enText !== undefined && enText !== null) ? String(enText) : el.dataset.enRaw);
+   el.textContent = '';
+   const re = /`([^`]+)`/g;
+   let lastIdx = 0;
+   let m;
+   while ((m = re.exec(raw)) !== null) {
+      if (m.index > lastIdx) {
+         el.appendChild(document.createTextNode(raw.slice(lastIdx, m.index)));
+      }
+      const code = document.createElement('code');
+      code.textContent = m[1];
+      el.appendChild(code);
+      lastIdx = m.index + m[0].length;
+   }
+   if (lastIdx < raw.length) {
+      el.appendChild(document.createTextNode(raw.slice(lastIdx)));
+   }
+}
+
+function applySelectOptionsI18n(selectId, zhMap, enMap, zh) {
+   const sel = document.getElementById(selectId);
+   if (!sel) return;
+   const map = zh ? zhMap : enMap;
+   if (!map) return;
+   Array.from(sel.options).forEach((o) => {
+      if (map[o.value] !== undefined) o.textContent = map[o.value];
+   });
+}
+
+function syncDocLangAndTitle(zh, zhTitle, enTitle) {
+   try {
+      if (document.documentElement) {
+         document.documentElement.lang = zh ? 'zh-CN' : 'en';
+      }
+      if (zhTitle && enTitle) {
+         document.title = zh ? zhTitle : enTitle;
+      }
+   } catch (_) {}
 }"#;
 
 pub fn defaults_script() -> String {

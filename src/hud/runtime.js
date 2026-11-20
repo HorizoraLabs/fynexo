@@ -7,15 +7,73 @@
    const __FNX_IPC_TOKEN = '__FNX_IPC_TOKEN__';
    const __FNX_BRIDGE_TOKEN = '__FNX_BRIDGE_TOKEN__';
    const __FNX_MOBILE_HOST = __FNX_MOBILE_HOST__;
+   const __fnxIsInternalOriginInit = (() => {
+      try {
+         const h = String((window.location && window.location.href) || '').trim().toLowerCase();
+         return (
+            h.startsWith('fynexo://') ||
+            /^https?:\/\/fynexo\.localhost(?::\d+)?(?:[/?#]|$)/.test(h)
+         );
+      } catch (_) {
+         return false;
+      }
+   })();
    const __fnxJsonStringify = JSON.stringify;
    const __fnxJsonParse = JSON.parse;
    const __fnxDefineProperty = Object.defineProperty;
+   const __fnxFreeze = Object.freeze;
+   const __fnxReflectApply =
+      typeof Reflect === 'object' && Reflect && typeof Reflect.apply === 'function'
+         ? Reflect.apply
+         : null;
+   const __fnxFuncApply = Function.prototype.apply;
    const __fnxStringSlice = String.prototype.slice;
    const __fnxArraySlice = Array.prototype.slice;
    let __fnxIpcPost =
       window.ipc && typeof window.ipc.postMessage === 'function'
          ? window.ipc.postMessage.bind(window.ipc)
          : null;
+   const __fnxAndroidGetPageBlocked =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.getPageBlockedAds === 'function'
+         ? window.__fynexo_android__.getPageBlockedAds.bind(window.__fynexo_android__)
+         : null;
+   let __fnxIpcShielded = false;
+   let __fnxAndroidShielded = false;
+
+   function shieldExternalWindowIpc() {
+      if (__fnxIsInternalOriginInit) return;
+      if (!__fnxAndroidShielded && window.__fynexo_android__) {
+         __fnxAndroidShielded = true;
+         try {
+            const safeAndroidStub = __fnxFreeze({
+               getPageBlockedAds:
+                  __fnxAndroidGetPageBlocked ||
+                  function () {
+                     return 0;
+                  },
+            });
+            __fnxDefineProperty(window, '__fynexo_android__', {
+               value: safeAndroidStub,
+               writable: false,
+               configurable: false,
+               enumerable: false,
+            });
+         } catch (_) {}
+      }
+      if (!__fnxIpcPost || __fnxIpcShielded) return;
+      __fnxIpcShielded = true;
+      try {
+         const noopStub = __fnxFreeze({ postMessage: function () {} });
+         __fnxDefineProperty(window, 'ipc', {
+            value: noopStub,
+            writable: false,
+            configurable: false,
+            enumerable: false,
+         });
+      } catch (_) {}
+   }
+   shieldExternalWindowIpc();
 
    function exposeReadOnly(name, fn) {
       try {
@@ -35,7 +93,11 @@
          'use strict';
          const len = arguments.length;
          if (len < 1 || arguments[len - 1] !== __FNX_BRIDGE_TOKEN) return;
-         return fn.apply(null, __fnxArraySlice.call(arguments, 0, len - 1));
+         const forwarded = __fnxArraySlice.call(arguments, 0, len - 1);
+         if (__fnxReflectApply) {
+            return __fnxReflectApply(fn, null, forwarded);
+         }
+         return __fnxFuncApply.call(fn, null, forwarded);
       }
       exposeReadOnly(name, guarded);
    }
@@ -111,6 +173,7 @@
          force_dark: false,
          incognito: false,
          https_first: true,
+         allow_page_eval: false,
          window_mode: 'multi',
          language: 'zh',
          default_zoom: 1.0,
@@ -130,6 +193,7 @@
          ext_media_booster: false,
          ext_userscript_engine: true,
          ext_mouse_gestures: true,
+         chrome_extensions_enabled: true,
          active_mode: 'auto',
          mode_profiles:
             typeof DEFAULT_MODE_PROFILES !== 'undefined'
@@ -190,7 +254,13 @@
    let recentDownloads = Array.isArray(bootPayload.downloads)
       ? bootPayload.downloads
       : [];
+   let chromeExtensions = Array.isArray(bootPayload.chrome_extensions)
+      ? bootPayload.chrome_extensions
+      : [];
+   let chromeExtEngineActive = !!bootPayload.chrome_ext_engine_active;
    let syncDownloadsUIRef = null;
+   let syncChromeExtsUIRef = null;
+   let syncChromeStoreBannerRef = null;
 
    function getEngines() {
       return Array.isArray(config.search_engines) &&
@@ -223,6 +293,17 @@
          bookmarks: bookmarks,
          history: historyItems.slice(0, 25),
          downloads: recentDownloads,
+         chrome_ext_engine_active: chromeExtEngineActive,
+         chrome_extensions: chromeExtensions.map((e) => ({
+            id: e.id,
+            runtime_id: e.runtime_id,
+            name: e.name,
+            version: e.version,
+            popup_path: e.popup_path,
+            options_path: e.options_path,
+            enabled: e.enabled,
+            pinned: e.pinned,
+         })),
       });
    }
 
@@ -269,6 +350,9 @@
    let renderDevNetworkRef = null;
    let toggleDevFpsHudRef = null;
    let syncMainMenuUIRef = null;
+   let syncHudLocalizationRef = null;
+   let syncSidePanelLocalizationRef = null;
+   let syncDevDrawerLocalizationRef = null;
    const DEV_NET_MAX = 60;
    let devNetSeq = 1;
    const devNetworkLogs = [];
@@ -614,6 +698,7 @@
    let progressFadeTimer = null;
    let progressResetTimer = null;
    let progressBars = [];
+   let isPageLoading = false;
    let onResourceStatsCb = null;
    let onForegroundResumeCb = null;
    let onTabsRenderedCb = null;
@@ -749,6 +834,7 @@
          typeof window.ipc.postMessage === 'function'
       ) {
          __fnxIpcPost = window.ipc.postMessage.bind(window.ipc);
+         shieldExternalWindowIpc();
       }
       if (__fnxIpcPost) {
          __fnxIpcPost(payload);
@@ -869,17 +955,15 @@
          const cleanHost = parsed.hostname.replace(/^www\./, '');
          const hostWithPort = parsed.port ? `${cleanHost}:${parsed.port}` : cleanHost;
          if (!hostWithPort) return rawUrl;
-         return isLocalDevHost(parsed.hostname)
-            ? `⚡ ${hostWithPort}`
-            : hostWithPort;
+         return hostWithPort;
       } catch (_) {
          return rawUrl;
       }
    }
 
    function extractMonogram(rawUrl, title) {
-      if (isInternalNewtab(rawUrl)) return '✦';
-      if (!rawUrl || isInternalSettings(rawUrl)) return '⚙';
+      if (isInternalNewtab(rawUrl)) return 'F';
+      if (!rawUrl || isInternalSettings(rawUrl)) return 'S';
       try {
          const parsed = new URL(rawUrl);
          const host = parsed.hostname.replace(/^(www|m)\./, '');
@@ -991,6 +1075,7 @@
 
    function renderSiteEmblem(targetEl, rawUrl, title) {
       if (!targetEl) return;
+      targetEl.classList.remove('has-fav');
       const brandName = siteBrandIconName(rawUrl);
       if (brandName) {
          targetEl.textContent = '';
@@ -1005,8 +1090,38 @@
          targetEl.appendChild(icon);
          return;
       }
-      targetEl.textContent = extractMonogram(rawUrl, title);
+      targetEl.textContent = '';
+      const txtSpan = document.createElement('span');
+      txtSpan.className = 'fnx-tab-fav-txt';
+      txtSpan.textContent = extractMonogram(rawUrl, title);
       targetEl.style.color = monogramAccentColor(rawUrl);
+      targetEl.appendChild(txtSpan);
+
+      try {
+         const u = new URL(String(rawUrl || ''));
+         if (
+            (u.protocol === 'https:' || u.protocol === 'http:') &&
+            u.hostname &&
+            !isLocalDevHost(u.hostname)
+         ) {
+            const img = document.createElement('img');
+            img.className = 'fnx-tab-fav-img';
+            img.alt = '';
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            img.referrerPolicy = 'no-referrer';
+            img.onload = () => {
+               if (img.naturalWidth > 0) {
+                  targetEl.classList.add('has-fav');
+               }
+            };
+            img.onerror = () => {
+               if (img.parentNode) img.parentNode.removeChild(img);
+            };
+            img.src = u.origin + '/favicon.ico';
+            targetEl.appendChild(img);
+         }
+      } catch (_) {}
    }
 
    function resolvePalette() {
@@ -1140,441 +1255,7 @@
       return false;
    }
 
-   function domainMatchesRule(hostname, pattern) {
-      const p = String(pattern || '*')
-         .trim()
-         .toLowerCase();
-      if (!p || p === '*') return true;
-      if (p.includes(':')) {
-         const curHostPort = String(window.location.host || hostname || '').toLowerCase();
-         const normP = p.replace(/^www\./, '');
-         return curHostPort === normP || curHostPort.replace(/^www\./, '') === normP;
-      }
-      const clean = p.startsWith('*.') ? p.slice(2) : p.replace(/^www\./, '');
-      const h = String(hostname || '').toLowerCase();
-      return h === clean || h.endsWith('.' + clean);
-   }
-
-   function parseUserscriptMeta(code) {
-      const src = String(code || '');
-      const match = src.match(
-         /\/\/\s*==UserScript==([\s\S]*?)\/\/\s*==\/UserScript==/,
-      );
-      if (!match) return null;
-      const meta = {
-         name: '',
-         version: '',
-         description: '',
-         author: '',
-         runAt: 'document-end',
-         matches: [],
-         includes: [],
-         excludes: [],
-      };
-      const lines = match[1].split(/\r?\n/);
-      for (let i = 0; i < lines.length; i++) {
-         const line = lines[i].trim();
-         const m = line.match(/^\/\/\s*@([A-Za-z0-9_-]+)\s+(.*)$/);
-         if (!m) continue;
-         const key = m[1].toLowerCase();
-         const val = m[2].trim();
-         if (!val) continue;
-         if (key === 'name' && !meta.name) meta.name = val;
-         else if (key === 'version' && !meta.version) meta.version = val;
-         else if (key === 'description' && !meta.description)
-            meta.description = val;
-         else if (key === 'author' && !meta.author) meta.author = val;
-         else if (key === 'run-at') {
-            const ra = val.toLowerCase();
-            if (
-               ra === 'document-start' ||
-               ra === 'document-body' ||
-               ra === 'document-end' ||
-               ra === 'document-idle'
-            ) {
-               meta.runAt = ra;
-            }
-         } else if (key === 'match') meta.matches.push(val);
-         else if (key === 'include') meta.includes.push(val);
-         else if (key === 'exclude') meta.excludes.push(val);
-      }
-      return meta;
-   }
-
-   function escapeRegexExact(s) {
-      return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-   }
-
-   function escapeRegexGlob(s) {
-      return String(s)
-         .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-         .replace(/\*/g, '.*');
-   }
-
-   function userscriptPatternMatchesUrl(pattern, href) {
-      const p = String(pattern || '').trim();
-      const target = String(href || '');
-      if (!p || !target) return false;
-      if (p === '*' || p === '<all_urls>') {
-         return /^https?:\/\//i.test(target);
-      }
-      if (p.length > 2 && p.startsWith('/') && p.endsWith('/')) {
-         try {
-            return new RegExp(p.slice(1, -1)).test(target);
-         } catch (_) {
-            return false;
-         }
-      }
-      const schemeMatch = p.match(/^(\*|https?):\/\/(\*\.[^/]+|[^/]+)(\/.*)?$/i);
-      if (schemeMatch) {
-         const schemeRe =
-            schemeMatch[1] === '*' ? 'https?' : escapeRegexExact(schemeMatch[1]);
-         const hostPat = schemeMatch[2];
-         const hostRe =
-            hostPat === '*'
-               ? '[^/]+'
-               : hostPat.startsWith('*.')
-                 ? '(?:[^/]+\\.)?' + escapeRegexGlob(hostPat.slice(2))
-                 : escapeRegexGlob(hostPat);
-         const pathRe = escapeRegexGlob(schemeMatch[3] || '/*');
-         try {
-            return new RegExp(
-               '^' + schemeRe + '://' + hostRe + pathRe + '$',
-               'i',
-            ).test(target);
-         } catch (_) {
-            return false;
-         }
-      }
-      try {
-         return new RegExp('^' + escapeRegexGlob(p) + '$', 'i').test(target);
-      } catch (_) {
-         return false;
-      }
-   }
-
-   function urlMatchesUserscriptMeta(href, meta) {
-      if (!meta) return true;
-      for (let i = 0; i < meta.excludes.length; i++) {
-         if (userscriptPatternMatchesUrl(meta.excludes[i], href)) return false;
-      }
-      if (meta.matches.length === 0 && meta.includes.length === 0) return true;
-      for (let i = 0; i < meta.matches.length; i++) {
-         if (userscriptPatternMatchesUrl(meta.matches[i], href)) return true;
-      }
-      for (let i = 0; i < meta.includes.length; i++) {
-         if (userscriptPatternMatchesUrl(meta.includes[i], href)) return true;
-      }
-      return false;
-   }
-
-   function createScriptForgeSandbox(r, meta) {
-      const ruleId = String(r.id || 'script');
-      const scriptName = (meta && meta.name) || r.name || ruleId;
-      const storePrefix = '__fnx_gm_' + ruleId + '_';
-      const mem =
-         scriptForgeMemStore[ruleId] ||
-         (scriptForgeMemStore[ruleId] = Object.create(null));
-
-      const gmInfo = {
-         scriptHandler: 'ScriptForge',
-         version: '1.0.0',
-         script: {
-            name: scriptName,
-            version: (meta && meta.version) || r.version || '1.0.0',
-            description: (meta && meta.description) || '',
-            author: (meta && meta.author) || '',
-            domain: r.domain || '*',
-            runAt: (meta && meta.runAt) || 'document-end',
-            matches:
-               meta && Array.isArray(meta.matches) ? meta.matches.slice() : [],
-            includes:
-               meta && Array.isArray(meta.includes) ? meta.includes.slice() : [],
-            excludes:
-               meta && Array.isArray(meta.excludes) ? meta.excludes.slice() : [],
-         },
-      };
-
-      const notifyValueChange = (key, oldVal, newVal) => {
-         const keys = Object.keys(scriptForgeListeners);
-         for (let i = 0; i < keys.length; i++) {
-            const entry = scriptForgeListeners[keys[i]];
-            if (entry && entry.ruleId === ruleId && entry.key === key) {
-               try {
-                  entry.cb(key, oldVal, newVal, false);
-               } catch (_) {}
-            }
-         }
-      };
-
-      const gmGetValue = (key, defaultValue) => {
-         const k = String(key);
-         try {
-            if (window.localStorage) {
-               const raw = window.localStorage.getItem(storePrefix + k);
-               if (raw === null) return defaultValue;
-               return __fnxJsonParse(raw);
-            }
-         } catch (_) {}
-         return Object.prototype.hasOwnProperty.call(mem, k)
-            ? mem[k]
-            : defaultValue;
-      };
-
-      const gmDeleteValue = (key) => {
-         const k = String(key);
-         const oldVal = gmGetValue(k, undefined);
-         try {
-            if (window.localStorage) {
-               window.localStorage.removeItem(storePrefix + k);
-            }
-         } catch (_) {}
-         delete mem[k];
-         if (oldVal !== undefined) notifyValueChange(k, oldVal, undefined);
-      };
-
-      const gmSetValue = (key, value) => {
-         const k = String(key);
-         if (value === undefined) {
-            gmDeleteValue(k);
-            return;
-         }
-         const oldVal = gmGetValue(k, undefined);
-         let encoded;
-         try {
-            encoded = __fnxJsonStringify(value);
-         } catch (_) {
-            encoded = 'null';
-         }
-         try {
-            if (window.localStorage) {
-               window.localStorage.setItem(storePrefix + k, encoded);
-            }
-         } catch (_) {}
-         mem[k] = value;
-         notifyValueChange(k, oldVal, value);
-      };
-
-      const gmListValues = () => {
-         const out = [];
-         try {
-            if (window.localStorage) {
-               for (let i = 0; i < window.localStorage.length; i++) {
-                  const fullKey = window.localStorage.key(i);
-                  if (fullKey && fullKey.startsWith(storePrefix)) {
-                     out.push(fullKey.slice(storePrefix.length));
-                  }
-               }
-               return out;
-            }
-         } catch (_) {}
-         return Object.keys(mem);
-      };
-
-      const gmAddValueChangeListener = (key, cb) => {
-         if (typeof cb !== 'function') return 0;
-         const id = scriptForgeListenerSeq++;
-         scriptForgeListeners[id] = { ruleId, key: String(key), cb };
-         return id;
-      };
-
-      const gmRemoveValueChangeListener = (id) => {
-         delete scriptForgeListeners[id];
-      };
-
-      const gmAddStyle = (cssText) => {
-         const st = document.createElement('style');
-         st.setAttribute('data-fnx-gm-style', ruleId);
-         st.textContent = String(cssText || '');
-         const parent =
-            document.head || document.documentElement || document.body;
-         if (parent) parent.appendChild(st);
-         return st;
-      };
-
-      const gmSetClipboard = (text) => {
-         copyTextToClipboard(String(text ?? ''), 'Copied by ScriptForge');
-      };
-
-      const gmNotification = (detailsOrText, title) => {
-         const msg =
-            detailsOrText && typeof detailsOrText === 'object'
-               ? detailsOrText.text || detailsOrText.title || title || 'ScriptForge'
-               : detailsOrText || title || 'ScriptForge';
-         showHudToast(String(msg));
-      };
-
-      const gmOpenInTab = (url, options) => {
-         const target = String(url || '').trim();
-         if (!target) return null;
-         const bg =
-            typeof options === 'boolean'
-               ? options
-               : !!(options && (options.active === false || options.loadInBackground));
-         sendIpc({ type: 'NEW_TAB', url: target, background: bg });
-         return { close: () => {} };
-      };
-
-      const gmRegisterMenuCommand = (caption, onClick) => {
-         if (typeof onClick !== 'function') return '';
-         const id = 'sf_cmd_' + scriptForgeCmdSeq++;
-         scriptForgeMenuCommands.push({
-            id,
-            ruleId,
-            scriptName,
-            caption: String(caption || 'Run command'),
-            onClick,
-         });
-         if (typeof syncShieldPopoverUIRef === 'function') {
-            syncShieldPopoverUIRef();
-         }
-         return id;
-      };
-
-      const gmUnregisterMenuCommand = (cmdId) => {
-         const before = scriptForgeMenuCommands.length;
-         scriptForgeMenuCommands = scriptForgeMenuCommands.filter(
-            (c) => c.id !== cmdId && c.caption !== cmdId,
-         );
-         if (
-            scriptForgeMenuCommands.length !== before &&
-            typeof syncShieldPopoverUIRef === 'function'
-         ) {
-            syncShieldPopoverUIRef();
-         }
-      };
-
-      const gmXmlhttpRequest = (details) => {
-         const d = details || {};
-         const url = String(d.url || '');
-         const method = String(d.method || 'GET').toUpperCase();
-         const controller =
-            typeof AbortController === 'function' ? new AbortController() : null;
-         let timedOut = false;
-         let timeoutTimer = null;
-         if (d.timeout && d.timeout > 0 && controller) {
-            timeoutTimer = setTimeout(() => {
-               timedOut = true;
-               try {
-                  controller.abort();
-               } catch (_) {}
-            }, Number(d.timeout));
-         }
-         const init = {
-            method,
-            headers: d.headers || {},
-            credentials: d.anonymous ? 'omit' : 'include',
-         };
-         if (controller) init.signal = controller.signal;
-         if (d.data !== undefined && method !== 'GET' && method !== 'HEAD') {
-            init.body = d.data;
-         }
-
-         fetch(url, init)
-            .then(async (res) => {
-               if (timeoutTimer) clearTimeout(timeoutTimer);
-               let rawHeaders = '';
-               try {
-                  res.headers.forEach((v, k) => {
-                     rawHeaders += k + ': ' + v + '\r\n';
-                  });
-               } catch (_) {}
-               const rt = String(d.responseType || 'text').toLowerCase();
-               let responseVal = null;
-               let responseText = '';
-               if (rt === 'blob') {
-                  responseVal = await res.blob();
-               } else if (rt === 'arraybuffer') {
-                  responseVal = await res.arrayBuffer();
-               } else if (rt === 'json') {
-                  responseText = await res.text();
-                  try {
-                     responseVal = __fnxJsonParse(responseText);
-                  } catch (_) {
-                     responseVal = null;
-                  }
-               } else {
-                  responseText = await res.text();
-                  responseVal = responseText;
-               }
-               if (typeof d.onload === 'function') {
-                  d.onload({
-                     readyState: 4,
-                     status: res.status,
-                     statusText: res.statusText || '',
-                     responseHeaders: rawHeaders,
-                     finalUrl: res.url || url,
-                     responseText,
-                     response: responseVal,
-                  });
-               }
-            })
-            .catch((err) => {
-               if (timeoutTimer) clearTimeout(timeoutTimer);
-               if (timedOut && typeof d.ontimeout === 'function') {
-                  d.ontimeout({ error: 'timeout' });
-               } else if (typeof d.onerror === 'function') {
-                  d.onerror({ error: String((err && err.message) || err || 'Network error') });
-               }
-            });
-
-         return {
-            abort: () => {
-               if (timeoutTimer) clearTimeout(timeoutTimer);
-               if (controller) {
-                  try {
-                     controller.abort();
-                  } catch (_) {}
-               }
-            },
-         };
-      };
-
-      const gmLog = console.log.bind(console, '[ScriptForge:' + scriptName + ']');
-
-      const gmAsync = {
-         info: gmInfo,
-         addStyle: (cssText) => Promise.resolve(gmAddStyle(cssText)),
-         getValue: (key, defVal) => Promise.resolve(gmGetValue(key, defVal)),
-         setValue: (key, val) => Promise.resolve(gmSetValue(key, val)),
-         deleteValue: (key) => Promise.resolve(gmDeleteValue(key)),
-         listValues: () => Promise.resolve(gmListValues()),
-         addValueChangeListener: (key, cb) =>
-            Promise.resolve(gmAddValueChangeListener(key, cb)),
-         removeValueChangeListener: (id) =>
-            Promise.resolve(gmRemoveValueChangeListener(id)),
-         setClipboard: (text) => Promise.resolve(gmSetClipboard(text)),
-         notification: (detailsOrText, title) =>
-            Promise.resolve(gmNotification(detailsOrText, title)),
-         openInTab: (url, opts) => Promise.resolve(gmOpenInTab(url, opts)),
-         registerMenuCommand: (caption, cb) =>
-            Promise.resolve(gmRegisterMenuCommand(caption, cb)),
-         unregisterMenuCommand: (id) =>
-            Promise.resolve(gmUnregisterMenuCommand(id)),
-         xmlHttpRequest: gmXmlhttpRequest,
-         log: gmLog,
-      };
-
-      return {
-         unsafeWindow: window,
-         GM: gmAsync,
-         GM_info: gmInfo,
-         GM_addStyle: gmAddStyle,
-         GM_getValue: gmGetValue,
-         GM_setValue: gmSetValue,
-         GM_deleteValue: gmDeleteValue,
-         GM_listValues: gmListValues,
-         GM_addValueChangeListener: gmAddValueChangeListener,
-         GM_removeValueChangeListener: gmRemoveValueChangeListener,
-         GM_setClipboard: gmSetClipboard,
-         GM_notification: gmNotification,
-         GM_openInTab: gmOpenInTab,
-         GM_registerMenuCommand: gmRegisterMenuCommand,
-         GM_unregisterMenuCommand: gmUnregisterMenuCommand,
-         GM_xmlhttpRequest: gmXmlhttpRequest,
-         GM_log: gmLog,
-      };
-   }
+   __FNX_SCRIPTFORGE__;
 
    function applySiteRules() {
       if (isInternalAny()) {
@@ -1771,8 +1452,6 @@
             html:not([data-fynexo-internal]) *::after {
                 backdrop-filter: none !important;
                 -webkit-backdrop-filter: none !important;
-                box-shadow: none !important;
-                text-shadow: none !important;
             }
         `
             : '';
@@ -2088,6 +1767,10 @@
 
    function applyShadowStyles() {
       if (!shadowRoot) return;
+      const shellRoot = shadowRoot.getElementById('__fynexo_shell__');
+      if (shellRoot) {
+         shellRoot.classList.toggle('zero-fx', !!config.enforce_perf);
+      }
       const p = resolvePalette();
 
       let dynStyle = shadowRoot.getElementById('__fynexo_dynamic_styles__');
@@ -2165,9 +1848,9 @@
                       : `
                 display: ${isDeck ? 'flex' : 'none'};
                 height: ${tb.titlebar_height || '42px'};
-                padding: 0 0 0 12px;
+                padding: 0 0 0 10px;
                 background: var(--fnx-bg);
-                border-bottom: 1px solid rgba(128, 128, 128, 0.14);
+                border-bottom: 1px solid color-mix(in srgb, var(--fnx-fg) 6%, transparent);
                 `
                 }
             }
@@ -2216,8 +1899,29 @@
 
             #__fynexo_nav_row__ {
                 height: ${tb.height || '40px'};
-                padding: 0 ${isDeck ? tb.padding_x || '8px' : '0'} 0 ${isDeck ? '16px' : isVert ? tb.padding_x || '8px' : '0'};
+                padding: 0 ${isDeck || isVert ? tb.padding_x || '10px' : '0'};
                 background: ${tb.background || 'var(--fnx-panel)'};
+            }
+
+            ${
+               isDeck || isVert
+                  ? `
+            #__fynexo_left_zone__ {
+                flex: 1 1 0% !important;
+                min-width: max-content !important;
+                justify-content: flex-start !important;
+            }
+            #__fynexo_right_zone__ {
+                flex: 1 1 0% !important;
+                min-width: max-content !important;
+                justify-content: flex-end !important;
+            }
+            #__fynexo_center_zone__ {
+                flex: 0 1 clamp(320px, 46vw, 560px) !important;
+                width: clamp(320px, 46vw, 560px) !important;
+            }
+            `
+                  : ''
             }
 
             ${tb.show_copy_btn === false ? '#__fynexo_desk_copy__ { display: none !important; }' : ''}
@@ -2663,6 +2367,7 @@
       renderBookmarksBar();
       updateAddressLabels();
       if (typeof syncExtensionsRef === 'function') syncExtensionsRef();
+      if (typeof syncChromeExtsUIRef === 'function') syncChromeExtsUIRef();
       if (typeof syncMainMenuUIRef === 'function') syncMainMenuUIRef();
    }
 
@@ -2844,6 +2549,7 @@
    function updateAddressLabels() {
       if (!shadowRoot) return;
       const href = canonicalCurrentUrl();
+      if (typeof syncChromeStoreBannerRef === 'function') syncChromeStoreBannerRef(href);
       const label = formatHostLabel(href);
       const isSet = isInternalSettings(href);
       const isNt = isInternalNewtab(href);
@@ -2852,14 +2558,18 @@
       const schemeEl = shadowRoot.getElementById('__fynexo_addr_scheme__');
       const domEl = shadowRoot.getElementById('__fynexo_addr_domain__');
       const pathEl = shadowRoot.getElementById('__fynexo_addr_path__');
+      const addrSlotEl = shadowRoot.getElementById('__fynexo_addr_slot__');
+      if (addrSlotEl) {
+         addrSlotEl.classList.toggle('is-newtab-route', Boolean(isNt || !href || href === 'about:blank'));
+      }
       const zh = isZh();
       if (domEl && pathEl) {
          if (isNt || !href || href === 'about:blank') {
             if (schemeEl) schemeEl.textContent = '';
             domEl.textContent = '';
             pathEl.textContent = zh
-               ? `在 ${engName} 搜索或输入网址...`
-               : `Search ${engName} or type a URL...`;
+               ? `输入网址或按 Ctrl+L 搜索...`
+               : `Enter URL or press Ctrl+L...`;
             pathEl.style.color = 'var(--fnx-muted)';
          } else if (isSet) {
             if (schemeEl) schemeEl.textContent = 'fynexo://';
@@ -3388,6 +3098,8 @@
          String(tabState.active_id) +
          ':' +
          String(tabState.closed_count || 0) +
+         ':' +
+         (isZh() ? 'zh' : 'en') +
          '|';
       for (let i = 0; i < tabState.tabs.length; i++) {
          const t = tabState.tabs[i];
@@ -3469,10 +3181,10 @@
          const t = document.createElement('div');
          t.className = 'fnx-drawer-title';
          const cleanTitle = isSet
-            ? 'Preferences'
+            ? (zh ? '偏好设置' : 'Preferences')
             : isNt
-              ? 'Start page'
-              : tab.title || 'New tab';
+              ? (zh ? '起始页' : 'Start page')
+              : tab.title || (zh ? '新标签页' : 'New tab');
          if (tab.pinned) {
             const pinBadge = document.createElement('span');
             pinBadge.className = 'fnx-drawer-pin-icon';
@@ -3727,6 +3439,58 @@
       tabContextMenuEl.style.left = Math.round(posX) + 'px';
       tabContextMenuEl.style.top = Math.round(posY) + 'px';
       tabContextMenuEl.style.visibility = 'visible';
+   }
+
+   function showBackForwardHistoryMenu(e, anchorEl) {
+      if (e && e.preventDefault) {
+         e.preventDefault();
+         e.stopPropagation();
+      }
+      const zh = isZh();
+      const entries = [];
+      const curHref = canonicalCurrentUrl();
+      const seen = Object.create(null);
+      if (curHref) seen[normalizeUrlKey(curHref)] = true;
+
+      for (let i = 0; i < historyItems.length && entries.length < 8; i++) {
+         const h = historyItems[i];
+         if (!h || !h.url) continue;
+         const k = normalizeUrlKey(h.url);
+         if (!k || seen[k]) continue;
+         seen[k] = true;
+         const label = (h.title || formatHostLabel(h.url) || h.url).slice(0, 42);
+         const targetUrl = h.url;
+         entries.push({
+            label: label,
+            icon: 'history',
+            onClick: () => {
+               flushScrollSync();
+               triggerProgress();
+               sendIpc({ type: 'NAVIGATE', url: targetUrl });
+            },
+         });
+      }
+
+      if (!isInternalNewtab(curHref)) {
+         if (entries.length > 0) entries.push({ sep: true });
+         entries.push({
+            label: zh ? '返回起始页 (Start Page)' : 'Go to Start Page',
+            icon: 'home',
+            onClick: () => {
+               flushScrollSync();
+               triggerProgress();
+               sendIpc({ type: 'NAVIGATE', url: 'fynexo://newtab' });
+            },
+         });
+      }
+
+      if (entries.length === 0) return;
+      const rect = anchorEl && anchorEl.getBoundingClientRect
+         ? anchorEl.getBoundingClientRect()
+         : null;
+      const cx = rect ? rect.left : (e && e.clientX) || 16;
+      const cy = rect ? rect.bottom + 2 : (e && e.clientY) || 44;
+      renderContextMenu(cx, cy, entries);
    }
 
    function showTabContextMenu(e, tab, idx) {
@@ -4261,6 +4025,7 @@
 
                   const el = document.createElement('div');
                   let cls = isActive ? 'fnx-tab-item active' : 'fnx-tab-item';
+                  if (isActive && isPageLoading) cls += ' is-loading';
                   if (tab.pinned) cls += ' pinned';
                   if (tab.suspended && !isActive) cls += ' suspended';
                   el.className = cls;
@@ -4306,12 +4071,23 @@
                      }
                      draggingTabId = null;
                   };
-                  el.ondragend = () => {
+                  el.ondragend = (e) => {
+                     const wasDraggingId = draggingTabId;
                      draggingTabId = null;
                      el.classList.remove('dragging');
                      container
                         .querySelectorAll('.drag-over')
                         .forEach((n) => n.classList.remove('drag-over'));
+                     if (
+                        wasDraggingId === tab.id &&
+                        e &&
+                        (e.clientY > 118 || e.clientY < -16) &&
+                        tabState.tabs.length > 1 &&
+                        !isMobilePlatform() &&
+                        config.window_mode !== 'single'
+                     ) {
+                        sendIpc({ type: 'DETACH_TAB', id: tab.id });
+                     }
                   };
 
                   el.onclick = (e) => {
@@ -4660,7 +4436,57 @@
          }
       }
 
-      suggestItems = results.slice(0, isPalette ? 12 : 6);
+      // 4. Smart Popular Domain Completions & Direct Search Engine Suggestion Rows
+      if (q && !isPalette && !q.startsWith('!')) {
+         const popularDomains = [
+            ['GitHub', 'https://github.com', 'github git gh code repo'],
+            ['YouTube', 'https://www.youtube.com', 'youtube yt video'],
+            ['Bilibili', 'https://www.bilibili.com', 'bilibili bili b站 哔哩哔哩'],
+            ['Google', 'https://www.google.com', 'google search'],
+            ['Bing', 'https://www.bing.com', 'bing search'],
+            ['Wikipedia', 'https://www.wikipedia.org', 'wikipedia wiki 维基百科'],
+            ['Reddit', 'https://www.reddit.com', 'reddit forum'],
+            ['X / Twitter', 'https://x.com', 'twitter x.com'],
+            ['Stack Overflow', 'https://stackoverflow.com', 'stackoverflow stack qa'],
+            ['MDN Web Docs', 'https://developer.mozilla.org', 'mdn mozilla web docs css js'],
+            ['Crates.io (Rust)', 'https://crates.io', 'crates rust cargo'],
+            ['Docs.rs (Rust)', 'https://docs.rs', 'docs.rs rust documentation'],
+            ['npm Registry', 'https://www.npmjs.com', 'npm node package js'],
+            ['Zhihu 知乎', 'https://www.zhihu.com', 'zhihu 知乎'],
+            ['V2EX', 'https://www.v2ex.com', 'v2ex developer'],
+            ['ChatGPT', 'https://chatgpt.com', 'chatgpt openai ai'],
+            ['Claude', 'https://claude.ai', 'claude anthropic ai'],
+            ['Gemini', 'https://gemini.google.com', 'gemini google ai']
+         ];
+         for (let i = 0; i < popularDomains.length; i++) {
+            const d = popularDomains[i];
+            if (
+               d[0].toLowerCase().includes(q) ||
+               d[1].toLowerCase().includes(q) ||
+               d[2].includes(q)
+            ) {
+               pushCandidate({
+                  kind: 'url',
+                  title: d[0],
+                  url: d[1],
+                  badge: isZh() ? '推荐站点' : 'Site',
+               });
+            }
+         }
+         const engObj = currentEngineObj(config.search_engine);
+         const engName = (engObj && engObj.name) || 'Google';
+         const searchUrl = resolveUrl(trimmed, config.search_engine);
+         pushCandidate({
+            kind: 'search',
+            title: isZh()
+               ? `使用 ${engName} 搜索 “${trimmed}”`
+               : `Search ${engName} for "${trimmed}"`,
+            url: searchUrl,
+            badge: engName,
+         });
+      }
+
+      suggestItems = results.slice(0, isPalette ? 12 : 7);
       suggestIndex = calc || (isPalette && suggestItems.length) ? 0 : -1;
 
       if (suggestItems.length === 0) {
@@ -5061,7 +4887,17 @@
       }
    }
 
+   function syncActiveTabLoadingClass(loading) {
+      isPageLoading = !!loading;
+      if (!shadowRoot) return;
+      const act = shadowRoot.querySelector('.fnx-tab-item.active');
+      if (act) {
+         act.classList.toggle('is-loading', isPageLoading);
+      }
+   }
+
    function triggerProgress() {
+      syncActiveTabLoadingClass(true);
       if (!shadowRoot || progressBars.length === 0) return;
       clearProgressTimers();
       forEachProgressBar((pb) => {
@@ -5088,6 +4924,7 @@
    }
 
    function finishProgress(immediate) {
+      syncActiveTabLoadingClass(false);
       if (!shadowRoot || progressBars.length === 0) return;
       clearProgressTimers();
       if (immediate === true) {
@@ -5276,6 +5113,10 @@
             bookmarks = rtPayload.bookmarks;
          if (Array.isArray(rtPayload.history)) historyItems = rtPayload.history;
          if (Array.isArray(rtPayload.downloads)) recentDownloads = rtPayload.downloads;
+         if (Array.isArray(rtPayload.chrome_extensions))
+            chromeExtensions = rtPayload.chrome_extensions;
+         if (typeof rtPayload.chrome_ext_engine_active === 'boolean')
+            chromeExtEngineActive = rtPayload.chrome_ext_engine_active;
          cacheSlimRuntime();
          if (
             isInternalAny() &&
@@ -5325,8 +5166,15 @@
       }
       if (Array.isArray(payload.bookmarks)) bookmarks = payload.bookmarks;
       if (Array.isArray(payload.history)) historyItems = payload.history;
+      if (Array.isArray(payload.chrome_extensions))
+         chromeExtensions = payload.chrome_extensions;
+      if (typeof payload.chrome_ext_engine_active === 'boolean')
+         chromeExtEngineActive = payload.chrome_ext_engine_active;
       cacheSlimRuntime();
       syncAllStyles();
+      if (typeof syncHudLocalizationRef === 'function') {
+         syncHudLocalizationRef();
+      }
       const input = shadowRoot
          ? shadowRoot.getElementById('__fynexo_inline_input__') ||
            shadowRoot.getElementById('__fynexo_input__')
@@ -5915,25 +5763,41 @@
          const navRow = document.createElement('div');
          navRow.id = '__fynexo_nav_row__';
 
+         const handleNavBarBlankDrag = (e, zoneEl) => {
+            if (
+               e.button === 0 &&
+               (e.target === zoneEl || isDragTarget(e.target))
+            ) {
+               if (e.detail === 2) {
+                  triggerMaximize();
+                  return;
+               }
+               sendIpc({ type: 'WINDOW_DRAG' });
+            }
+         };
+
          const leftZone = document.createElement('div');
          leftZone.id = '__fynexo_left_zone__';
          leftZone.style.cssText =
             'display: flex; align-items: center; gap: 2px; height: 100%; flex-shrink: 0;';
+         leftZone.onmousedown = (e) => handleNavBarBlankDrag(e, leftZone);
 
-         const btnBack = makeDesktopIconBtn('back', 'Back (Alt+Left)', () => {
+         const btnBack = makeDesktopIconBtn('back', 'Back (Alt+Left · Right-click for history)', () => {
             requestHistoryNav('back');
          });
          btnBack.id = '__fynexo_btn_back__';
+         btnBack.oncontextmenu = (e) => showBackForwardHistoryMenu(e, btnBack);
          leftZone.appendChild(btnBack);
 
          const btnForward = makeDesktopIconBtn(
             'forward',
-            'Forward (Alt+Right)',
+            'Forward (Alt+Right · Right-click for history)',
             () => {
                requestHistoryNav('forward');
             },
          );
          btnForward.id = '__fynexo_btn_forward__';
+         btnForward.oncontextmenu = (e) => showBackForwardHistoryMenu(e, btnForward);
          leftZone.appendChild(btnForward);
 
          const btnReload = makeDesktopIconBtn(
@@ -5953,18 +5817,7 @@
          centerZone.id = '__fynexo_center_zone__';
          centerZone.style.cssText =
             'display: flex; align-items: center; justify-content: center; flex: 1; height: 100%; min-width: 0; overflow: hidden; padding: 0 8px;';
-         centerZone.onmousedown = (e) => {
-            if (
-               e.button === 0 &&
-               (e.target === centerZone || isDragTarget(e.target))
-            ) {
-               if (e.detail === 2) {
-                  triggerMaximize();
-                  return;
-               }
-               sendIpc({ type: 'WINDOW_DRAG' });
-            }
-         };
+         centerZone.onmousedown = (e) => handleNavBarBlankDrag(e, centerZone);
 
          const addrSlot = document.createElement('div');
          addrSlot.id = '__fynexo_addr_slot__';
@@ -5975,8 +5828,19 @@
          addrBtn.title = 'Click to edit URL or search (!bangs supported)';
          const addrIcon = document.createElement('span');
          addrIcon.id = '__fynexo_desk_proto__';
+         addrIcon.className = 'fnx-popover-trigger';
+         addrIcon.title = isZh()
+            ? '查看站点连接安全、权限与清理本站缓存'
+            : 'View site security, permissions & clear site storage';
          addrIcon.style.cssText =
-            'display: flex; align-items: center; flex-shrink: 0;';
+            'display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: -3px; border-radius: 5px; cursor: pointer; flex-shrink: 0;';
+         addrIcon.onclick = (e) => {
+            if (!isInternalAny()) {
+               e.preventDefault();
+               e.stopPropagation();
+               toggleShieldPopover(addrIcon);
+            }
+         };
 
          const hostSpan = document.createElement('span');
          hostSpan.id = '__fynexo_cmd_label__';
@@ -6053,6 +5917,7 @@
          rightZone.id = '__fynexo_right_zone__';
          rightZone.style.cssText =
             'display: flex; align-items: center; height: 100%; gap: 6px; flex-shrink: 0;';
+         rightZone.onmousedown = (e) => handleNavBarBlankDrag(e, rightZone);
 
          // 1. Incognito / Private Badge (Conditional: only shown in private mode)
          const incogBadge = document.createElement('button');
@@ -6182,6 +6047,30 @@
          };
          rightZone.appendChild(modeTopPill);
 
+         // 3.9 Pinned Chrome Extensions & Extensions Hub Button (Desktop)
+         const pinnedExtsBar = document.createElement('div');
+         pinnedExtsBar.id = '__fynexo_pinned_exts__';
+         pinnedExtsBar.style.cssText =
+            'display: none; align-items: center; gap: 2px;';
+         rightZone.appendChild(pinnedExtsBar);
+
+         const btnChromeExts = makeDesktopIconBtn(
+            'puzzle',
+            isZh() ? 'Chrome 扩展程序' : 'Chrome Extensions',
+            (e) => {
+               if (e && e.stopPropagation) e.stopPropagation();
+               toggleChromeExtsPopover();
+            },
+         );
+         btnChromeExts.id = '__fynexo_btn_exts__';
+         btnChromeExts.classList.add('fnx-popover-trigger');
+         btnChromeExts.style.display =
+            !isMobilePlatform() && (chromeExtEngineActive || chromeExtensions.length > 0)
+               ? 'flex'
+               : 'none';
+         btnChromeExts.style.position = 'relative';
+         rightZone.appendChild(btnChromeExts);
+
          // 4. Adblock & Privacy Shield (Always visible)
          const btnShield = makeDesktopIconBtn(
             'shield',
@@ -6233,7 +6122,9 @@
          let mediaPopoverEl = null;
          let shieldPopoverEl = null;
          let downloadsPopoverEl = null;
+         let chromeExtsPopoverEl = null;
          let taskMgrPopoverEl = null;
+         let studioPopoverEl = null;
          let sidePanelEl = null;
          let isSidePanelOpen = false;
 
@@ -6243,7 +6134,9 @@
                mediaPopoverEl,
                shieldPopoverEl,
                downloadsPopoverEl,
+               chromeExtsPopoverEl,
                taskMgrPopoverEl,
+               studioPopoverEl,
             ];
             for (let i = 0; i < pops.length; i++) {
                if (pops[i]) {
@@ -6327,7 +6220,9 @@
             item.onkeydown = (ev) => {
                if (ev.key === 'Enter' || ev.key === ' ') {
                   ev.preventDefault();
-                  item.click();
+                  if (ev.isTrusted === false && !isInternalAny()) return;
+                  closeAllNavPopovers();
+                  onClick(ev);
                } else if (ev.key === 'Escape') {
                   ev.preventDefault();
                   closeAllNavPopovers();
@@ -6367,7 +6262,7 @@
             item.onclick = (e) => {
                e.stopPropagation();
                closeAllNavPopovers();
-               onClick();
+               onClick(e);
             };
             mainMenuEl.appendChild(item);
             return item;
@@ -6380,6 +6275,15 @@
          }
 
          // Studio & Preferences
+         addMenuItem(
+            'palette',
+            'UI & Site Studio',
+            '',
+            () => {
+               toggleStudioPopover(btnMore, isInternalAny() ? 'ui' : 'ui');
+            },
+            '外观与站点定制',
+         );
          addMenuItem(
             'settings',
             'Preferences',
@@ -6509,7 +6413,19 @@
                if (!internal && activeModeMatch && activeModeMatch.profile) {
                   const pr = activeModeMatch.profile;
                   const nm = zh ? pr.name_zh || pr.name_en : pr.name_en || pr.name_zh;
-                  modeTopPill.textContent = (pr.icon ? pr.icon + ' ' : '') + nm.slice(0, 6);
+                  const iconKey = resolveModeIconName(pr.icon, pr.id);
+                  const shortNm =
+                     String(nm || '')
+                        .replace(/\s*(?:&[^Mode]*\s*)?Mode$/i, '')
+                        .replace(/模式$/, '')
+                        .trim() || String(nm || '').slice(0, 8);
+                  modeTopPill.textContent = '';
+                  const mSvg = createIcon(iconKey);
+                  mSvg.style.cssText = 'width: 12.5px; height: 12.5px; flex-shrink: 0;';
+                  const mLbl = document.createElement('span');
+                  mLbl.textContent = shortNm;
+                  modeTopPill.appendChild(mSvg);
+                  modeTopPill.appendChild(mLbl);
                   modeTopPill.title =
                      (zh ? '当前模式：' : 'Active Mode: ') +
                      nm +
@@ -6589,7 +6505,6 @@
                const pr = activeModeMatch.profile;
                const nm = zh ? pr.name_zh || pr.name_en : pr.name_en || pr.name_zh;
                modeActiveSub.textContent =
-                  (pr.icon ? pr.icon + ' ' : '') +
                   nm +
                   (activeModeMatch.auto ? (zh ? ' (自动)' : ' (Auto)') : '');
             } else {
@@ -6600,8 +6515,8 @@
             }
             modePillsRow.textContent = '';
             const items = [
-               { id: 'auto', text: zh ? '✨ 自动' : '✨ Auto' },
-               { id: 'default', text: zh ? '标准' : 'Std' },
+               { id: 'auto', text: zh ? '自动' : 'Auto', icon: 'spark' },
+               { id: 'default', text: zh ? '标准' : 'Std', icon: '' },
             ];
             const profiles = Array.isArray(rawBaseConfig.mode_profiles)
                ? rawBaseConfig.mode_profiles
@@ -6612,8 +6527,9 @@
                const nm = zh ? pr.name_zh || pr.name_en : pr.name_en || pr.name_zh;
                items.push({
                   id: pr.id,
-                  text: (pr.icon ? pr.icon + ' ' : '') + nm.slice(0, 6),
+                  text: nm.slice(0, 6),
                   full: nm,
+                  icon: resolveModeIconName(pr.icon, pr.id),
                });
             }
             for (let i = 0; i < items.length; i++) {
@@ -6623,8 +6539,15 @@
                btn.className = 'fnx-pop-seg-btn';
                const active = pref === String(it.id).toLowerCase();
                if (active) btn.classList.add('active');
-               btn.style.cssText = 'padding: 2px 7px; height: 22px; font-size: 11px;';
-               btn.textContent = it.text;
+               btn.style.cssText = 'padding: 2px 7px; height: 22px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;';
+               if (it.icon) {
+                  setBtnIconAndText(btn, it.icon, it.text);
+                  btn.style.padding = '2px 7px';
+                  btn.style.height = '22px';
+                  btn.style.fontSize = '11px';
+               } else {
+                  btn.textContent = it.text;
+               }
                btn.title = it.full || it.text;
                btn.onclick = (ev) => {
                   ev.stopPropagation();
@@ -6821,7 +6744,8 @@
             'download',
             'Open downloads folder',
             '',
-            () => {
+            (ev) => {
+               if (ev && ev.isTrusted === false && !isInternalAny()) return;
                sendIpc({ type: 'OPEN_DOWNLOADS_DIR' });
             },
             '打开下载文件夹',
@@ -7095,11 +7019,17 @@
          mediaPopoverEl.appendChild(volSection);
 
          function syncMediaPopoverUI() {
+            const zh = isZh();
+            mediaHeaderTxt.textContent = zh ? '媒体控制与音量' : 'Media Control';
+            btnMute.title = zh ? '静音 / 取消静音' : 'Toggle Mute';
+            btnPlayPause.title = zh ? '播放 / 暂停' : 'Play / Pause';
             const isPlaying =
                currentMediaEl &&
                !currentMediaEl.paused &&
                !currentMediaEl.ended;
-            mediaStatusPill.textContent = isPlaying ? 'Playing' : 'Paused';
+            mediaStatusPill.textContent = isPlaying
+               ? (zh ? '播放中' : 'Playing')
+               : (zh ? '已暂停' : 'Paused');
             mediaStatusPill.style.color = isPlaying
                ? 'var(--fnx-fg)'
                : 'var(--fnx-muted)';
@@ -7114,7 +7044,7 @@
             );
 
             if (mediaIsMuted) {
-               volPercentLabel.textContent = 'Muted';
+               volPercentLabel.textContent = zh ? '已静音' : 'Muted';
                volPercentLabel.style.color = 'var(--fnx-muted)';
             } else if (mediaGainValue > 100) {
                volPercentLabel.textContent = mediaGainValue + '%';
@@ -7125,7 +7055,9 @@
             }
 
             const boosterOn = !!config.ext_media_booster;
-            volTextSpan.textContent = boosterOn ? 'Volume & Boost' : 'Volume';
+            volTextSpan.textContent = boosterOn
+               ? (zh ? '音量与增益' : 'Volume & Boost')
+               : (zh ? '音量' : 'Volume');
             volSlider.max = boosterOn ? '300' : '100';
             if (!boosterOn && mediaGainValue > 100) {
                mediaGainValue = 100;
@@ -7152,10 +7084,10 @@
             const t =
                (pageH1 && pageH1.textContent.trim()) ||
                document.title ||
-               'Media Player';
+               (zh ? '媒体播放器' : 'Media Player');
             mediaTitleEl.textContent = t;
             mediaDomainEl.textContent = isInternalAny()
-               ? 'Internal Studio Page'
+               ? (zh ? '内置系统页面' : 'Internal Studio Page')
                : (window.location.hostname || '').replace(/^www\./, '') ||
                  'fynexo';
          }
@@ -7552,8 +7484,8 @@
          const btnPickElement = document.createElement('button');
          btnPickElement.type = 'button';
          btnPickElement.className = 'fnx-pop-btn';
-         btnPickElement.style.cssText = 'flex: 1; width: auto; min-width: 0; font-weight: 600;';
-         btnPickElement.textContent = '🎯 Pick element to hide';
+         setBtnIconAndText(btnPickElement, 'target', isZh() ? '点选隐藏页面元素' : 'Pick element to hide');
+         btnPickElement.style.cssText = 'flex: 1; width: auto; min-width: 0; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px;';
 
          const btnResetPickedElements = document.createElement('button');
          btnResetPickedElements.type = 'button';
@@ -7565,6 +7497,91 @@
          pickerRow.appendChild(btnPickElement);
          pickerRow.appendChild(btnResetPickedElements);
          siteOvSection.appendChild(pickerRow);
+
+         const siteDataRow = document.createElement('div');
+         siteDataRow.style.cssText =
+            'display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px;';
+         const btnClearSiteData = document.createElement('button');
+         btnClearSiteData.type = 'button';
+         btnClearSiteData.className = 'fnx-pop-btn';
+         setBtnIconAndText(
+            btnClearSiteData,
+            'broom',
+            isZh() ? '清理本站 Cookie 与缓存' : 'Clear site cookies & storage',
+         );
+         btnClearSiteData.style.cssText =
+            'flex: 1; width: auto; min-width: 0; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 5px;';
+         btnClearSiteData.onclick = (e) => {
+            e.stopPropagation();
+            if (isInternalAny()) return;
+            try {
+               const cookies = String(document.cookie || '').split(';');
+               const hostParts = String(window.location.hostname || '').split('.');
+               for (let i = 0; i < cookies.length; i++) {
+                  const eq = cookies[i].indexOf('=');
+                  const name = (eq > -1 ? cookies[i].slice(0, eq) : cookies[i]).trim();
+                  if (!name) continue;
+                  document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+                  for (let d = 0; d < hostParts.length; d++) {
+                     const dom = hostParts.slice(d).join('.');
+                     if (dom) {
+                        document.cookie =
+                           name +
+                           '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.' +
+                           dom;
+                     }
+                  }
+               }
+            } catch (_) {}
+            try {
+               window.localStorage.clear();
+            } catch (_) {}
+            try {
+               window.sessionStorage.clear();
+            } catch (_) {}
+            try {
+               if (window.caches && typeof window.caches.keys === 'function') {
+                  window.caches.keys().then((keys) => {
+                     keys.forEach((k) => window.caches.delete(k));
+                  });
+               }
+            } catch (_) {}
+            try {
+               if (
+                  window.indexedDB &&
+                  typeof window.indexedDB.databases === 'function'
+               ) {
+                  window.indexedDB.databases().then((dbs) => {
+                     (dbs || []).forEach((db) => {
+                        if (db && db.name) window.indexedDB.deleteDatabase(db.name);
+                     });
+                  });
+               }
+            } catch (_) {}
+            closeAllNavPopovers();
+            showHudToast(
+               isZh()
+                  ? '已清理本站 Cookie 与本地存储数据'
+                  : 'Cleared cookies & local storage for this site',
+            );
+         };
+         const btnOpenSiteBoost = document.createElement('button');
+         btnOpenSiteBoost.type = 'button';
+         btnOpenSiteBoost.className = 'fnx-pop-btn';
+         setBtnIconAndText(
+            btnOpenSiteBoost,
+            'palette',
+            isZh() ? '魔改此网站 (Boost)' : 'Site Boost CSS',
+         );
+         btnOpenSiteBoost.style.cssText =
+            'flex: 1; width: auto; min-width: 0; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-color: var(--fnx-accent); color: var(--fnx-fg);';
+         btnOpenSiteBoost.onclick = (e) => {
+            e.stopPropagation();
+            toggleStudioPopover(btnShield, 'boost');
+         };
+         siteDataRow.appendChild(btnOpenSiteBoost);
+         siteDataRow.appendChild(btnClearSiteData);
+         siteOvSection.appendChild(siteDataRow);
 
          shieldBody.appendChild(siteOvSection);
 
@@ -7872,8 +7889,8 @@
             const zh = isZh();
             pickerBanner.style.top = isMobilePlatform() ? '16px' : '56px';
             pickerBannerText.textContent = zh
-               ? '🎯 移动或点击要隐藏的页面区块 · 按 Esc 退出'
-               : '🎯 Click any page element to hide it · Press Esc to exit';
+               ? '移动或点击要隐藏的页面区块 · 按 Esc 退出'
+               : 'Click any page element to hide it · Press Esc to exit';
             pickerCancelBtn.textContent = zh ? '退出' : 'Cancel';
             pickerBannerTag.style.display = 'none';
             pickerBanner.style.display = 'flex';
@@ -7941,9 +7958,9 @@
                : localDev
                  ? (zh ? '本地开发 · 免误拦/免反色' : 'Local Dev · Auto-exempt')
                  : unsafeHttp
-                   ? (zh ? '⚠️ HTTP 明文连接（不安全）' : '⚠️ HTTP Not Secure')
+                   ? (zh ? 'HTTP 明文连接（不安全）' : 'HTTP Not Secure')
                    : adOn
-                     ? (zh ? '🔒 HTTPS · 65+ 拦截规则' : '🔒 HTTPS · 65+ rules')
+                     ? (zh ? 'HTTPS · 65+ 拦截规则' : 'HTTPS · 65+ rules')
                      : (zh ? '已暂停' : 'Paused');
             shieldStatusMeta.style.color = unsafeHttp ? '#F59E0B' : 'var(--fnx-muted)';
             shieldSwitch.disabled = internal;
@@ -8024,9 +8041,12 @@
                            String(r.css || '').trim(),
                      ),
                );
-               btnPickElement.textContent = zh
-                  ? '🎯 点选隐藏页面元素'
-                  : '🎯 Pick element to hide';
+               setBtnIconAndText(
+                  btnPickElement,
+                  'target',
+                  zh ? '点选隐藏页面元素' : 'Pick element to hide',
+               );
+               btnPickElement.style.cssText = 'flex: 1; width: auto; min-width: 0; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px;';
                btnResetPickedElements.textContent = zh ? '恢复已藏' : 'Restore';
                btnResetPickedElements.title = zh
                   ? '恢复本页所有点选隐藏的元素'
@@ -8034,6 +8054,20 @@
                btnResetPickedElements.style.display = hasPickedRule
                   ? 'inline-flex'
                   : 'none';
+               setBtnIconAndText(
+                  btnOpenSiteBoost,
+                  'palette',
+                  zh ? '魔改此网站' : 'Site Boost',
+               );
+               btnOpenSiteBoost.style.cssText =
+                  'flex: 1; width: auto; min-width: 0; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-color: var(--fnx-accent); color: var(--fnx-fg);';
+               setBtnIconAndText(
+                  btnClearSiteData,
+                  'broom',
+                  zh ? '清理 Cookie' : 'Clear Data',
+               );
+               btnClearSiteData.style.cssText =
+                  'flex: 1; width: auto; min-width: 0; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 5px;';
             }
 
             sfCommandsWrap.textContent = '';
@@ -8163,14 +8197,30 @@
          dlHTxt.textContent = isZh() ? '下载管理' : 'Downloads';
          dlHeaderLeft.appendChild(dlHTxt);
          dlHeader.appendChild(dlHeaderLeft);
+         const dlHeaderActions = document.createElement('div');
+         dlHeaderActions.style.cssText =
+            'display: inline-flex; align-items: center; gap: 8px;';
+         const btnClearDlList = document.createElement('button');
+         btnClearDlList.type = 'button';
+         btnClearDlList.className = 'fnx-pop-link';
+         btnClearDlList.textContent = isZh() ? '清空' : 'Clear';
+         btnClearDlList.onclick = (ev) => {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            recentDownloads.length = 0;
+            syncDownloadsUI();
+            closeAllNavPopovers();
+         };
          const btnOpenDlFolder = document.createElement('button');
          btnOpenDlFolder.type = 'button';
          btnOpenDlFolder.className = 'fnx-pop-link fnx-desktop-only-row';
          btnOpenDlFolder.textContent = isZh() ? '打开文件夹' : 'Open folder';
-         btnOpenDlFolder.onclick = () => {
+         btnOpenDlFolder.onclick = (ev) => {
+            if (ev && ev.isTrusted === false && !isInternalAny()) return;
             sendIpc({ type: 'OPEN_DOWNLOADS_DIR' });
          };
-         dlHeader.appendChild(btnOpenDlFolder);
+         dlHeaderActions.appendChild(btnClearDlList);
+         dlHeaderActions.appendChild(btnOpenDlFolder);
+         dlHeader.appendChild(dlHeaderActions);
          downloadsPopoverEl.appendChild(dlHeader);
 
          const dlListContainer = document.createElement('div');
@@ -8194,6 +8244,7 @@
          function syncDownloadsUI() {
             const zh = isZh();
             dlHTxt.textContent = zh ? '下载管理' : 'Downloads';
+            btnClearDlList.textContent = zh ? '清空' : 'Clear';
             btnOpenDlFolder.textContent = zh ? '打开文件夹' : 'Open folder';
             btnDownloads.title = zh ? '下载管理' : 'Downloads';
             if (recentDownloads.length > 0) {
@@ -8262,12 +8313,38 @@
                rowLeft.appendChild(nameWrap);
                row.appendChild(rowLeft);
                if (st === 'completed') {
+                  const actWrap = document.createElement('div');
+                  actWrap.style.cssText =
+                     'display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;';
                   const openSpan = document.createElement('span');
                   openSpan.className = 'fnx-pop-dl-open';
                   openSpan.textContent = zh ? '打开' : 'Open';
-                  row.appendChild(openSpan);
+                  actWrap.appendChild(openSpan);
+
+                  if (!isMobilePlatform()) {
+                     const btnReveal = document.createElement('button');
+                     btnReveal.type = 'button';
+                     btnReveal.className = 'fnx-icon-btn';
+                     btnReveal.style.cssText =
+                        'width: 22px; height: 22px; border-radius: 5px; color: var(--fnx-secondary);';
+                     btnReveal.title = zh
+                        ? '在文件夹中显示'
+                        : 'Show in folder';
+                     btnReveal.appendChild(createIcon('folder'));
+                     btnReveal.onclick = (ev) => {
+                        ev.stopPropagation();
+                        if (ev.isTrusted === false && !isInternalAny()) return;
+                        sendIpc({
+                           type: 'REVEAL_DOWNLOAD_FILE',
+                           filename: dl.name,
+                        });
+                     };
+                     actWrap.appendChild(btnReveal);
+                  }
+                  row.appendChild(actWrap);
                }
-               row.onclick = () => {
+               row.onclick = (ev) => {
+                  if (ev && ev.isTrusted === false && !isInternalAny()) return;
                   if (st === 'completed') {
                      sendIpc({ type: 'OPEN_DOWNLOAD_FILE', filename: dl.name });
                   } else {
@@ -8308,7 +8385,7 @@
             }
          }
 
-         function toggleShieldPopover() {
+         function toggleShieldPopover(anchorBtn) {
             const isOpen =
                shieldPopoverEl &&
                (shieldPopoverEl.style.display === 'flex' ||
@@ -8322,7 +8399,7 @@
                   '#__fynexo_shield_pop_count__',
                );
                if (c) c.textContent = String(getDetectedAdCount());
-               positionNavPopover(btnShield, shieldPopoverEl);
+               positionNavPopover(anchorBtn || btnShield, shieldPopoverEl);
                shieldPopoverEl.style.display = 'flex';
                activeNavPopoverEl = shieldPopoverEl;
             }
@@ -8349,6 +8426,642 @@
          shell.appendChild(shieldPopoverEl);
          shell.appendChild(downloadsPopoverEl);
 
+         // Popover 4.2: Live UI Studio & Site Boost Customizer (Arc Boosts + Vivaldi Quick Studio)
+         studioPopoverEl = document.createElement('div');
+         studioPopoverEl.id = '__fynexo_studio_popover__';
+         studioPopoverEl.className = 'fnx-nav-popover fnx-nav-popover--panel';
+         studioPopoverEl.style.width = '324px';
+
+         let studioTabMode = 'ui';
+         const studioHead = document.createElement('div');
+         studioHead.className = 'fnx-pop-head';
+         const studioTitleWrap = document.createElement('div');
+         studioTitleWrap.className = 'fnx-pop-title';
+         studioTitleWrap.appendChild(createIcon('palette'));
+         const studioTitleTxt = document.createElement('span');
+         studioTitleWrap.appendChild(studioTitleTxt);
+         studioHead.appendChild(studioTitleWrap);
+
+         const studioTabsSeg = document.createElement('div');
+         studioTabsSeg.style.cssText =
+            'display: inline-flex; background: var(--fnx-surface); border: 1px solid var(--fnx-border); border-radius: 7px; padding: 2px; gap: 2px;';
+         const btnTabUi = document.createElement('button');
+         btnTabUi.type = 'button';
+         btnTabUi.style.cssText =
+            'border: none; border-radius: 5px; padding: 3px 8px; font-size: 11px; font-weight: 600; cursor: pointer;';
+         const btnTabBoost = document.createElement('button');
+         btnTabBoost.type = 'button';
+         btnTabBoost.style.cssText =
+            'border: none; border-radius: 5px; padding: 3px 8px; font-size: 11px; font-weight: 600; cursor: pointer;';
+         studioTabsSeg.appendChild(btnTabUi);
+         studioTabsSeg.appendChild(btnTabBoost);
+         studioHead.appendChild(studioTabsSeg);
+         studioPopoverEl.appendChild(studioHead);
+
+         const studioUiPane = document.createElement('div');
+         studioUiPane.style.cssText =
+            'display: flex; flex-direction: column; gap: 10px; padding: 10px 12px;';
+         const studioBoostPane = document.createElement('div');
+         studioBoostPane.style.cssText =
+            'display: none; flex-direction: column; gap: 8px; padding: 10px 12px;';
+
+         // --- Pane 1: Live UI Customizer ---
+         const uiPresetLbl = document.createElement('div');
+         uiPresetLbl.className = 'fnx-pop-sub';
+         const uiPresetGrid = document.createElement('div');
+         uiPresetGrid.style.cssText =
+            'display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px;';
+         const uiPresetsList = [
+            ['deck', '经典双栏', 'Layered Deck'],
+            ['compact', '极简单栏', 'Compact 1-Row'],
+            ['pill', '大圆角胶囊', 'Rounded Pill'],
+            ['vertical', '左侧竖排栏', 'Left Sidebar'],
+            ['glass', '亚克力毛玻璃', 'Frosted Glass'],
+         ];
+         const uiPresetBtns = [];
+         uiPresetsList.forEach(([key, zhNm, enNm]) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'fnx-pop-btn';
+            b.dataset.preset = key;
+            b.style.cssText = 'font-size: 11.5px; padding: 5px 8px; justify-content: center;';
+            b.onclick = (ev) => {
+               ev.stopPropagation();
+               if (key === 'compact') {
+                  styles.topbar.layout = 'compact';
+                  styles.topbar.height = '36px';
+                  styles.topbar.background = 'var(--fnx-panel)';
+                  styles.topbar.custom_css = '';
+                  styles.tabs.height = '26px';
+                  styles.tabs.border_radius = '6px';
+                  styles.address_bar.border_radius = '6px';
+               } else if (key === 'deck') {
+                  styles.topbar.layout = 'deck';
+                  styles.topbar.height = '40px';
+                  styles.topbar.titlebar_height = '42px';
+                  styles.topbar.background = 'var(--fnx-panel)';
+                  styles.topbar.custom_css = '';
+                  styles.tabs.height = '30px';
+                  styles.tabs.border_radius = '8px';
+                  styles.address_bar.border_radius = '8px';
+               } else if (key === 'pill') {
+                  styles.topbar.layout = 'deck';
+                  styles.topbar.height = '42px';
+                  styles.topbar.titlebar_height = '44px';
+                  styles.topbar.button_radius = '999px';
+                  styles.tabs.height = '32px';
+                  styles.tabs.border_radius = '999px';
+                  styles.address_bar.border_radius = '999px';
+               } else if (key === 'vertical') {
+                  styles.topbar.layout = 'vertical';
+                  styles.topbar.vertical_width = '216px';
+                  styles.tabs.border_radius = '8px';
+               } else if (key === 'glass') {
+                  styles.topbar.background = 'color-mix(in srgb, var(--fnx-panel) 76%, transparent)';
+                  styles.topbar.custom_css = 'backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);';
+                  styles.tabs.border_radius = '10px';
+                  styles.address_bar.border_radius = '10px';
+               }
+               syncAllStyles();
+               sendIpc({ type: 'PATCH_HUD_PREFS', ui_preset: key });
+               showHudToast(isZh() ? `已套用风格：${zhNm}` : `Applied preset: ${enNm}`);
+            };
+            uiPresetBtns.push([b, zhNm, enNm]);
+            uiPresetGrid.appendChild(b);
+         });
+         studioUiPane.appendChild(uiPresetLbl);
+         studioUiPane.appendChild(uiPresetGrid);
+
+         const uiAccentLbl = document.createElement('div');
+         uiAccentLbl.className = 'fnx-pop-sub';
+         const uiAccentRow = document.createElement('div');
+         uiAccentRow.style.cssText = 'display: flex; align-items: center; gap: 6px; flex-wrap: wrap;';
+         const accentSwatches = ['#7A88F7', '#38BDF8', '#10B981', '#F43F5E', '#F59E0B', '#A855F7', '#EC4899'];
+         const applyAccentLive = (hex) => {
+            styles.colors = styles.colors || {};
+            styles.colors.use_custom_colors = true;
+            styles.colors.accent = hex;
+            styles.colors.accent_bg = hex + '26';
+            applyShadowStyles();
+            sendIpc({ type: 'PATCH_HUD_PREFS', accent_color: hex });
+         };
+         accentSwatches.forEach((hex) => {
+            const sw = document.createElement('button');
+            sw.type = 'button';
+            sw.title = hex;
+            sw.style.cssText = `width: 22px; height: 22px; border-radius: 999px; border: 2px solid rgba(255,255,255,0.22); background: ${hex}; cursor: pointer; flex-shrink: 0;`;
+            sw.onclick = (ev) => {
+               ev.stopPropagation();
+               applyAccentLive(hex);
+            };
+            uiAccentRow.appendChild(sw);
+         });
+         const customColorPicker = document.createElement('input');
+         customColorPicker.type = 'color';
+         customColorPicker.value = '#7a88f7';
+         customColorPicker.style.cssText = 'width: 24px; height: 24px; border: none; background: transparent; cursor: pointer; padding: 0;';
+         customColorPicker.oninput = () => applyAccentLive(customColorPicker.value);
+         uiAccentRow.appendChild(customColorPicker);
+         studioUiPane.appendChild(uiAccentLbl);
+         studioUiPane.appendChild(uiAccentRow);
+
+         const uiBtnsLbl = document.createElement('div');
+         uiBtnsLbl.className = 'fnx-pop-sub';
+         const uiBtnsRow = document.createElement('div');
+         uiBtnsRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 5px;';
+         const tbToggleDefs = [
+            ['copy', '复制按钮', 'Copy Btn', () => styles.topbar.show_copy_btn !== false, (v) => { styles.topbar.show_copy_btn = v; }],
+            ['star', '收藏星标', 'Star Btn', () => styles.topbar.show_star_btn !== false, (v) => { styles.topbar.show_star_btn = v; }],
+            ['shield', '隐私盾牌', 'Shield Btn', () => styles.topbar.show_shield_btn !== false, (v) => { styles.topbar.show_shield_btn = v; }],
+            ['downloads', '下载按钮', 'Downloads', () => styles.topbar.show_downloads_btn !== false, (v) => { styles.topbar.show_downloads_btn = v; }],
+         ];
+         const tbToggleEls = [];
+         tbToggleDefs.forEach(([key, zhTxt, enTxt, getter, setter]) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'fnx-pop-btn';
+            b.style.cssText = 'font-size: 11px; padding: 4px 8px; width: auto;';
+            b.onclick = (ev) => {
+               ev.stopPropagation();
+               const next = !getter();
+               setter(next);
+               b.style.borderColor = next ? 'var(--fnx-accent)' : '';
+               applyShadowStyles();
+               sendIpc({ type: 'PATCH_HUD_PREFS', toolbar_btn: { key: key, visible: next } });
+            };
+            tbToggleEls.push([b, zhTxt, enTxt, getter]);
+            uiBtnsRow.appendChild(b);
+         });
+         studioUiPane.appendChild(uiBtnsLbl);
+         studioUiPane.appendChild(uiBtnsRow);
+
+         // --- Pane 2: Arc Boosts Style Live Site CSS Studio ---
+         const boostHostBadge = document.createElement('div');
+         boostHostBadge.className = 'fnx-pop-sub';
+         const boostChipsWrap = document.createElement('div');
+         boostChipsWrap.style.cssText = 'display: flex; flex-wrap: wrap; gap: 5px;';
+         const boostTextarea = document.createElement('textarea');
+         boostTextarea.spellcheck = false;
+         boostTextarea.placeholder = '/* Live per-site CSS (applies as you type) */\nbody { font-family: "Inter", sans-serif !important; }';
+         boostTextarea.style.cssText =
+            'width: 100%; height: 112px; resize: vertical; padding: 8px; border-radius: 8px; border: 1px solid var(--fnx-border-hover); background: var(--fnx-bg); color: var(--fnx-fg); font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; font-size: 11.5px; line-height: 1.45; outline: none;';
+
+         function boostRuleIdForHost(rawHost) {
+            const dom = String(rawHost || '').trim().toLowerCase().replace(/^www\./, '');
+            if (!dom) return '';
+            return 'boost-' + dom.replace(/[^a-z0-9-]/g, '-');
+         }
+
+         function applyLiveBoostCss(rawCss, persist) {
+            const dom = resolveSiteOverrideKey();
+            if (!dom || isInternalAny()) return;
+            const cleanCss = String(rawCss || '').replace(/[<>]/g, '').trim();
+            const ruleId = boostRuleIdForHost(dom);
+            const cleanDom = dom.replace(/^www\./, '');
+            if (!cleanCss) {
+               enabledRules = enabledRules.filter((r) => !r || r.id !== ruleId);
+            } else {
+               let existing = enabledRules.find((r) => r && r.id === ruleId);
+               if (!existing) {
+                  existing = {
+                     id: ruleId,
+                     name: 'Site Boost (' + cleanDom + ')',
+                     domain: cleanDom,
+                     enabled: true,
+                     css: cleanCss,
+                     js: '',
+                  };
+                  enabledRules.push(existing);
+               } else {
+                  existing.enabled = true;
+                  existing.css = cleanCss;
+               }
+            }
+            applySiteRules();
+            if (persist) {
+               sendIpc({
+                  type: 'PATCH_HUD_PREFS',
+                  site_boost: { domain: cleanDom, css: cleanCss },
+               });
+            }
+         }
+
+         const quickBoostSnippets = [
+            ['阅读字体', 'Clean Font', 'body, article, p { font-family: "Inter", system-ui, sans-serif !important; line-height: 1.68 !important; }'],
+            ['隐藏侧栏/弹窗', 'Hide Clutter', 'aside, [class*="sidebar" i], [class*="popup" i], [class*="banner" i] { display: none !important; }'],
+            ['图片圆角', 'Rounded Media', 'img, video { border-radius: 10px !important; }'],
+            ['去灰阶', 'Full Color', 'html, body, * { filter: none !important; -webkit-filter: none !important; }'],
+         ];
+         const boostChipBtns = [];
+         quickBoostSnippets.forEach(([zhNm, enNm, snippet]) => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'fnx-pop-btn';
+            chip.style.cssText = 'font-size: 11px; padding: 3px 8px; width: auto;';
+            chip.onclick = (ev) => {
+               ev.stopPropagation();
+               const cur = boostTextarea.value.trim();
+               boostTextarea.value = cur ? cur + '\n' + snippet : snippet;
+               applyLiveBoostCss(boostTextarea.value, true);
+            };
+            boostChipBtns.push([chip, zhNm, enNm]);
+            boostChipsWrap.appendChild(chip);
+         });
+
+         boostTextarea.addEventListener('input', () => {
+            applyLiveBoostCss(boostTextarea.value, false);
+         });
+
+         const boostActionsRow = document.createElement('div');
+         boostActionsRow.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+         const btnSaveBoost = document.createElement('button');
+         btnSaveBoost.type = 'button';
+         btnSaveBoost.className = 'fnx-pop-btn';
+         btnSaveBoost.style.cssText = 'flex: 1; justify-content: center; border-color: var(--fnx-accent); font-weight: 600;';
+         btnSaveBoost.onclick = (ev) => {
+            ev.stopPropagation();
+            applyLiveBoostCss(boostTextarea.value, true);
+            showHudToast(isZh() ? '已保存本站专属 Boost CSS' : 'Saved Site Boost CSS');
+         };
+         const btnClearBoost = document.createElement('button');
+         btnClearBoost.type = 'button';
+         btnClearBoost.className = 'fnx-pop-btn';
+         btnClearBoost.style.cssText = 'width: auto; padding: 0 10px;';
+         btnClearBoost.onclick = (ev) => {
+            ev.stopPropagation();
+            boostTextarea.value = '';
+            applyLiveBoostCss('', true);
+            showHudToast(isZh() ? '已清除本站魔改样式' : 'Cleared Site Boost CSS');
+         };
+         boostActionsRow.appendChild(btnSaveBoost);
+         boostActionsRow.appendChild(btnClearBoost);
+
+         studioBoostPane.appendChild(boostHostBadge);
+         studioBoostPane.appendChild(boostChipsWrap);
+         studioBoostPane.appendChild(boostTextarea);
+         studioBoostPane.appendChild(boostActionsRow);
+
+         studioPopoverEl.appendChild(studioUiPane);
+         studioPopoverEl.appendChild(studioBoostPane);
+
+         const studioFooter = document.createElement('button');
+         studioFooter.type = 'button';
+         studioFooter.className = 'fnx-pop-footer-row';
+         const studioFooterTxt = document.createElement('span');
+         const studioFooterArr = document.createElement('span');
+         studioFooterArr.textContent = '→';
+         studioFooter.appendChild(studioFooterTxt);
+         studioFooter.appendChild(studioFooterArr);
+         studioFooter.onclick = () => {
+            closeAllNavPopovers();
+            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-styles' });
+         };
+         studioPopoverEl.appendChild(studioFooter);
+         shell.appendChild(studioPopoverEl);
+
+         function syncStudioPopoverUI() {
+            const zh = isZh();
+            studioTitleTxt.textContent = zh ? '外观与站点工作台' : 'UI & Site Studio';
+            btnTabUi.textContent = zh ? '外观布局' : 'UI Studio';
+            btnTabBoost.textContent = zh ? '魔改此站' : 'Site Boost';
+            const isBoost = studioTabMode === 'boost' && !isInternalAny();
+            btnTabUi.style.background = !isBoost ? 'var(--fnx-accent-bg)' : 'transparent';
+            btnTabUi.style.color = !isBoost ? 'var(--fnx-fg)' : 'var(--fnx-secondary)';
+            btnTabBoost.style.background = isBoost ? 'var(--fnx-accent-bg)' : 'transparent';
+            btnTabBoost.style.color = isBoost ? 'var(--fnx-fg)' : 'var(--fnx-secondary)';
+            studioUiPane.style.display = !isBoost ? 'flex' : 'none';
+            studioBoostPane.style.display = isBoost ? 'flex' : 'none';
+
+            uiPresetLbl.textContent = zh ? '一键界面风格与毛玻璃材质' : 'Layout & Material Presets';
+            uiPresetBtns.forEach(([b, zhNm, enNm]) => {
+               b.textContent = zh ? zhNm : enNm;
+            });
+            uiAccentLbl.textContent = zh ? '实时强调色 (Accent Color)' : 'Live Accent Color';
+            uiBtnsLbl.textContent = zh ? '顶栏快捷按钮开关' : 'Toolbar Buttons Visibility';
+            tbToggleEls.forEach(([b, zhTxt, enTxt, getter]) => {
+               const on = getter();
+               b.textContent = (zh ? zhTxt : enTxt) + (on ? ' · ON' : '');
+               b.style.borderColor = on ? 'var(--fnx-accent)' : '';
+            });
+            const dom = resolveSiteOverrideKey();
+            boostHostBadge.textContent = dom
+               ? (zh ? `当前站点：${dom}（输入即实时预览）` : `Target: ${dom} (live preview)`)
+               : (zh ? '系统内部页面不支持站点注入' : 'Internal page exempt');
+            boostChipBtns.forEach(([chip, zhNm, enNm]) => {
+               chip.textContent = '+ ' + (zh ? zhNm : enNm);
+            });
+            const ruleId = boostRuleIdForHost(dom);
+            const existingBoost = enabledRules.find((r) => r && r.id === ruleId);
+            boostTextarea.value = existingBoost ? existingBoost.css || '' : '';
+            btnSaveBoost.textContent = zh ? '保存本站 CSS' : 'Save Site CSS';
+            btnClearBoost.textContent = zh ? '重置' : 'Reset';
+            studioFooterTxt.textContent = zh ? '打开完整组件工作台 & JSON' : 'Open Full Component Studio';
+         }
+
+         btnTabUi.onclick = (ev) => {
+            ev.stopPropagation();
+            studioTabMode = 'ui';
+            syncStudioPopoverUI();
+         };
+         btnTabBoost.onclick = (ev) => {
+            ev.stopPropagation();
+            if (isInternalAny()) {
+               showHudToast(isZh() ? '请在普通外部网页上使用站点魔改' : 'Open an external website to use Site Boost');
+               return;
+            }
+            studioTabMode = 'boost';
+            syncStudioPopoverUI();
+         };
+
+         function toggleStudioPopover(anchorBtn, mode) {
+            const isOpen =
+               studioPopoverEl &&
+               (studioPopoverEl.style.display === 'flex' ||
+                  activeNavPopoverEl === studioPopoverEl);
+            if (isOpen && (!mode || mode === studioTabMode)) {
+               closeAllNavPopovers();
+            } else {
+               closeAllNavPopovers();
+               studioTabMode = mode === 'boost' && !isInternalAny() ? 'boost' : 'ui';
+               syncStudioPopoverUI();
+               positionNavPopover(anchorBtn || btnMore, studioPopoverEl);
+               studioPopoverEl.style.display = 'flex';
+               activeNavPopoverEl = studioPopoverEl;
+            }
+         }
+
+         // Popover 4.5: Chrome Extensions Hub + Pinned Topbar Icons + Store One-Click Pill
+         chromeExtsPopoverEl = document.createElement('div');
+         chromeExtsPopoverEl.id = '__fynexo_exts_popover__';
+         chromeExtsPopoverEl.className = 'fnx-nav-popover fnx-nav-popover--panel';
+         chromeExtsPopoverEl.style.width = '300px';
+
+         const extsHead = document.createElement('div');
+         extsHead.className = 'fnx-pop-head';
+         const extsTitleWrap = document.createElement('div');
+         extsTitleWrap.className = 'fnx-pop-title';
+         extsTitleWrap.appendChild(createIcon('puzzle'));
+         const extsTitleTxt = document.createElement('span');
+         extsTitleTxt.textContent = isZh() ? 'Chrome 扩展' : 'Chrome Extensions';
+         extsTitleWrap.appendChild(extsTitleTxt);
+         const extsEngineSub = document.createElement('span');
+         extsEngineSub.className = 'fnx-pop-sub';
+         extsHead.appendChild(extsTitleWrap);
+         extsHead.appendChild(extsEngineSub);
+         chromeExtsPopoverEl.appendChild(extsHead);
+
+         const extsListBody = document.createElement('div');
+         extsListBody.style.cssText =
+            'display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; max-height: 280px; overflow-y: auto;';
+         chromeExtsPopoverEl.appendChild(extsListBody);
+
+         const extsFooter = document.createElement('div');
+         extsFooter.className = 'fnx-pop-footer';
+         const btnManageChromeExts = document.createElement('button');
+         btnManageChromeExts.type = 'button';
+         btnManageChromeExts.className = 'fnx-pop-btn';
+         btnManageChromeExts.textContent = isZh() ? '管理 / 导入' : 'Manage / Import';
+         btnManageChromeExts.onclick = () => {
+            closeAllNavPopovers();
+            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-extensions' });
+         };
+         const btnOpenCwsStore = document.createElement('button');
+         btnOpenCwsStore.type = 'button';
+         btnOpenCwsStore.className = 'fnx-pop-btn';
+         btnOpenCwsStore.textContent = isZh() ? 'Chrome 商店' : 'Web Store';
+         btnOpenCwsStore.onclick = () => {
+            closeAllNavPopovers();
+            sendIpc({ type: 'NEW_TAB', url: 'https://chromewebstore.google.com/' });
+         };
+         extsFooter.appendChild(btnManageChromeExts);
+         extsFooter.appendChild(btnOpenCwsStore);
+         chromeExtsPopoverEl.appendChild(extsFooter);
+         shell.appendChild(chromeExtsPopoverEl);
+
+         function makeChromeExtAvatar(ext, sizePx) {
+            const sz = sizePx || 16;
+            if (ext.icon_data_url) {
+               const img = document.createElement('img');
+               img.src = ext.icon_data_url;
+               img.alt = '';
+               img.style.cssText = `width: ${sz}px; height: ${sz}px; border-radius: 3px; object-fit: contain; flex-shrink: 0;`;
+               return img;
+            }
+            const badge = document.createElement('span');
+            badge.style.cssText = `width: ${sz}px; height: ${sz}px; border-radius: 4px; background: var(--fnx-accent-bg); color: var(--fnx-accent); font-size: ${Math.max(9, sz - 5)}px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;`;
+            badge.textContent = String(ext.name || 'E').trim().charAt(0).toUpperCase();
+            return badge;
+         }
+
+         const storeBannerEl = document.createElement('div');
+         storeBannerEl.id = '__fynexo_store_pill__';
+         storeBannerEl.style.cssText =
+            'position: fixed; right: 16px; top: 88px; z-index: 2147483645; display: none; align-items: center; gap: 8px; padding: 7px 10px 7px 12px; border-radius: 999px; background: var(--fnx-bg, #141417); color: var(--fnx-fg, #f4f4f6); border: 1px solid var(--fnx-accent, #38bdf8); box-shadow: 0 10px 28px rgba(0,0,0,0.42); font: 600 12px/1.3 system-ui, sans-serif; pointer-events: auto;';
+         shell.appendChild(storeBannerEl);
+         let dismissedStoreId = '';
+
+         function extractStoreExtIdClient(rawHref) {
+            const href = String(rawHref || '').split(/[?#]/)[0];
+            let m = href.match(/^https?:\/\/(?:chromewebstore\.google\.com|chrome\.google\.com\/webstore)\/detail\/(?:[^/]+\/)?([a-p]{32})\/?$/i);
+            if (m) return { id: m[1].toLowerCase(), store: 'chrome' };
+            m = href.match(/^https?:\/\/microsoftedge\.microsoft\.com\/addons\/detail\/(?:[^/]+\/)?([a-p]{32})\/?$/i);
+            if (m) return { id: m[1].toLowerCase(), store: 'edge' };
+            return null;
+         }
+
+         function syncChromeStoreBanner(explicitHref) {
+            if (isMobilePlatform() || !storeBannerEl) {
+               if (storeBannerEl) storeBannerEl.style.display = 'none';
+               return;
+            }
+            const curHref = explicitHref || canonicalCurrentUrl();
+            const parsed = extractStoreExtIdClient(curHref);
+            if (!parsed || parsed.id === dismissedStoreId) {
+               storeBannerEl.style.display = 'none';
+               return;
+            }
+            const zh = isZh();
+            const installed = chromeExtensions.some(
+               (e) => e && (e.id === parsed.id || e.runtime_id === parsed.id),
+            );
+            storeBannerEl.textContent = '';
+            const ic = createIcon('puzzle');
+            ic.style.color = installed ? '#34D399' : 'var(--fnx-accent, #38bdf8)';
+            storeBannerEl.appendChild(ic);
+
+            const actBtn = document.createElement('button');
+            actBtn.type = 'button';
+            actBtn.style.cssText =
+               'background: transparent; border: none; color: inherit; font: inherit; cursor: pointer; padding: 0 2px;';
+            if (installed) {
+               actBtn.textContent = zh ? '已安装到 Fynexo（点此管理）' : 'Installed in Fynexo (Manage)';
+               actBtn.onclick = () => sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-extensions' });
+            } else {
+               actBtn.textContent = zh ? '安装此扩展到 Fynexo' : 'Install to Fynexo';
+               actBtn.onclick = (ev) => {
+                  if (ev && ev.isTrusted === false && !isInternalAny()) return;
+                  sendIpc({ type: 'INSTALL_CHROME_EXT_STORE', input: curHref });
+               };
+            }
+            storeBannerEl.appendChild(actBtn);
+
+            const xBtn = document.createElement('button');
+            xBtn.type = 'button';
+            xBtn.style.cssText =
+               'width: 18px; height: 18px; border-radius: 50%; border: none; background: transparent; color: var(--fnx-muted, #9ca3af); cursor: pointer; font-size: 13px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;';
+            xBtn.textContent = '×';
+            xBtn.onclick = () => {
+               dismissedStoreId = parsed.id;
+               storeBannerEl.style.display = 'none';
+            };
+            storeBannerEl.appendChild(xBtn);
+
+            const tbRect = topbar ? topbar.getBoundingClientRect() : null;
+            if (tbRect && tbRect.bottom > 0) {
+               storeBannerEl.style.top = Math.round(tbRect.bottom + 10) + 'px';
+            }
+            storeBannerEl.style.display = 'inline-flex';
+         }
+         syncChromeStoreBannerRef = syncChromeStoreBanner;
+
+         function syncChromeExtsUI() {
+            const zh = isZh();
+            const showOnDesktop = !isMobilePlatform() && (chromeExtEngineActive || chromeExtensions.length > 0);
+            btnChromeExts.style.display = showOnDesktop ? 'flex' : 'none';
+            btnChromeExts.title = zh ? 'Chrome 扩展程序' : 'Chrome Extensions';
+            extsTitleTxt.textContent = zh ? 'Chrome 扩展' : 'Chrome Extensions';
+            extsEngineSub.textContent = chromeExtEngineActive
+               ? (zh ? 'WebView2 已就绪' : 'Engine active')
+               : (zh ? '需开启并重启' : 'Restart needed');
+            extsEngineSub.style.color = chromeExtEngineActive ? '#10B981' : '#F59E0B';
+            btnManageChromeExts.textContent = zh ? '管理 / 导入' : 'Manage / Import';
+            btnOpenCwsStore.textContent = zh ? 'Chrome 商店' : 'Web Store';
+
+            pinnedExtsBar.textContent = '';
+            const pinnedList = showOnDesktop
+               ? chromeExtensions.filter((e) => e && e.enabled && e.pinned)
+               : [];
+            pinnedExtsBar.style.display = pinnedList.length > 0 ? 'flex' : 'none';
+            pinnedList.forEach((ext) => {
+               const pb = document.createElement('button');
+               pb.type = 'button';
+               pb.className = 'fnx-nav-btn fnx-popover-trigger';
+               pb.title = ext.name;
+               pb.appendChild(makeChromeExtAvatar(ext, 16));
+               pb.onclick = (ev) => {
+                  if (ev && ev.stopPropagation) ev.stopPropagation();
+                  closeAllNavPopovers();
+                  sendIpc({ type: 'OPEN_CHROME_EXT_POPUP', id: ext.id });
+               };
+               pinnedExtsBar.appendChild(pb);
+            });
+
+            extsListBody.textContent = '';
+            if (chromeExtensions.length === 0) {
+               const empty = document.createElement('div');
+               empty.style.cssText =
+                  'padding: 16px 10px; text-align: center; font-size: 12px; color: var(--fnx-muted); line-height: 1.5;';
+               empty.textContent = zh
+                  ? '暂无已安装的 Chrome 扩展；可点击下方逛 Chrome 商店一键安装，或导入本地 .crx / 文件夹。'
+                  : 'No Chrome extensions installed. Browse Web Store or import a local .crx / folder.';
+               extsListBody.appendChild(empty);
+            } else {
+               chromeExtensions.forEach((ext) => {
+                  if (!ext) return;
+                  const row = document.createElement('div');
+                  row.className = 'fnx-pop-row';
+                  row.style.cssText =
+                     'display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 6px; border-radius: 7px;';
+
+                  const leftBtn = document.createElement('button');
+                  leftBtn.type = 'button';
+                  leftBtn.style.cssText =
+                     'display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; background: transparent; border: none; color: inherit; cursor: pointer; text-align: left; padding: 2px 0;';
+                  leftBtn.appendChild(makeChromeExtAvatar(ext, 16));
+                  const nameCol = document.createElement('div');
+                  nameCol.style.cssText = 'min-width: 0; display: flex; flex-direction: column;';
+                  const nm = document.createElement('span');
+                  nm.style.cssText =
+                     'font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fnx-fg);';
+                  nm.textContent = ext.name;
+                  const meta = document.createElement('span');
+                  meta.className = 'fnx-pop-sub';
+                  meta.style.fontSize = '10px';
+                  meta.textContent = 'v' + (ext.version || '1.0') + (ext.enabled ? '' : (zh ? ' · 已停用' : ' · Disabled'));
+                  nameCol.appendChild(nm);
+                  nameCol.appendChild(meta);
+                  leftBtn.appendChild(nameCol);
+                  leftBtn.onclick = () => {
+                     closeAllNavPopovers();
+                     sendIpc({ type: 'OPEN_CHROME_EXT_POPUP', id: ext.id });
+                  };
+                  row.appendChild(leftBtn);
+
+                  if (ext.options_path) {
+                     const optBtn = document.createElement('button');
+                     optBtn.type = 'button';
+                     optBtn.className = 'fnx-pop-btn';
+                     optBtn.style.padding = '2px 6px';
+                     optBtn.style.fontSize = '10.5px';
+                     optBtn.textContent = zh ? '选项' : 'Opt';
+                     optBtn.onclick = (ev) => {
+                        if (ev && ev.isTrusted === false && !isInternalAny()) return;
+                        closeAllNavPopovers();
+                        sendIpc({ type: 'OPEN_CHROME_EXT_OPTIONS', id: ext.id });
+                     };
+                     row.appendChild(optBtn);
+                  }
+
+                  const pinBtn = document.createElement('button');
+                  pinBtn.type = 'button';
+                  pinBtn.className = 'fnx-pop-btn';
+                  pinBtn.style.padding = '2px 6px';
+                  pinBtn.style.fontSize = '10.5px';
+                  pinBtn.textContent = ext.pinned ? (zh ? '已固定' : 'Pin') : (zh ? '固定' : 'Pin');
+                  if (ext.pinned) pinBtn.style.color = 'var(--fnx-accent)';
+                  pinBtn.onclick = (ev) => {
+                     if (ev && ev.isTrusted === false && !isInternalAny()) return;
+                     sendIpc({ type: 'PIN_CHROME_EXT', id: ext.id });
+                  };
+                  row.appendChild(pinBtn);
+
+                  const togBtn = document.createElement('button');
+                  togBtn.type = 'button';
+                  togBtn.className = 'fnx-pop-btn';
+                  togBtn.style.padding = '2px 7px';
+                  togBtn.style.fontSize = '10.5px';
+                  togBtn.textContent = ext.enabled ? (zh ? '开' : 'On') : (zh ? '关' : 'Off');
+                  if (ext.enabled) togBtn.style.color = '#10B981';
+                  togBtn.onclick = (ev) => {
+                     if (ev && ev.isTrusted === false && !isInternalAny()) return;
+                     sendIpc({ type: 'TOGGLE_CHROME_EXT', id: ext.id, enabled: !ext.enabled });
+                  };
+                  row.appendChild(togBtn);
+
+                  extsListBody.appendChild(row);
+               });
+            }
+            syncChromeStoreBanner();
+         }
+         syncChromeExtsUIRef = syncChromeExtsUI;
+
+         function toggleChromeExtsPopover() {
+            const isOpen =
+               chromeExtsPopoverEl &&
+               (chromeExtsPopoverEl.style.display === 'flex' ||
+                  activeNavPopoverEl === chromeExtsPopoverEl);
+            if (isOpen) {
+               closeAllNavPopovers();
+            } else {
+               closeAllNavPopovers();
+               syncChromeExtsUI();
+               positionNavPopover(btnChromeExts, chromeExtsPopoverEl);
+               chromeExtsPopoverEl.style.display = 'flex';
+               activeNavPopoverEl = chromeExtsPopoverEl;
+            }
+         }
+         syncChromeExtsUI();
+
          // Popover 5: Task Manager / Performance
          taskMgrPopoverEl = document.createElement('div');
          taskMgrPopoverEl.id = '__fynexo_taskmgr_popover__';
@@ -8360,7 +9073,9 @@
          const tmTitle = document.createElement('div');
          tmTitle.className = 'fnx-pop-title';
          tmTitle.appendChild(createIcon('cpu'));
-         tmTitle.appendChild(document.createTextNode(isZh() ? '内存与资源监视' : 'Resource Monitor'));
+         const tmTitleTxt = document.createElement('span');
+         tmTitleTxt.textContent = isZh() ? '内存与资源监视' : 'Resource Monitor';
+         tmTitle.appendChild(tmTitleTxt);
          const tmBadge = document.createElement('span');
          tmBadge.className = 'fnx-pop-sub';
          tmBadge.textContent = isZh() ? '站点隔离' : 'Site-Isolated';
@@ -8388,6 +9103,8 @@
             v.textContent = valueText;
             row.appendChild(l);
             row.appendChild(v);
+            row.__fnxLabelEl = l;
+            row.__fnxValueEl = v;
             return row;
          }
          const tmHostRow = makeStatRow(
@@ -8488,7 +9205,8 @@
          btnTrimMem.type = 'button';
          btnTrimMem.className = 'fnx-pop-btn';
          btnTrimMem.textContent = isZh() ? '释放内存' : 'Flush RAM';
-         btnTrimMem.onclick = () => {
+         btnTrimMem.onclick = (ev) => {
+            if (ev && ev.isTrusted === false && !isInternalAny()) return;
             sendIpc({ type: 'FORCE_TRIM_MEMORY' });
          };
          tmFooter.appendChild(btnPerfSet);
@@ -8711,6 +9429,7 @@
 
             const btnRdExit = document.createElement('button');
             btnRdExit.type = 'button';
+            btnRdExit.id = '__fynexo_reader_exit__';
             btnRdExit.className = 'fnx-rd-btn';
             btnRdExit.appendChild(createIcon('close'));
             btnRdExit.appendChild(document.createTextNode(isZh() ? '退出阅读' : 'Exit Reader'));
@@ -9091,21 +9810,24 @@
             const spTabsWrap = document.createElement('div');
             spTabsWrap.className = 'fnx-pop-seg fnx-sp-tabs';
 
-            function makeSpTab(iconName, label, isActive) {
+            const spTabItems = [];
+            function makeSpTab(iconName, zhLabel, enLabel, isActive) {
                const btn = document.createElement('button');
                btn.type = 'button';
                btn.className = isActive
                   ? 'fnx-pop-seg-btn fnx-sp-tab active'
                   : 'fnx-pop-seg-btn fnx-sp-tab';
                btn.appendChild(createIcon(iconName));
-               btn.appendChild(document.createTextNode(label));
+               const txt = document.createTextNode(isZh() ? zhLabel : enLabel);
+               btn.appendChild(txt);
+               spTabItems.push({ btn, iconName, zhLabel, enLabel });
                return btn;
             }
 
             const zh = isZh();
-            const btnSpWeb = makeSpTab('globe', zh ? '小窗网页' : 'Web Panel', true);
-            const btnSpNotes = makeSpTab('fileText', zh ? '随手便签' : 'Quick Notes', false);
-            const btnSpDev = makeSpTab('code', zh ? '开发工具' : 'Dev Tools', false);
+            const btnSpWeb = makeSpTab('globe', '小窗网页', 'Web Panel', true);
+            const btnSpNotes = makeSpTab('fileText', '随手便签', 'Quick Notes', false);
+            const btnSpDev = makeSpTab('code', '开发工具', 'Dev Tools', false);
             spTabsWrap.appendChild(btnSpWeb);
             spTabsWrap.appendChild(btnSpNotes);
             spTabsWrap.appendChild(btnSpDev);
@@ -9114,7 +9836,7 @@
             const btnSpClose = document.createElement('button');
             btnSpClose.type = 'button';
             btnSpClose.className = 'fnx-sp-close';
-            btnSpClose.title = 'Close side panel (Esc)';
+            btnSpClose.title = zh ? '关闭侧边栏 (Esc)' : 'Close side panel (Esc)';
             btnSpClose.appendChild(createIcon('close'));
             btnSpClose.onclick = () => toggleSidePanel(false);
             spHeader.appendChild(btnSpClose);
@@ -9127,22 +9849,22 @@
             const spInput = document.createElement('input');
             spInput.type = 'text';
             spInput.className = 'fnx-sp-input';
-            spInput.placeholder = 'Enter URL for side panel...';
+            spInput.placeholder = zh ? '输入侧边栏小窗网址...' : 'Enter URL for side panel...';
             const spGoBtn = document.createElement('button');
             spGoBtn.type = 'button';
             spGoBtn.className = 'fnx-sp-go';
-            spGoBtn.textContent = 'Go';
+            spGoBtn.textContent = zh ? '前往' : 'Go';
 
             const spReloadBtn = document.createElement('button');
             spReloadBtn.type = 'button';
             spReloadBtn.className = 'fnx-sp-icon-btn';
-            spReloadBtn.title = 'Reload side panel';
+            spReloadBtn.title = zh ? '刷新小窗网页' : 'Reload side panel';
             spReloadBtn.appendChild(createIcon('reload'));
 
             const spPopBtn = document.createElement('button');
             spPopBtn.type = 'button';
             spPopBtn.className = 'fnx-sp-icon-btn';
-            spPopBtn.title = 'Open in new tab (if blocked in frame)';
+            spPopBtn.title = zh ? '在新标签页中打开' : 'Open in new tab (if blocked in frame)';
             spPopBtn.appendChild(createIcon('externalLink'));
 
             spUrlBar.appendChild(spInput);
@@ -9190,8 +9912,9 @@
             spBodyNotes.className = 'fnx-sp-body fnx-sp-notes-wrap hidden';
             const spTextarea = document.createElement('textarea');
             spTextarea.className = 'fnx-sp-textarea';
-            spTextarea.placeholder =
-               'Type quick notes, scratchpad, code snippets here... Auto-saved locally.';
+            spTextarea.placeholder = zh
+               ? '在这里写随手笔记、代码片段… 浏览器会自动本地保存。'
+               : 'Type quick notes, scratchpad, code snippets here... Auto-saved locally.';
             try {
                spTextarea.value =
                   window.localStorage.getItem('__fnx_side_notes__') || '';
@@ -9230,12 +9953,18 @@
                ? '转换 / 格式化输出结果将显示在这里...'
                : 'Formatted output appears here...';
 
-            function makeDevToolBtn(zhLbl, enLbl, fn) {
+            const devToolButtons = [];
+            function makeDevToolBtn(zhLbl, enLbl, fn, iconName) {
                const b = document.createElement('button');
                b.type = 'button';
                b.className = 'fnx-pop-btn';
                b.style.cssText = 'height: 29px; font-size: 11.5px;';
-               b.textContent = isZh() ? zhLbl : enLbl;
+               const lbl = isZh() ? zhLbl : enLbl;
+               if (iconName) {
+                  setBtnIconAndText(b, iconName, lbl);
+               } else {
+                  b.textContent = lbl;
+               }
                b.onclick = () => {
                   try {
                      fn();
@@ -9243,6 +9972,7 @@
                      devOut.value = 'Error: ' + (err && err.message ? err.message : String(err));
                   }
                };
+               devToolButtons.push({ btn: b, zhLbl, enLbl, iconName });
                return b;
             }
 
@@ -9301,7 +10031,7 @@
                }),
             );
             devBtnGrid.appendChild(
-               makeDevToolBtn('⏱️ 时间戳转换', '⏱️ Timestamp', () => {
+               makeDevToolBtn('时间戳转换', 'Timestamp', () => {
                   const raw = devIn.value.trim();
                   let d;
                   if (!raw) {
@@ -9322,10 +10052,10 @@
                      `Local:     ${d.toLocaleString()}`,
                      `ISO-8601:  ${d.toISOString()}`,
                   ].join('\n');
-               }),
+               }, 'history'),
             );
             devBtnGrid.appendChild(
-               makeDevToolBtn('🎨 屏幕取色器', '🎨 EyeDropper', () => {
+               makeDevToolBtn('屏幕取色器', 'EyeDropper', () => {
                   if (typeof window.EyeDropper === 'function') {
                      new window.EyeDropper()
                         .open()
@@ -9342,10 +10072,10 @@
                   } else {
                      fallbackColorInp.click();
                   }
-               }),
+               }, 'eyedropper'),
             );
             devBtnGrid.appendChild(
-               makeDevToolBtn('🪪 JWT 解码', '🪪 JWT Decode', () => {
+               makeDevToolBtn('JWT 解码', 'JWT Decode', () => {
                   const raw = devIn.value.trim();
                   const parts = raw.split('.');
                   if (parts.length < 2) {
@@ -9367,8 +10097,8 @@
                      const expDate = new Date(pay.exp * 1000).toLocaleString();
                      statusLine =
                         diffSec >= 0
-                           ? `✅ Valid (${Math.ceil(diffSec / 60)} min left · exp ${expDate})`
-                           : `❌ EXPIRED (${Math.abs(Math.floor(diffSec / 60))} min ago · exp ${expDate})`;
+                           ? `[VALID] (${Math.ceil(diffSec / 60)} min left · exp ${expDate})`
+                           : `[EXPIRED] (${Math.abs(Math.floor(diffSec / 60))} min ago · exp ${expDate})`;
                   }
                   if (typeof pay.iat === 'number') {
                      statusLine += `\nIssued (iat): ${new Date(pay.iat * 1000).toLocaleString()}`;
@@ -9382,10 +10112,10 @@
                      '--- PAYLOAD ---',
                      JSON.stringify(pay, null, 2),
                   ].join('\n');
-               }),
+               }, 'key'),
             );
             devBtnGrid.appendChild(
-               makeDevToolBtn('#️⃣ UUID / SHA256', '#️⃣ UUID / SHA256', () => {
+               makeDevToolBtn('UUID / SHA256', 'UUID / SHA256', () => {
                   const raw = devIn.value;
                   if (!raw.trim()) {
                      const uuid =
@@ -9407,10 +10137,10 @@
                      const hex = arr.map((b) => b.toString(16).padStart(2, '0')).join('');
                      devOut.value = `SHA-256 (${bytes.length} bytes):\n${hex}`;
                   });
-               }),
+               }, 'hash'),
             );
             devBtnGrid.appendChild(
-               makeDevToolBtn('🔎 正则测试', '🔎 Regex Test', () => {
+               makeDevToolBtn('正则测试', 'Regex Test', () => {
                   const lines = devIn.value.split(/\r?\n/);
                   const first = (lines[0] || '').trim();
                   if (!first) {
@@ -9437,23 +10167,23 @@
                   devOut.value = hits.length
                      ? `Matched ${hits.length} time(s):\n${hits.join('\n')}`
                      : 'No matches found (Line 1 is /regex/flags, Line 2+ is test text).';
-               }),
+               }, 'search'),
             );
 
             const devBottomRow = document.createElement('div');
             devBottomRow.style.cssText = 'display: flex; gap: 6px;';
-            const btnDevCopy = makeDevToolBtn('📋 复制输出', '📋 Copy Output', () => {
+            const btnDevCopy = makeDevToolBtn('复制输出', 'Copy Output', () => {
                if (!devOut.value) return;
                if (navigator.clipboard && navigator.clipboard.writeText) {
                   navigator.clipboard.writeText(devOut.value).catch(() => {});
                }
                showHudToast(isZh() ? '已复制输出内容' : 'Output copied');
-            });
-            const btnDevSwap = makeDevToolBtn('⇅ 移入输入框', '⇅ Move to Input', () => {
+            }, 'copy');
+            const btnDevSwap = makeDevToolBtn('移入输入框', 'Move to Input', () => {
                if (!devOut.value) return;
                devIn.value = devOut.value;
                devOut.value = '';
-            });
+            }, 'undo');
             devBottomRow.appendChild(btnDevCopy);
             devBottomRow.appendChild(btnDevSwap);
 
@@ -9483,6 +10213,33 @@
             sidePanelEl.appendChild(spBodyNotes);
             sidePanelEl.appendChild(spBodyDev);
             shell.appendChild(sidePanelEl);
+            syncSidePanelLocalizationRef = () => {
+               const z = isZh();
+               spTabItems.forEach((it) => {
+                  it.btn.textContent = '';
+                  it.btn.appendChild(createIcon(it.iconName));
+                  it.btn.appendChild(document.createTextNode(z ? it.zhLabel : it.enLabel));
+               });
+               btnSpClose.title = z ? '关闭侧边栏 (Esc)' : 'Close side panel (Esc)';
+               spInput.placeholder = z ? '输入侧边栏小窗网址...' : 'Enter URL for side panel...';
+               spGoBtn.textContent = z ? '前往' : 'Go';
+               spReloadBtn.title = z ? '刷新小窗网页' : 'Reload side panel';
+               spPopBtn.title = z ? '在新标签页中打开' : 'Open in new tab (if blocked in frame)';
+               spTextarea.placeholder = z
+                  ? '在这里写随手笔记、代码片段… 浏览器会自动本地保存。'
+                  : 'Type quick notes, scratchpad, code snippets here... Auto-saved locally.';
+               devIn.placeholder = z
+                  ? '粘贴 JSON / Base64 / URL / Unix 时间戳 (秒或毫秒)...'
+                  : 'Paste JSON / Base64 / URL / Unix timestamp...';
+               devOut.placeholder = z
+                  ? '转换 / 格式化输出结果将显示在这里...'
+                  : 'Formatted output appears here...';
+               devToolButtons.forEach((item) => {
+                  const txt = z ? item.zhLbl : item.enLbl;
+                  if (item.iconName) setBtnIconAndText(item.btn, item.iconName, txt);
+                  else item.btn.textContent = txt;
+               });
+            };
             sidePanelRefs = { spIframe, spBodyWeb, loadSpUrl };
             return sidePanelRefs;
          }
@@ -9513,7 +10270,11 @@
          function toggleSidePanel(force) {
             const next = force !== undefined ? !!force : !isSidePanelOpen;
             if (next && !config.ext_side_panel) {
-               showHudToast('Side Panel extension is off (enable in 内建 Extension)');
+               showHudToast(
+                  isZh()
+                     ? '分屏侧边栏未启用（请在设置 → 扩展与脚本中开启）'
+                     : 'Side Panel extension is off (enable in Settings → Extensions)',
+               );
                return;
             }
             if (!next && !sidePanelEl) {
@@ -10176,22 +10937,24 @@
 
             function syncDevQuickToggles() {
                const zh = isZh();
-               btnFpsHud.textContent = zh ? '📊 FPS' : '📊 FPS';
+               setBtnIconAndText(btnFpsHud, 'chart', 'FPS');
                btnFpsHud.style.borderColor = devFpsActive ? 'var(--fnx-accent)' : '';
                btnFpsHud.style.color = devFpsActive ? 'var(--fnx-accent)' : '';
 
-               btnDesign.textContent = zh ? '✏️ 自由编辑' : '✏️ DesignMode';
+               setBtnIconAndText(btnDesign, 'edit', zh ? '自由编辑' : 'DesignMode');
                btnDesign.style.borderColor = devDesignModeOn ? 'var(--fnx-accent)' : '';
                btnDesign.style.color = devDesignModeOn ? 'var(--fnx-accent)' : '';
 
-               btnWireframe.textContent = zh ? '📐 线框透视' : '📐 Wireframe';
+               setBtnIconAndText(btnWireframe, 'wireframe', zh ? '线框透视' : 'Wireframe');
                btnWireframe.style.borderColor = devWireframeOn ? 'var(--fnx-accent)' : '';
                btnWireframe.style.color = devWireframeOn ? 'var(--fnx-accent)' : '';
 
                const vpPx = DEV_VIEWPORTS[devViewportIdx] || 0;
-               btnViewport.textContent = vpPx
-                  ? (zh ? `📱 ${vpPx}px` : `📱 ${vpPx}px`)
-                  : (zh ? '📱 视口模拟' : '📱 Viewport');
+               setBtnIconAndText(
+                  btnViewport,
+                  'device',
+                  vpPx ? `${vpPx}px` : (zh ? '视口模拟' : 'Viewport'),
+               );
                btnViewport.style.borderColor = vpPx ? 'var(--fnx-accent)' : '';
                btnViewport.style.color = vpPx ? 'var(--fnx-accent)' : '';
             }
@@ -10229,7 +10992,7 @@
                devPorts.forEach((pt) => {
                   const opt = document.createElement('option');
                   opt.value = pt;
-                  opt.textContent = pt ? `:${pt}` : (zh ? '⚡ 切端口' : '⚡ :port');
+                  opt.textContent = pt ? `:${pt}` : (zh ? '切端口' : ':port');
                   if (pt && pt === curPort) opt.selected = true;
                   devPortSel.appendChild(opt);
                });
@@ -10255,7 +11018,7 @@
             btnHardReload.type = 'button';
             btnHardReload.className = 'fnx-pop-btn';
             btnHardReload.style.cssText = 'width: auto; height: 25px; padding: 0 8px; font-size: 11px;';
-            btnHardReload.textContent = isZh() ? '🔄 硬刷新' : '🔄 Hard Reload';
+            setBtnIconAndText(btnHardReload, 'reload', isZh() ? '硬刷新' : 'Hard Reload');
             btnHardReload.title = isZh()
                ? '清理 CacheStorage 与 ServiceWorker 并重新加载 (Ctrl+Shift+R)'
                : 'Clear CacheStorage & ServiceWorkers and reload (Ctrl+Shift+R)';
@@ -10341,9 +11104,13 @@
             replInp.type = 'text';
             replInp.style.cssText =
                'flex: 1; min-width: 0; height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; outline: none;';
-            replInp.placeholder = isZh()
-               ? '输入 JS 表达式回车执行 (如: document.title)'
-               : 'Evaluate JS on page... (Enter)';
+            replInp.placeholder = config.allow_page_eval
+               ? (isZh()
+                    ? '输入 JS 表达式回车执行 (如: document.title)'
+                    : 'Evaluate JS on page... (Enter)')
+               : (isZh()
+                    ? '安全保护：请在「设置 -> 常规」开启控制台 JS 执行'
+                    : 'Protected: enable Console JS Eval in Settings -> General');
             const replBtn = document.createElement('button');
             replBtn.type = 'button';
             replBtn.className = 'fnx-pop-btn';
@@ -10355,12 +11122,20 @@
             function runRepl() {
                const code = replInp.value.trim();
                if (!code) return;
+               if (!config.allow_page_eval) {
+                  const msg = isZh()
+                     ? '已阻止执行：请先在「设置 -> 常规」开启「允许控制台 JS 执行与原生 DevTools」'
+                     : 'Blocked: enable "Allow Console JS Eval & Native DevTools" in Settings -> General';
+                  pushDevConsoleEntry('warn', [msg]);
+                  showHudToast(msg);
+                  return;
+               }
                replHistory.push(code);
                replHistPos = replHistory.length;
                replInp.value = '';
                pushDevConsoleEntry('info', ['> ' + code]);
                try {
-                  // Evaluate expression cleanly inside active page scope
+                  // Evaluate expression cleanly inside active page scope when explicitly permitted
                   const res = window.eval(code);
                   pushDevConsoleEntry('log', ['<-', res]);
                } catch (err) {
@@ -10648,18 +11423,18 @@
             btnDomPick.type = 'button';
             btnDomPick.className = 'fnx-pop-btn';
             btnDomPick.style.cssText = 'width: auto; height: 22px; padding: 0 9px; font-size: 11px;';
-            btnDomPick.textContent = isZh() ? '🎯 点选检查元素' : '🎯 Inspect Element';
+            setBtnIconAndText(btnDomPick, 'target', isZh() ? '点选检查元素' : 'Inspect Element');
             const btnDomHtml = document.createElement('button');
             btnDomHtml.type = 'button';
             btnDomHtml.className = 'fnx-pop-btn';
             btnDomHtml.style.cssText = 'width: auto; height: 22px; padding: 0 9px; font-size: 11px;';
-            btnDomHtml.textContent = isZh() ? '↻ 查看全页 HTML' : '↻ Page HTML';
+            setBtnIconAndText(btnDomHtml, 'code', isZh() ? '查看全页 HTML' : 'Page HTML');
             btnDomHtml.onclick = () => renderDevDomInfo(null);
             const btnDomCopy = document.createElement('button');
             btnDomCopy.type = 'button';
             btnDomCopy.className = 'fnx-pop-btn';
             btnDomCopy.style.cssText = 'width: auto; height: 22px; padding: 0 9px; font-size: 11px;';
-            btnDomCopy.textContent = isZh() ? '📋 复制完整 HTML' : '📋 Copy Full HTML';
+            setBtnIconAndText(btnDomCopy, 'copy', isZh() ? '复制完整 HTML' : 'Copy Full HTML');
             btnDomCopy.onclick = () => {
                const html = document.documentElement
                   ? document.documentElement.outerHTML
@@ -10765,6 +11540,48 @@
                btnDomPick,
                selectDevTab,
                syncDevQuickToggles,
+            };
+            syncDevDrawerLocalizationRef = () => {
+               const z = isZh();
+               for (let i = 0; i < tabDefs.length; i++) {
+                  const [k, enT, zhT] = tabDefs[i];
+                  if (tabButtons[k]) tabButtons[k].textContent = z ? zhT : enT;
+               }
+               rebuildPortOpts();
+               syncDevQuickToggles();
+               setBtnIconAndText(btnHardReload, 'reload', z ? '硬刷新' : 'Hard Reload');
+               btnHardReload.title = z
+                  ? '清理 CacheStorage 与 ServiceWorker 并重新加载 (Ctrl+Shift+R)'
+                  : 'Clear CacheStorage & ServiceWorkers and reload (Ctrl+Shift+R)';
+               btnClose.title = z ? '关闭 (Esc)' : 'Close (Esc)';
+               btnConsoleClear.textContent = z ? '清空' : 'Clear';
+               replInp.placeholder = config.allow_page_eval
+                  ? (z
+                       ? '输入 JS 表达式回车执行 (如: document.title)'
+                       : 'Evaluate JS on page... (Enter)')
+                  : (z
+                       ? '安全保护：请在「设置 -> 常规」开启控制台 JS 执行'
+                       : 'Protected: enable Console JS Eval in Settings -> General');
+               replBtn.textContent = z ? '执行' : 'Run';
+               btnNetRefresh.textContent = z ? '刷新' : 'Refresh';
+               btnNetClear.textContent = z ? '清空' : 'Clear';
+               apiUrl.placeholder = z ? '/api/hello 或 https://...' : '/api/hello or https://...';
+               btnApiSend.textContent = z ? '发送' : 'Send';
+               apiBodyInp.placeholder = z ? 'Request Body (JSON 或文本)' : 'Request Body (JSON / text)';
+               apiResOut.placeholder = z
+                  ? '响应状态码与格式化 JSON 将显示在此处...'
+                  : 'Response status, headers and JSON appear here...';
+               btnStSet.textContent = z ? '写入' : 'Set';
+               btnStClear.textContent = z ? '清空当前' : 'Clear';
+               setBtnIconAndText(btnDomPick, 'target', z ? '点选检查元素' : 'Inspect Element');
+               setBtnIconAndText(btnDomHtml, 'code', z ? '查看全页 HTML' : 'Page HTML');
+               setBtnIconAndText(btnDomCopy, 'copy', z ? '复制完整 HTML' : 'Copy Full HTML');
+               if (isDevDrawerOpen) {
+                  if (devActiveTab === 'console') renderDevConsolePanel();
+                  else if (devActiveTab === 'network') renderDevNetworkPanel();
+                  else if (devActiveTab === 'storage') renderDevStoragePanel();
+                  else if (devActiveTab === 'dom') renderDevDomInfo(null);
+               }
             };
             syncDevQuickToggles();
             selectDevTab(devActiveTab);
@@ -11107,6 +11924,93 @@
          openPromptModalRef = openPromptModal;
          closePromptModalRef = closePromptModal;
          isPromptOpenRef = () => isPromptDialogOpen;
+
+         function syncHudLocalization() {
+            const z = isZh();
+            btnAddTab.title = (z ? '新建标签页' : 'New tab') + ` (${keybinds.new_tab || 'Ctrl+T'})`;
+            btnReload.title = (z ? '重新加载' : 'Reload') + ` (${keybinds.reload || 'Ctrl+R'})`;
+            addrBtn.title = z ? '点击编辑网址或搜索 (支持 !bang 快捷指令)' : 'Click to edit URL or search (!bangs supported)';
+            btnDeskCopy.title = z ? '复制当前网址 (Ctrl+Shift+C)' : 'Copy current URL (Ctrl+Shift+C)';
+            btnMedia.title = z ? '媒体控制与音量增强' : 'Media Control & Volume Booster';
+            btnChromeExts.title = z ? 'Chrome 扩展程序' : 'Chrome Extensions';
+            btnShield.title = z ? '隐私拦截与站点开关' : 'Adblock & Privacy Shield';
+            btnSidePanel.title = (z ? '分屏侧边栏' : 'Side Panel') + ` (${keybinds.toggle_side_panel || 'Alt+S'})`;
+            btnMore.title = z ? '主菜单' : 'Menu';
+            if (winControls && winControls.children.length >= 3) {
+               winControls.children[0].title = z ? '最小化' : 'Minimize';
+               winControls.children[1].title = z ? '最大化' : 'Maximize';
+               winControls.children[2].title = z ? '关闭窗口' : 'Close';
+            }
+            btnZoomOut.title = (z ? '缩小' : 'Zoom out') + ` (${keybinds.zoom_out || 'Ctrl+-'})`;
+            zoomValSpan.title = z ? '点击重置缩放 (100%)' : 'Click to reset zoom (100%)';
+            btnZoomIn.title = (z ? '放大' : 'Zoom in') + ` (${keybinds.zoom_in || 'Ctrl+='})`;
+            btnZoomFull.title = (z ? '全屏' : 'Fullscreen') + ` (${keybinds.fullscreen || 'F11'})`;
+
+            bmStartBtn.title = z ? '打开起始页 (fynexo://newtab)' : 'Open Start page (fynexo://newtab)';
+            bmStartText.textContent = z ? '起始页' : 'Start';
+
+            findInput.placeholder = z ? '在页面中查找...' : 'Find in page...';
+            btnFindPrev.title = z ? '上一个匹配 (Shift+Enter)' : 'Previous match (Shift+Enter)';
+            btnFindNext.title = z ? '下一个匹配 (Enter)' : 'Next match (Enter)';
+            btnFindClose.title = z ? '关闭 (Esc)' : 'Close (Esc)';
+
+            tmTitleTxt.textContent = z ? '内存与资源监视' : 'Resource Monitor';
+            tmBadge.textContent = z ? '站点隔离' : 'Site-Isolated';
+            if (tmHostRow.__fnxLabelEl) tmHostRow.__fnxLabelEl.textContent = z ? '总内存 (Host + 渲染)' : 'Total RAM (Host + Tabs)';
+            if (tmCommitRow.__fnxLabelEl) tmCommitRow.__fnxLabelEl.textContent = z ? '内核 / 子进程提交' : 'Committed / Procs';
+            if (tmModeRow.__fnxLabelEl) tmModeRow.__fnxLabelEl.textContent = z ? 'Edge 能效压缩' : 'Efficiency Pool';
+            if (tmModeRow.__fnxValueEl) {
+               const effOn = config.efficiency_mode !== false;
+               tmModeRow.__fnxValueEl.textContent = effOn ? (z ? '已启用' : 'Active') : (z ? '已暂停' : 'Off');
+               tmModeRow.__fnxValueEl.style.color = effOn ? '#10B981' : 'var(--fnx-muted)';
+            }
+            cacheTitle.textContent = z ? '后台标签缓存上限' : 'Cached tab limit';
+            btnPerfSet.textContent = z ? '性能设置' : 'Performance';
+            btnTrimMem.textContent = z ? '释放内存' : 'Flush RAM';
+
+            histTitle.textContent = z ? '浏览历史记录' : 'Browsing History';
+            histCloseBtn.title = z ? '关闭 (Esc)' : 'Close (Esc)';
+            histSearchInput.placeholder = z ? '搜索访问过的网页...' : 'Search visited pages...';
+            histFooterLabel.textContent = z ? '在偏好设置中管理历史记录' : 'Manage browsing history';
+            if (!isPromptDialogOpen) {
+               promptCancelBtn.textContent = z ? '取消' : 'Cancel';
+               promptConfirmBtn.textContent = z ? '确定' : 'Confirm';
+            }
+
+            mbBack.setAttribute('aria-label', z ? '后退' : 'Back');
+            mbReload.setAttribute('aria-label', z ? '重新加载' : 'Reload');
+            mbTabs.setAttribute('aria-label', z ? '标签页' : 'Tabs');
+            mbMore.setAttribute('aria-label', z ? '菜单与工具' : 'Menu & tools');
+            btnDrawerPrefs.setAttribute('aria-label', z ? '偏好设置' : 'Preferences');
+            btnSheetFwd.title = z ? '前进' : 'Forward';
+            btnSheetStar.title = z ? '收藏本页' : 'Bookmark page';
+
+            const rdMeta = shadowRoot ? shadowRoot.getElementById('__fynexo_reader_meta__') : null;
+            if (rdMeta) rdMeta.textContent = z ? '纯净阅读模式' : 'Reader mode';
+            const rdW = shadowRoot ? shadowRoot.getElementById('__fynexo_reader_width__') : null;
+            if (rdW) {
+               rdW.textContent = z ? '宽版' : 'Wide';
+               rdW.title = z ? '切换宽版/窄版栏宽' : 'Toggle wide column';
+            }
+            const rdExit = shadowRoot ? shadowRoot.getElementById('__fynexo_reader_exit__') : null;
+            if (rdExit) setBtnIconAndText(rdExit, 'close', z ? '退出阅读' : 'Exit Reader');
+
+            syncNavButtons();
+            syncBookmarkButtons();
+            syncBackgroundMediaDock();
+            syncDownloadsUI();
+            syncChromeExtsUI();
+            syncShieldPopoverUI();
+            syncMediaPopoverUI();
+            syncMainMenuUI();
+            updateAddressLabels();
+            renderTabs(true);
+            if (isDrawerOpen) renderDrawerCards();
+            if (typeof syncSidePanelLocalizationRef === 'function') syncSidePanelLocalizationRef();
+            if (typeof syncDevDrawerLocalizationRef === 'function') syncDevDrawerLocalizationRef();
+         }
+         syncHudLocalizationRef = syncHudLocalization;
+         syncHudLocalization();
 
          // 4. Lazy-Input Omnibox System (0 <input> mounted at idle; swaps button -> <input> ONLY on click/Ctrl+L)
          const hudRoot = document.createElement('div');
