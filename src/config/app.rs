@@ -274,7 +274,7 @@ pub fn default_mode_profiles() -> Vec<BrowserModeProfile> {
                 s("iqiyi.com"),
             ],
             adblock: true,
-            force_dark: true,
+            force_dark: false,
             ext_side_panel: false,
             ext_reader_mode: false,
             ext_yt_ad_skipper: true,
@@ -648,6 +648,7 @@ mod tests {
         let ids: Vec<&str> = p.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, vec!["developer", "study", "media"]);
         assert!(p[0].auto_domains.iter().any(|d| d == "localhost"));
+        assert!(p.iter().all(|m| !m.force_dark));
         assert!(p.iter().all(|m| m.theme.is_empty() && m.layout.is_empty()));
     }
 

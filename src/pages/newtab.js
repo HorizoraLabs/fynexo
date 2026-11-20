@@ -169,6 +169,28 @@
             return null;
         }
 
+        let faviconPageLoaded = document.readyState === 'complete';
+        const faviconQueue = [];
+        let googleFaviconFails = 0;
+        let googleFaviconBlocked = false;
+        if (!faviconPageLoaded) {
+            window.addEventListener('load', () => {
+                faviconPageLoaded = true;
+                while (faviconQueue.length > 0) {
+                    const fn = faviconQueue.shift();
+                    setTimeout(fn, 0);
+                }
+            }, { once: true });
+        }
+
+        function scheduleFaviconLoad(fn) {
+            if (faviconPageLoaded) {
+                setTimeout(fn, 0);
+            } else {
+                faviconQueue.push(fn);
+            }
+        }
+
         function createSiteEmblem(rawUrl, title) {
             const wrap = document.createElement('span');
             wrap.className = 'nt-emblem';
@@ -188,22 +210,62 @@
             wrap.appendChild(fb);
 
             if (!brandSvg && parsed && (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname) {
-                const img = document.createElement('img');
-                img.className = 'nt-emblem-img';
-                img.alt = '';
-                img.loading = 'lazy';
-                img.decoding = 'async';
-                img.referrerPolicy = 'no-referrer';
-                img.onload = () => {
-                    if (img.naturalWidth > 1) {
-                        wrap.classList.add('has-img');
+                const googleSrc = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=32`;
+                const directSrc = `${parsed.origin}/favicon.ico`;
+
+                const tryLoadFavicon = (src, timeoutMs, onFail) => {
+                    if (!wrap.isConnected) return;
+                    const img = document.createElement('img');
+                    img.className = 'nt-emblem-img';
+                    img.alt = '';
+                    img.loading = 'lazy';
+                    img.decoding = 'async';
+                    img.referrerPolicy = 'no-referrer';
+                    let settled = false;
+                    const timer = setTimeout(() => {
+                        if (settled) return;
+                        settled = true;
+                        img.onload = null;
+                        img.onerror = null;
+                        img.src = '';
+                        img.remove();
+                        if (typeof onFail === 'function') onFail();
+                    }, timeoutMs);
+                    img.onload = () => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timer);
+                        if (img.naturalWidth > 1) {
+                            wrap.classList.add('has-img');
+                        } else {
+                            img.remove();
+                            if (typeof onFail === 'function') onFail();
+                        }
+                    };
+                    img.onerror = () => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timer);
+                        img.remove();
+                        if (typeof onFail === 'function') onFail();
+                    };
+                    img.src = src;
+                    wrap.appendChild(img);
+                };
+
+                scheduleFaviconLoad(() => {
+                    if (!wrap.isConnected) return;
+                    const startDirect = () => tryLoadFavicon(directSrc, 2500, null);
+                    if (googleFaviconBlocked) {
+                        startDirect();
+                    } else {
+                        tryLoadFavicon(googleSrc, 3000, () => {
+                            googleFaviconFails += 1;
+                            if (googleFaviconFails >= 2) googleFaviconBlocked = true;
+                            startDirect();
+                        });
                     }
-                };
-                img.onerror = () => {
-                    img.remove();
-                };
-                img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=32`;
-                wrap.appendChild(img);
+                });
             }
             return wrap;
         }

@@ -146,7 +146,7 @@
 
    // Frame-0 Cache Hydration (internal pages only; never expose/read sessionStorage on external sites)
    function readSessionCache(key) {
-      if (!isInternalAny()) return null;
+      if (!__fnxIsInternalOriginInit) return null;
       try {
          const v = window.sessionStorage && window.sessionStorage.getItem(key);
          return v ? __fnxJsonParse(v) : null;
@@ -156,7 +156,7 @@
    }
 
    function writeSessionCache(key, obj) {
-      if (!isInternalAny()) return;
+      if (!__fnxIsInternalOriginInit) return;
       try {
          if (window.sessionStorage)
             window.sessionStorage.setItem(key, __fnxJsonStringify(obj));
@@ -562,14 +562,19 @@
                         const ct = String(
                            (res.headers && res.headers.get && res.headers.get('content-type')) || '',
                         ).toLowerCase();
+                        const isEventStream = ct.includes('event-stream');
+                        const isDevOpen =
+                           typeof isDevDrawerOpenRef === 'function' &&
+                           isDevDrawerOpenRef();
                         const canReadText =
-                           !ct ||
-                           ct.includes('json') ||
-                           ct.includes('text') ||
-                           ct.includes('xml') ||
-                           ct.includes('javascript') ||
-                           ct.includes('form');
-                        if (canReadText && typeof res.clone === 'function') {
+                           !isEventStream &&
+                           (!ct ||
+                              ct.includes('json') ||
+                              ct.includes('text') ||
+                              ct.includes('xml') ||
+                              ct.includes('javascript') ||
+                              ct.includes('form'));
+                        if (isDevOpen && canReadText && typeof res.clone === 'function') {
                            res.clone()
                               .text()
                               .then((txt) => {
@@ -605,7 +610,13 @@
                               duration: dur,
                               reqHeaders: reqHeaders,
                               reqBody: reqBody,
-                              resBody: ct ? `[${ct}]` : '[Binary Response]',
+                              resBody: isEventStream
+                                 ? '[EventStream]'
+                                 : canReadText
+                                   ? ''
+                                   : ct
+                                     ? `[${ct}]`
+                                     : '[Binary Response]',
                            });
                         }
                      }
@@ -722,6 +733,7 @@
    let progressCrawlTimer = null;
    let progressFadeTimer = null;
    let progressResetTimer = null;
+   let progressSafetyTimer = null;
    let progressBars = [];
    let isPageLoading = false;
    let onResourceStatsCb = null;
@@ -750,6 +762,7 @@
             sendIpc({ type: 'CONTENT_ACTION', action: 'focus_content', payload: {} });
             return;
          }
+         if (IS_CONTENT_TAB) return;
          if (document.body && typeof document.body.focus === 'function') {
             if (!document.body.hasAttribute('tabindex')) {
                document.body.setAttribute('tabindex', '-1');
@@ -1538,17 +1551,6 @@
         `;
 
       const isInt = isInternalAny();
-      const zeroFxCss =
-         config.enforce_perf && !isInt
-            ? `
-            html:not([data-fynexo-internal]) *,
-            html:not([data-fynexo-internal]) *::before,
-            html:not([data-fynexo-internal]) *::after {
-                backdrop-filter: none !important;
-                -webkit-backdrop-filter: none !important;
-            }
-        `
-            : '';
       const animCss = config.reduce_animations
          ? `
             *, *::before, *::after {
@@ -1559,7 +1561,7 @@
             }
         `
          : '';
-      const perfCss = zeroFxCss + animCss;
+      const perfCss = animCss;
       const siteOv = isInt ? null : getCurrentSiteOverride();
       if (!IS_CONTENT_TAB) {
          try {
@@ -3473,7 +3475,7 @@
             closeMobileDrawer();
             if (!isActive) {
                flushScrollSync();
-               triggerProgress();
+               if (!IS_HUD_SHELL) triggerProgress();
                sendIpc({ type: 'SWITCH_TAB', id: tab.id });
             }
          };
@@ -3791,7 +3793,7 @@
             shortcut: 'Ctrl+T',
             icon: 'plus',
             onClick: () => {
-               triggerProgress();
+               if (!IS_HUD_SHELL) triggerProgress();
                sendIpc({ type: 'NEW_TAB' });
             },
          },
@@ -4379,7 +4381,7 @@
                         return;
                      if (!isActive) {
                         flushScrollSync();
-                        triggerProgress();
+                        if (!IS_HUD_SHELL) triggerProgress();
                         sendIpc({ type: 'SWITCH_TAB', id: tab.id });
                      }
                   };
@@ -4852,11 +4854,12 @@
                return;
             }
             if (closeFn) closeFn();
-            triggerProgress();
             if (item.kind === 'tab' && item.tabId) {
+               if (!IS_HUD_SHELL) triggerProgress();
                flushScrollSync();
                sendIpc({ type: 'SWITCH_TAB', id: item.tabId });
             } else {
+               triggerProgress();
                flushScrollSync();
                sendIpc({ type: 'NAVIGATE', url: item.url });
             }
@@ -5051,10 +5054,11 @@
                }
                if (closeFn) closeFn();
                flushScrollSync();
-               triggerProgress();
                if (item.kind === 'tab' && item.tabId) {
+                  if (!IS_HUD_SHELL) triggerProgress();
                   sendIpc({ type: 'SWITCH_TAB', id: item.tabId });
                } else {
+                  triggerProgress();
                   sendIpc({ type: 'NAVIGATE', url: item.url });
                }
             } else {
@@ -5161,6 +5165,10 @@
          clearTimeout(progressResetTimer);
          progressResetTimer = null;
       }
+      if (progressSafetyTimer) {
+         clearTimeout(progressSafetyTimer);
+         progressSafetyTimer = null;
+      }
    }
 
    function forEachProgressBar(fn) {
@@ -5180,8 +5188,12 @@
 
    function triggerProgress() {
       syncActiveTabLoadingClass(true);
-      if (!shadowRoot || progressBars.length === 0) return;
       clearProgressTimers();
+      progressSafetyTimer = setTimeout(() => {
+         progressSafetyTimer = null;
+         finishProgress(true);
+      }, 15000);
+      if (!shadowRoot || progressBars.length === 0) return;
       forEachProgressBar((pb) => {
          pb.style.transition = 'none';
          pb.style.width = '0%';
@@ -5797,29 +5809,31 @@
             } catch (_) {}
          }
 
-         try {
-            if (!window.__fynexo_scroll_proxied__) {
-               window.__fynexo_scroll_proxied__ = true;
-               Object.defineProperty(window, 'scrollY', {
-                  get: () =>
-                     (document.body ? document.body.scrollTop : 0) ||
-                     (document.documentElement
-                        ? document.documentElement.scrollTop
-                        : 0) ||
-                     0,
-                  configurable: true,
-               });
-               Object.defineProperty(window, 'pageYOffset', {
-                  get: () =>
-                     (document.body ? document.body.scrollTop : 0) ||
-                     (document.documentElement
-                        ? document.documentElement.scrollTop
-                        : 0) ||
-                     0,
-                  configurable: true,
-               });
-            }
-         } catch (_) {}
+         if (!IS_HUD_SHELL && !IS_CONTENT_TAB) {
+            try {
+               if (!window.__fynexo_scroll_proxied__) {
+                  window.__fynexo_scroll_proxied__ = true;
+                  Object.defineProperty(window, 'scrollY', {
+                     get: () =>
+                        (document.body ? document.body.scrollTop : 0) ||
+                        (document.documentElement
+                           ? document.documentElement.scrollTop
+                           : 0) ||
+                        0,
+                     configurable: true,
+                  });
+                  Object.defineProperty(window, 'pageYOffset', {
+                     get: () =>
+                        (document.body ? document.body.scrollTop : 0) ||
+                        (document.documentElement
+                           ? document.documentElement.scrollTop
+                           : 0) ||
+                        0,
+                     configurable: true,
+                  });
+               }
+            } catch (_) {}
+         }
 
          // Conditional Background Media Keep-Alive (only activates for background_play tabs or playing media,
          // keeping normal browsing tabs 100% compatible with visibility/anti-bot checks)
@@ -6040,7 +6054,7 @@
             'plus',
             `New tab (${keybinds.new_tab || 'Ctrl+T'})`,
             () => {
-               triggerProgress();
+               if (!IS_HUD_SHELL) triggerProgress();
                sendIpc({ type: 'NEW_TAB' });
             },
          );
@@ -6330,7 +6344,7 @@
          bgMediaPill.onclick = () => {
             if (bgDockTargetTabId) {
                flushScrollSync();
-               triggerProgress();
+               if (!IS_HUD_SHELL) triggerProgress();
                sendIpc({ type: 'SWITCH_TAB', id: bgDockTargetTabId });
             }
          };
@@ -6920,7 +6934,7 @@
             'New tab',
             keybinds.new_tab || 'Ctrl+T',
             () => {
-               triggerProgress();
+               if (!IS_HUD_SHELL) triggerProgress();
                sendIpc({ type: 'NEW_TAB' });
             },
             '新建标签页',
@@ -10231,7 +10245,7 @@
          btnDrawerNew.onclick = () => {
             closeMobileDrawer();
             flushScrollSync();
-            triggerProgress();
+            if (!IS_HUD_SHELL) triggerProgress();
             sendIpc({ type: 'NEW_TAB' });
          };
 
@@ -13160,7 +13174,7 @@
                   e.preventDefault();
                   e.stopPropagation();
                   flushScrollSync();
-                  triggerProgress();
+                  if (!IS_HUD_SHELL) triggerProgress();
                   sendIpc({ type: 'NEW_TAB' });
                   return;
                }
@@ -13181,7 +13195,7 @@
                         (curIdx + step + tabState.tabs.length) %
                         tabState.tabs.length;
                      flushScrollSync();
-                     triggerProgress();
+                     if (!IS_HUD_SHELL) triggerProgress();
                      sendIpc({
                         type: 'SWITCH_TAB',
                         id: tabState.tabs[nextIdx].id,
@@ -13387,7 +13401,7 @@
                         e.stopPropagation();
                         if (targetTab.id !== tabState.active_id) {
                            flushScrollSync();
-                           triggerProgress();
+                           if (!IS_HUD_SHELL) triggerProgress();
                            sendIpc({ type: 'SWITCH_TAB', id: targetTab.id });
                         }
                      }
@@ -13739,7 +13753,7 @@
             true,
          );
 
-         if (!IS_HUD_SHELL) {
+         if (!IS_HUD_SHELL && !IS_CONTENT_TAB) {
             try {
                window.open = function (url) {
                   if (url && isAllowedPopupUrl(url)) {

@@ -52,7 +52,7 @@ pub enum UserEvent {
     SyncNavState { win_id: usize, tab_id: usize },
     SyncConfig,
     SyncTabs(usize),
-    PageStarted { win_id: usize, tab_id: usize },
+    PageStarted { win_id: usize, tab_id: usize, url: String },
     PageFinished { win_id: usize, tab_id: usize, url: String },
     DownloadUpdate { name: String, status: String },
     Toast(String),

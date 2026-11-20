@@ -485,6 +485,7 @@ pub fn build_tab_webview(
                 let _ = proxy_for_load.send_event(UserEvent::PageStarted {
                     win_id,
                     tab_id: tid,
+                    url: norm,
                 });
             }
             PageLoadEvent::Finished => {
@@ -775,7 +776,10 @@ pub fn build_hud_webview(
     builder = builder.with_navigation_handler(|url| {
         let lower = url.trim().to_ascii_lowercase();
         lower == "http://fynexo.localhost/hud"
+            || lower == "http://fynexo.localhost/hud/"
             || lower.starts_with("http://fynexo.localhost/hud?")
+            || lower == "fynexo://localhost/hud"
+            || lower == "fynexo://localhost/hud/"
             || lower == "about:blank"
     });
 

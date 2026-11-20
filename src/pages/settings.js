@@ -158,6 +158,28 @@
             return el;
         }
 
+        let faviconPageLoaded = document.readyState === 'complete';
+        const faviconQueue = [];
+        let googleFaviconFails = 0;
+        let googleFaviconBlocked = false;
+        if (!faviconPageLoaded) {
+            window.addEventListener('load', () => {
+                faviconPageLoaded = true;
+                while (faviconQueue.length > 0) {
+                    const fn = faviconQueue.shift();
+                    setTimeout(fn, 0);
+                }
+            }, { once: true });
+        }
+
+        function scheduleFaviconLoad(fn) {
+            if (faviconPageLoaded) {
+                setTimeout(fn, 0);
+            } else {
+                faviconQueue.push(fn);
+            }
+        }
+
         function createSiteEmblem(url) {
             const wrap = document.createElement('span');
             wrap.className = 'rc-emblem';
@@ -173,21 +195,64 @@
                 const raw = String(url || '').replace('{query}', 'test');
                 const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : ('https://' + raw));
                 if (/^https?:$/.test(parsed.protocol) && parsed.hostname) {
-                    const img = document.createElement('img');
-                    img.className = 'rc-emblem-img';
-                    img.alt = '';
-                    img.loading = 'lazy';
-                    img.decoding = 'async';
-                    img.style.display = 'none';
-                    img.src = 'https://www.google.com/s2/favicons?sz=32&domain=' + encodeURIComponent(parsed.hostname);
-                    img.onload = () => {
-                        if (img.naturalWidth > 0) {
-                            fallback.style.display = 'none';
-                            img.style.display = 'block';
-                        }
+                    const googleSrc = 'https://www.google.com/s2/favicons?sz=32&domain=' + encodeURIComponent(parsed.hostname);
+                    const directSrc = parsed.origin + '/favicon.ico';
+
+                    const tryLoadFavicon = (src, timeoutMs, onFail) => {
+                        if (!wrap.isConnected) return;
+                        const img = document.createElement('img');
+                        img.className = 'rc-emblem-img';
+                        img.alt = '';
+                        img.loading = 'lazy';
+                        img.decoding = 'async';
+                        img.referrerPolicy = 'no-referrer';
+                        img.style.display = 'none';
+                        let settled = false;
+                        const timer = setTimeout(() => {
+                            if (settled) return;
+                            settled = true;
+                            img.onload = null;
+                            img.onerror = null;
+                            img.src = '';
+                            img.remove();
+                            if (typeof onFail === 'function') onFail();
+                        }, timeoutMs);
+                        img.onload = () => {
+                            if (settled) return;
+                            settled = true;
+                            clearTimeout(timer);
+                            if (img.naturalWidth > 0) {
+                                fallback.style.display = 'none';
+                                img.style.display = 'block';
+                            } else {
+                                img.remove();
+                                if (typeof onFail === 'function') onFail();
+                            }
+                        };
+                        img.onerror = () => {
+                            if (settled) return;
+                            settled = true;
+                            clearTimeout(timer);
+                            img.remove();
+                            if (typeof onFail === 'function') onFail();
+                        };
+                        img.src = src;
+                        wrap.appendChild(img);
                     };
-                    img.onerror = () => { img.remove(); };
-                    wrap.appendChild(img);
+
+                    scheduleFaviconLoad(() => {
+                        if (!wrap.isConnected) return;
+                        const startDirect = () => tryLoadFavicon(directSrc, 2500, null);
+                        if (googleFaviconBlocked) {
+                            startDirect();
+                        } else {
+                            tryLoadFavicon(googleSrc, 3000, () => {
+                                googleFaviconFails += 1;
+                                if (googleFaviconFails >= 2) googleFaviconBlocked = true;
+                                startDirect();
+                            });
+                        }
+                    });
                 }
             } catch (_) {}
             return wrap;
@@ -351,7 +416,7 @@
             if (sp.content_padding && sp.content_padding !== '28px 36px') {
                 root.style.setProperty('--cfg-content-pad', sp.content_padding);
             } else {
-                root.style.setProperty('--cfg-content-pad', '32px 36px 56px');
+                root.style.setProperty('--cfg-content-pad', '0 36px 56px');
             }
 
             const appEl = document.getElementById('__fynexo_settings_app__');
@@ -2643,10 +2708,6 @@
             const brandTitle = document.querySelector('.brand-title');
             if (brandTitle) brandTitle.textContent = zh ? '偏好设置' : 'Preferences';
 
-            const langBtn = document.getElementById('btnSettingsLang');
-            if (langBtn) {
-                langBtn.textContent = zh ? '中文 / EN' : 'EN / 中文';
-            }
             const searchInp = document.getElementById('inputSettingsSearch');
             if (searchInp) {
                 searchInp.placeholder = zh
@@ -2700,7 +2761,7 @@
             });
 
             [
-                ['langModeGroup', '界面语言', 'Interface language', '实时切换浏览器全部菜单、起始页、偏好设置与提示文案（无需刷新页面）'],
+                ['selInterfaceLang', '界面语言', 'Interface language', '实时切换浏览器全部菜单、起始页、偏好设置与提示文案（无需刷新页面）'],
                 ['inputHomepage', '新标签起始页网址', 'New tab homepage', '打开新标签页时默认加载的页面地址'],
                 ['uaModeGroup', '浏览器身份标识 (User-Agent)', 'User-Agent', '实时切换系统默认、桌面 Chrome、手机或自定义 UA 请求头'],
                 ['btnZoomOut', '默认网页缩放比例', 'Default page zoom', '所有浏览标签页的基础缩放大小'],
@@ -2710,7 +2771,7 @@
                 ['btnAdblockToggle', '网络广告与追踪拦截盾', 'Network ad & tracker shield', '内置 65+ 常见广告与追踪器域名黑名单及自定义过滤规则'],
                 ['btnIncognitoToggle', '无痕隐私模式', 'Private / Incognito mode', '开启后暂停本地历史记录与标签会话写入'],
                 ['btnClearHistory', '配置文件与缓存目录', 'Profile storage & cache', '包含 JSON 配置文件、浏览历史、Cookie 与 WebView 本地缓存'],
-                ['btnPerfToggle', 'Zero-FX 渲染过滤', 'Zero-FX rendering filter', '移除外部网页高耗阴影与高斯模糊（默认关闭以保留网页原本光影特效，低配设备可开启）'],
+                ['btnPerfToggle', 'Zero-FX 界面渲染过滤', 'Zero-FX UI filter', '关闭 Fynexo 自身界面（顶栏/起始页/设置）的高耗模糊与阴影，保留外部网站原生毛玻璃与光影特效'],
                 ['btnEfficiencyToggle', 'Edge 风格后台能效压缩', 'Edge-style Efficiency Mode', '自动将后台非当前标签降级为低内存水位（释放显存与位图缓存，切回页面无需重载）'],
                 ['perfCacheModeGroup', '后台缓存标签上限', 'Background cached tab limit', '保留多少个近期打开的普通标签在后台秒切；超出后自动回收最久未用的标签'],
                 ['selTabSleepMinutes', '闲置标签自动休眠', 'Put idle background tabs to sleep', '后台标签超过设定时间未操作后自动休眠彻底释放内存（点击标签页时自动唤醒加载）'],
@@ -2981,9 +3042,8 @@
             if (btnResetDlDir) btnResetDlDir.textContent = zh ? '恢复默认' : 'Default';
 
             const curLang = isZh() ? 'zh' : 'en';
-            document.querySelectorAll('#langModeGroup .seg-btn').forEach(b => {
-                b.classList.toggle('active', b.dataset.lang === curLang);
-            });
+            const selInterfaceLang = document.getElementById('selInterfaceLang');
+            if (selInterfaceLang) selInterfaceLang.value = curLang;
 
             const uaMode = (config.user_agent_mode || 'default').toLowerCase();
             document.querySelectorAll('#uaModeGroup .seg-btn').forEach(b => {
@@ -3251,14 +3311,15 @@
             };
         });
 
-        document.querySelectorAll('#langModeGroup .seg-btn').forEach(btn => {
-            btn.onclick = () => {
-                const nextLang = btn.dataset.lang === 'en' ? 'en' : 'zh';
+        const selInterfaceLangEl = document.getElementById('selInterfaceLang');
+        if (selInterfaceLangEl) {
+            selInterfaceLangEl.onchange = (e) => {
+                const nextLang = e.target.value === 'en' ? 'en' : 'zh';
                 config.language = nextLang;
                 renderAllSections();
                 saveConfig(nextLang === 'en' ? 'Switched interface to English' : '已切换为简体中文界面');
             };
-        });
+        }
 
         document.querySelectorAll('#uaModeGroup .seg-btn').forEach(btn => {
             btn.onclick = () => {
@@ -3579,7 +3640,7 @@
             const slVal = Number(config.tab_sleep_minutes !== undefined ? config.tab_sleep_minutes : 15);
             setTag('tagSleepRam', slVal > 0 ? `${slVal}m 自动休眠回收` : '休眠已关闭', slVal > 0 ? `${slVal}m auto-reclaim` : 'Sleep disabled', slVal > 0);
             setTag('tagTrimRam', config.auto_trim_ram !== false ? '约降 ~10% 工作集' : '不自动整理', config.auto_trim_ram !== false ? '~10% lighter host' : 'Manual only', config.auto_trim_ram !== false);
-            setTag('tagZeroFxRam', config.enforce_perf ? '已开启 · 省 GPU' : '保留原画质特效', config.enforce_perf ? 'Active · Saves GPU' : 'Full Web FX', !!config.enforce_perf);
+            setTag('tagZeroFxRam', config.enforce_perf ? '已开启 · 仅精简内置界面' : '完整界面特效', config.enforce_perf ? 'Active · UI only' : 'Full UI FX', !!config.enforce_perf);
             setTag('tagAnimRam', config.reduce_animations ? '动画已精简' : '完整流畅动效', config.reduce_animations ? 'Reduced motion' : 'Full transitions', !!config.reduce_animations);
             setTag('tagHwRam', config.hw_accel !== false ? 'GPU 加速中 · 改后重启' : '低显存软件模式 · 改后重启', config.hw_accel !== false ? 'GPU On · Restart on change' : 'Low VRAM · Restart on change', config.hw_accel !== false);
             setTag('tagPerfAdblockRam', config.adblock !== false ? '已省 ~35–75 MB 广告' : '未拦截广告 (+~50 MB)', config.adblock !== false ? 'Saves ~35–75 MB' : '+~50 MB ad scripts', config.adblock !== false);
@@ -4269,15 +4330,6 @@
             };
         }
 
-        const btnSettingsLangEl = document.getElementById('btnSettingsLang');
-        if (btnSettingsLangEl) {
-            btnSettingsLangEl.onclick = () => {
-                config.language = isZh() ? 'en' : 'zh';
-                renderAllSections();
-                saveConfig(isZh() ? '已切换为简体中文界面' : 'Switched interface to English');
-            };
-        }
-
         const UI_STYLE_PRESETS = {
             compact: {
                 msgZh: '已切换为「极简紧凑」布局',
@@ -4454,6 +4506,8 @@
                 } catch (_) {}
             }
             window.scrollTo(0, 0);
+            const wsEl = document.querySelector('.workspace');
+            if (wsEl) wsEl.scrollTop = 0;
             if (target.id === 'sec-performance') {
                 sendIpc({ type: 'GET_RESOURCE_USAGE' });
             }

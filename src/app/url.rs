@@ -50,6 +50,12 @@ pub fn normalize_logical_url(url: &str) -> String {
     }
 }
 
+#[inline]
+pub fn is_internal_url(url: &str) -> bool {
+    let norm = normalize_logical_url(url);
+    norm == "fynexo://newtab" || norm == "fynexo://settings"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,5 +80,15 @@ mod tests {
         assert_eq!(normalize_logical_url("http://fynexo.localhost"), "fynexo://newtab");
         assert_eq!(normalize_logical_url("http://fynexo.localhost/"), "fynexo://newtab");
         assert_eq!(normalize_logical_url("fynexo://localhost"), "fynexo://newtab");
+    }
+
+    #[test]
+    fn internal_url_detection_handles_logical_and_physical_forms() {
+        assert!(is_internal_url("fynexo://newtab"));
+        assert!(is_internal_url("http://fynexo.localhost/newtab"));
+        assert!(is_internal_url("fynexo://settings"));
+        assert!(is_internal_url("http://fynexo.localhost/settings#sec-appearance"));
+        assert!(!is_internal_url("https://example.com/"));
+        assert!(!is_internal_url("https://github.com"));
     }
 }
