@@ -107,3 +107,24 @@ impl SiteRulesStore {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_flexible_accepts_array_and_wrapped_object_and_rejects_invalid() {
+        let arr = r#"[{"id":"r1","name":"Test","domain":"example.com","enabled":true,"css":"body{}"}]"#;
+        let parsed_arr = SiteRulesStore::parse_flexible(arr).unwrap();
+        assert_eq!(parsed_arr.len(), 1);
+        assert_eq!(parsed_arr[0].domain, "example.com");
+
+        let obj = r#"{"rules":[{"id":"r2","domain":"*.rust-lang.org"}]}"#;
+        let parsed_obj = SiteRulesStore::parse_flexible(obj).unwrap();
+        assert_eq!(parsed_obj.len(), 1);
+        assert!(parsed_obj[0].enabled);
+
+        assert!(SiteRulesStore::parse_flexible(r#"{"not_rules":[]}"#).is_err());
+        assert!(SiteRulesStore::parse_flexible("not json").is_err());
+    }
+}

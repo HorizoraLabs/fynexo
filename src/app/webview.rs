@@ -24,6 +24,11 @@ const FONT_INTER_LATIN: &[u8] = include_bytes!("../../assets/fonts/inter-latin.w
 const FONT_JETBRAINS_MONO_LATIN: &[u8] =
     include_bytes!("../../assets/fonts/jetbrains-mono-latin.woff2");
 
+#[cfg(target_os = "windows")]
+const CSP_HUD: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' https: http: data: blob:; frame-src https: http: about:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+const CSP_SETTINGS: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' https: http: data: blob:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+const CSP_NEWTAB: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' https: http: data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+
 fn maybe_font_response(
     host: &str,
     path: &str,
@@ -37,6 +42,7 @@ fn maybe_font_response(
     Some(
         wry::http::Response::builder()
             .header("Content-Type", "font/woff2")
+            .header("X-Content-Type-Options", "nosniff")
             .header("Cache-Control", "public, max-age=31536000, immutable")
             .header("Access-Control-Allow-Origin", "*")
             .body(std::borrow::Cow::Borrowed(bytes))
@@ -458,7 +464,7 @@ pub fn build_tab_webview(
     };
 
     let mut builder = WebViewBuilder::new_with_web_context(web_context)
-        .with_background_color((9, 9, 11, 255))
+        .with_background_color((12, 14, 19, 255))
         .with_visible(launch.visible)
         .with_incognito(incognito)
         .with_back_forward_navigation_gestures(true);
@@ -680,6 +686,8 @@ pub fn build_tab_webview(
             };
             wry::http::Response::builder()
                 .header("Content-Type", "text/html; charset=utf-8")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", if is_settings { CSP_SETTINGS } else { CSP_NEWTAB })
                 .header("Cache-Control", "no-store")
                 .body(std::borrow::Cow::from(html.into_bytes()))
                 .unwrap_or_else(|_| wry::http::Response::new(std::borrow::Cow::Borrowed(&b""[..])))
@@ -953,6 +961,8 @@ pub fn build_hud_webview(
         if route == Some("hud") {
             wry::http::Response::builder()
                 .header("Content-Type", "text/html; charset=utf-8")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", CSP_HUD)
                 .header("Cache-Control", "no-store")
                 .body(std::borrow::Cow::Borrowed(hud::hud_shell_html().as_bytes()))
                 .unwrap_or_else(|_| wry::http::Response::new(std::borrow::Cow::Borrowed(&b""[..])))

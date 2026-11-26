@@ -147,3 +147,21 @@ impl KeybindsConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keybinds_defaults_and_partial_deserialization_work() {
+        let def = KeybindsConfig::default();
+        assert_eq!(def.omnibox, "Ctrl+L");
+        assert_eq!(def.new_incognito_window, "Ctrl+Shift+N");
+        assert_eq!(def.preferences, "Ctrl+,");
+
+        let partial: KeybindsConfig = serde_json::from_str(r#"{"omnibox":"Alt+Space"}"#).unwrap();
+        assert_eq!(partial.omnibox, "Alt+Space");
+        assert_eq!(partial.new_tab, "Ctrl+T");
+        assert_eq!(partial.new_incognito_window, "Ctrl+Shift+N");
+    }
+}

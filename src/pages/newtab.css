@@ -1100,6 +1100,20 @@
             .hist-row { min-height: 40px; padding: 8px 10px; }
             .nt-kbd-hint, .hist-kbd { display: none; }
             .hist-host { max-width: 110px; }
+            .nt-customize-fab {
+                right: 14px;
+                bottom: calc(var(--fnx-host-bottom-offset, 54px) + max(env(safe-area-inset-bottom, 0px), 12px) + 12px);
+            }
+            .nt-customize-panel {
+                right: 14px;
+                left: 14px;
+                width: auto;
+                max-width: 340px;
+                margin-left: auto;
+                bottom: calc(var(--fnx-host-bottom-offset, 54px) + max(env(safe-area-inset-bottom, 0px), 12px) + 52px);
+                max-height: 62dvh;
+                overflow-y: auto;
+            }
         }
 
         @media (max-width: 480px) {

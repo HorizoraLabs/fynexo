@@ -71,7 +71,11 @@ pub fn cancel_download(_id: u64) -> bool {
 
 /// Open the native Windows Save As dialog (`GetSaveFileNameW`) pre-filled with `initial_dir` & `suggested_name`.
 #[cfg(target_os = "windows")]
-fn show_windows_save_dialog(initial_dir: &Path, suggested_name: &str) -> Option<PathBuf> {
+fn show_windows_save_dialog(
+    owner_hwnd: isize,
+    initial_dir: &Path,
+    suggested_name: &str,
+) -> Option<PathBuf> {
     #[repr(C)]
     struct OpenFileNameW {
         l_struct_size: u32,
@@ -123,7 +127,7 @@ fn show_windows_save_dialog(initial_dir: &Path, suggested_name: &str) -> Option<
 
     let mut ofn = OpenFileNameW {
         l_struct_size: std::mem::size_of::<OpenFileNameW>() as u32,
-        hwnd_owner: 0,
+        hwnd_owner: owner_hwnd,
         h_instance: 0,
         lpstr_filter: filter_w.as_ptr(),
         lpstr_custom_filter: std::ptr::null_mut(),
@@ -172,6 +176,16 @@ pub fn attach_windows_downloads(
     let Ok(wv4) = core_wv.cast::<ICoreWebView2_4>() else {
         return;
     };
+    let owner_hwnd: isize = {
+        use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+        let raw = webview.hwnd();
+        let root = unsafe { GetAncestor(raw, GA_ROOT) };
+        if !root.is_invalid() {
+            root.0 as isize
+        } else {
+            raw.0 as isize
+        }
+    };
 
     unsafe {
         let mut token: i64 = 0;
@@ -206,7 +220,7 @@ pub fn attach_windows_downloads(
                 let base_dir = resolved_downloads_dir(&custom_dir);
 
                 let final_path = if ask_location {
-                    match show_windows_save_dialog(&base_dir, &suggested) {
+                    match show_windows_save_dialog(owner_hwnd, &base_dir, &suggested) {
                         Some(p) => p,
                         None => {
                             let _ = args.SetCancel(true);

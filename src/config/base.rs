@@ -29,7 +29,7 @@ pub fn root_data_dir() -> &'static Path {
             }
             let fallback = std::env::temp_dir().join("fynexo");
             let _ = fs::create_dir_all(&fallback);
-            return fallback;
+            fallback
         }
 
         #[cfg(target_os = "ios")]
@@ -375,11 +375,11 @@ pub(crate) fn display_path_preferring_local(file_name: &str) -> String {
     }
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let local_opt = resolve_local_config(file_name).map(canonical_display_string);
+    let resolved = resolve_local_config(file_name)
+        .map(canonical_display_string)
+        .unwrap_or_else(|| canonical_display_string(resolve_formal_path(file_name)));
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    let local_opt: Option<String> = None;
-
-    let resolved = local_opt.unwrap_or_else(|| canonical_display_string(resolve_formal_path(file_name)));
+    let resolved = canonical_display_string(resolve_formal_path(file_name));
     cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())

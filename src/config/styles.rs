@@ -429,3 +429,41 @@ impl ComponentStyles {
         synced_json_mtime("styles.json")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_styles_migrate_recessed_colors_while_preserving_custom_palette() {
+        crate::util::isolate_data_dir();
+        let legacy = serde_json::json!({
+            "colors": {
+                "use_custom_colors": false,
+                "bg": "#0d0f14",
+                "panel": "#141720",
+                "surface": "#1b1f2b"
+            }
+        });
+        fs::write(ComponentStyles::styles_path(), serde_json::to_string_pretty(&legacy).unwrap())
+            .unwrap();
+        let loaded = ComponentStyles::load();
+        assert_eq!(loaded.colors.bg, "#0c0e13");
+        assert_eq!(loaded.colors.panel, "#1c212d");
+        assert_eq!(loaded.colors.surface, "#151923");
+
+        let custom = serde_json::json!({
+            "colors": {
+                "use_custom_colors": true,
+                "bg": "#0d0f14",
+                "panel": "#141720",
+                "surface": "#1b1f2b"
+            }
+        });
+        fs::write(ComponentStyles::styles_path(), serde_json::to_string_pretty(&custom).unwrap())
+            .unwrap();
+        let loaded_custom = ComponentStyles::load();
+        assert!(loaded_custom.colors.use_custom_colors);
+        assert_eq!(loaded_custom.colors.bg, "#0d0f14");
+    }
+}

@@ -34,6 +34,7 @@ use crate::config::data_dir;
 use crate::tabs::TabManager;
 use crate::util::LockExt;
 
+#[cfg(target_os = "windows")]
 use self::events::{HudInsetLogical, HudRegionRectLogical};
 #[cfg(target_os = "windows")]
 use self::memory::{force_empty_working_set, get_process_tree_memory_with_roots};

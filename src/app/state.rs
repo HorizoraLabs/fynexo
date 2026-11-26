@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::adblock::{self, AdblockConfig};
 use crate::chrome_ext::{self, ChromeExtensionEntry, HudChromeExtension};
@@ -32,6 +32,7 @@ pub struct AppState {
     pub keybinds_mtime: Option<SystemTime>,
     pub permissions_mtime: Option<SystemTime>,
     pub themes_stamp: (usize, Option<SystemTime>),
+    last_reload_check: Instant,
 }
 
 impl AppState {
@@ -76,6 +77,7 @@ impl AppState {
             keybinds_mtime: KeybindsConfig::mtime(),
             permissions_mtime: SitePermissionsStore::mtime(),
             themes_stamp: themes_stamp(),
+            last_reload_check: Instant::now(),
         }
     }
 
@@ -178,6 +180,11 @@ impl AppState {
     }
 
     pub fn reload_if_changed(&mut self) -> bool {
+        const RELOAD_THROTTLE: Duration = Duration::from_millis(1500);
+        if self.last_reload_check.elapsed() < RELOAD_THROTTLE {
+            return false;
+        }
+        self.last_reload_check = Instant::now();
         let cur_cfg_mtime = AppConfig::mtime();
         let cur_sty_mtime = ComponentStyles::mtime();
         let cur_sc_mtime = UserData::shortcuts_mtime();
@@ -254,6 +261,7 @@ impl AppState {
         self.keybinds_mtime = KeybindsConfig::mtime();
         self.permissions_mtime = SitePermissionsStore::mtime();
         self.themes_stamp = themes_stamp();
+        self.last_reload_check = Instant::now();
     }
 
     pub fn payload(&self) -> RuntimePayload {
@@ -362,5 +370,40 @@ impl AppState {
             blocked_ads: adblock::blocked_count(),
         };
         crate::util::json_for_html_script(&slim)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reload_if_changed_throttles_rapid_consecutive_calls() {
+        crate::util::isolate_data_dir();
+        let mut st = AppState::load();
+        assert!(!st.reload_if_changed());
+        st.last_reload_check = Instant::now() - Duration::from_secs(5);
+        assert!(!st.reload_if_changed());
+        assert!(st.last_reload_check.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn record_download_tracks_transitions_without_progress_toast_spam() {
+        crate::util::isolate_data_dir();
+        let mut st = AppState::load();
+        assert_eq!(
+            st.record_download(1, "a.zip".into(), "downloading".into(), 0, 1000, 0, None),
+            Some("downloading".to_string())
+        );
+        assert_eq!(
+            st.record_download(1, "a.zip".into(), "downloading".into(), 500, 1000, 250, None),
+            None
+        );
+        assert_eq!(
+            st.record_download(1, "a.zip".into(), "completed".into(), 1000, 1000, 0, Some("C:/a.zip".into())),
+            Some("completed".to_string())
+        );
+        assert_eq!(st.recent_downloads.len(), 1);
+        assert_eq!(st.recent_downloads[0].saved_path, "C:/a.zip");
     }
 }

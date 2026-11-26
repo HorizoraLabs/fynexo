@@ -1525,10 +1525,33 @@
             return;
          }
 
-         if (matchesKeybind(e, keybinds.focus_url)) {
+         if (
+            matchesKeybind(e, keybinds.omnibox) ||
+            (e.altKey &&
+               !e.ctrlKey &&
+               !e.shiftKey &&
+               (e.key || '').toLowerCase() === 'd')
+         ) {
             e.preventDefault();
             e.stopPropagation();
             sendIpc({ type: 'HUD_ACTION', action: 'open_omnibox' });
+            return;
+         }
+         if (
+            (e.ctrlKey || e.metaKey) &&
+            !e.altKey &&
+            ((!e.shiftKey && (e.key || '').toLowerCase() === 'k') ||
+               (e.shiftKey && (e.key || '').toLowerCase() === 'p'))
+         ) {
+            e.preventDefault();
+            e.stopPropagation();
+            sendIpc({ type: 'HUD_ACTION', action: 'open_command_palette' });
+            return;
+         }
+         if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key === 'F5') {
+            e.preventDefault();
+            e.stopPropagation();
+            sendIpc({ type: 'RELOAD' });
             return;
          }
          if (matchesKeybind(e, keybinds.reopen_closed_tab)) {
@@ -1537,7 +1560,13 @@
             sendIpc({ type: 'REOPEN_CLOSED_TAB' });
             return;
          }
-         if (matchesKeybind(e, keybinds.new_window)) {
+         if (matchesKeybind(e, keybinds.new_incognito_window || 'Ctrl+Shift+N')) {
+            e.preventDefault();
+            e.stopPropagation();
+            sendIpc({ type: 'NEW_WINDOW', incognito: true });
+            return;
+         }
+         if (matchesKeybind(e, keybinds.new_window || 'Ctrl+N')) {
             e.preventDefault();
             e.stopPropagation();
             sendIpc({ type: 'NEW_WINDOW', incognito: false });

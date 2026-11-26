@@ -6844,6 +6844,17 @@
          );
 
          // Mobile-only quick popover launchers (desktop exposes these directly on topbar)
+         const mobSiteInfoItem = addMenuItem(
+            'lock',
+            'Site info & permissions',
+            '',
+            () => {
+               toggleSiteInfoPopover();
+            },
+            '站点信息与权限',
+         );
+         mobSiteInfoItem.classList.add('fnx-mobile-only-row');
+
          const mobShieldItem = addMenuItem(
             'shield',
             'Adblock Shield',
@@ -9667,7 +9678,11 @@
             } else {
                closeAllNavPopovers();
                syncSiteInfoPopoverUI();
-               positionNavPopover(anchorBtn || addrIcon, siteInfoPopoverEl, 'left');
+               positionNavPopover(
+                  anchorBtn || addrIcon,
+                  siteInfoPopoverEl,
+                  isMobilePlatform() ? 'right' : 'left',
+               );
                siteInfoPopoverEl.style.display = 'flex';
                activeNavPopoverEl = siteInfoPopoverEl;
             }
