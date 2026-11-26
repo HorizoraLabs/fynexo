@@ -102,7 +102,7 @@ mod tests {
         let content_script = build_script_for_role("{}", HudRole::ContentTab);
         let embedded_script = build_script_for_role("{}", HudRole::Embedded);
         assert!(
-            content_script.len() < 150_000 && content_script.len() * 4 < embedded_script.len(),
+            content_script.len() < 160_000 && content_script.len() * 4 < embedded_script.len(),
             "ContentTab agent unexpectedly bloated: {} bytes (embedded: {} bytes)",
             content_script.len(),
             embedded_script.len()

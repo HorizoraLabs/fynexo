@@ -6,6 +6,7 @@ pub mod os_integration;
 pub mod scheduler;
 pub mod security;
 pub mod state;
+pub mod suggest;
 pub mod tab_pool;
 pub mod url;
 pub mod webview;
@@ -1345,6 +1346,53 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
+            Event::UserEvent(UserEvent::SearchSuggestions {
+                win_id,
+                req_id,
+                query,
+                engine,
+                suggestions,
+            }) => {
+                let target_bw = windows.get(&win_id).or_else(|| windows.get(&focused_win_id));
+                if let Some(bw) = target_bw {
+                    let payload = serde_json::json!({
+                        "req_id": req_id,
+                        "query": query,
+                        "engine": engine,
+                        "suggestions": suggestions,
+                    });
+                    if let Ok(json_str) = serde_json::to_string(&payload) {
+                        let script = format!(
+                            "window.__fynexo_on_search_suggestions__ && window.__fynexo_on_search_suggestions__({}, {});",
+                            json_str, bridge_tok_js
+                        );
+                        bw.eval_hud_and_tabs(&script);
+                    }
+                }
+            }
+            #[cfg(target_os = "android")]
+            Event::UserEvent(UserEvent::AndroidFetchSuggestions {
+                win_id,
+                req_id,
+                url,
+                engine,
+                query,
+            }) => {
+                let target_bw = windows.get(&win_id).or_else(|| windows.get(&focused_win_id));
+                if let Some(bw) = target_bw {
+                    if let (Ok(url_js), Ok(eng_js), Ok(q_js)) = (
+                        serde_json::to_string(&url),
+                        serde_json::to_string(&engine),
+                        serde_json::to_string(&query),
+                    ) {
+                        let script = format!(
+                            "window.__fynexo_android_fetch_suggest__ && window.__fynexo_android_fetch_suggest__({}, {}, {}, {}, {});",
+                            req_id, url_js, eng_js, q_js, bridge_tok_js
+                        );
+                        bw.eval_hud_and_tabs(&script);
+                    }
+                }
+            }
             Event::UserEvent(UserEvent::RequestResourceUsage(win_id)) => {
                 if let Some(bw) = windows.get(&win_id) {
                     let stats_json = build_resource_stats_json(&windows);
@@ -2507,6 +2555,8 @@ fn serialize_runtime_for_win(
         #[cfg(not(target_os = "windows"))]
         {
             let history_slice = &state.userdata.history[..state.userdata.history.len().min(25)];
+            let searches_slice =
+                &state.userdata.recent_searches[..state.userdata.recent_searches.len().min(20)];
             let chrome_extensions: Vec<HudChromeExtension> = state
                 .chrome_extensions
                 .iter()
@@ -2520,6 +2570,7 @@ fn serialize_runtime_for_win(
                 enabled_rules,
                 bookmarks: &state.userdata.bookmarks,
                 history: history_slice,
+                recent_searches: searches_slice,
                 tabs: None,
                 mode_themes: crate::config::collect_mode_themes(&cfg, &state.themes),
                 downloads: &state.recent_downloads,

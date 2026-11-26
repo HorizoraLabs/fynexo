@@ -362,8 +362,10 @@
                 ]);
                 break;
             case 'siteNewtab':
+            case 'brand':
                 svg = buildSvg(14, 14, '0 0 16 16', [
-                    ['path', { d: 'M8 1.6l1.55 4.85L14.4 8l-4.85 1.55L8 14.4l-1.55-4.85L1.6 8l4.85-1.55L8 1.6z', fill: 'currentColor' }]
+                    ['path', { d: 'M3.4 2.1H13.6L11.85 5.25H2.6V2.9C2.6 2.46 2.96 2.1 3.4 2.1Z', fill: 'currentColor' }],
+                    ['path', { d: 'M2.6 6.7H11.25L9.65 9.65H5.9V12.65L2.6 14.05V6.7Z', fill: 'currentColor', opacity: '0.78' }]
                 ]);
                 break;
             case 'siteSettings':
@@ -476,6 +478,11 @@
                 svg = buildSvg(13.5, 13.5, '0 0 16 16', [
                     ['path', { d: 'M2.2 4.2h6.8M5.6 2.4v1.8M7.5 4.2c-.6 2.5-2.1 4.6-4.5 5.8M3.9 5.8c.9 1.4 2.1 2.5 3.6 3.3', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }],
                     ['path', { d: 'M9 13.4l2.4-6.2 2.4 6.2M9.8 11.4h3.2', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'fillArrow':
+                svg = buildSvg(11.5, 11.5, '0 0 16 16', [
+                    ['path', { d: 'M12 12L4.5 4.5M4.5 10V4.5H10', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]
                 ]);
                 break;
             default:

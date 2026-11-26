@@ -245,6 +245,10 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
             | "TOGGLE_FULLSCREEN"
             | "SET_ZOOM"
             | "TOGGLE_BOOKMARK"
+            | "RECORD_SEARCH"
+            | "REMOVE_SEARCH"
+            | "DELETE_HISTORY_ITEM"
+            | "FETCH_SEARCH_SUGGESTIONS"
             | "OPEN_DOWNLOADS_DIR"
             | "OPEN_DOWNLOAD_FILE"
             | "REVEAL_DOWNLOAD_FILE"
@@ -350,7 +354,7 @@ pub fn is_safe_external_http_url(url: &str) -> bool {
 }
 
 fn is_exact_internal_target(lower: &str) -> bool {
-    for prefix in ["fynexo://newtab", "fynexo://settings"] {
+    for prefix in ["fynexo://newtab", "fynexo://settings", "fynexo://history"] {
         if let Some(rest) = lower.strip_prefix(prefix) {
             if rest.is_empty()
                 || rest.starts_with('/')
@@ -426,6 +430,7 @@ pub fn resolve_internal_route(host: &str, path: &str) -> Option<&'static str> {
 
     match key.as_str() {
         "settings" => Some("settings"),
+        "history" => Some("history"),
         "" | "newtab" => Some("newtab"),
         "hud" => Some("hud"),
         _ => None,

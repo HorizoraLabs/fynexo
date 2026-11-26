@@ -669,8 +669,9 @@ pub fn build_tab_webview(
         let route = super::security::resolve_internal_route(host, path);
         let is_settings = route == Some("settings");
         let is_newtab = route == Some("newtab");
+        let is_history = route == Some("history");
 
-        if is_settings || is_newtab {
+        if is_settings || is_newtab || is_history {
             let html = {
                 let mut st = state_for_proto.lock_safe();
                 let _ = st.reload_if_changed();
@@ -678,6 +679,10 @@ pub fn build_tab_webview(
                     let payload = st.payload();
                     drop(st);
                     pages::settings_html(&payload)
+                } else if is_history {
+                    let boot_json = st.history_boot_json();
+                    drop(st);
+                    pages::history_html_from_json(&boot_json)
                 } else {
                     let boot_json = st.newtab_boot_json();
                     drop(st);

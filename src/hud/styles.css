@@ -1629,8 +1629,9 @@
                     display: none;
                     flex-direction: column;
                     background: var(--fnx-panel);
-                    max-height: 272px;
+                    max-height: min(390px, 52dvh);
                     overflow-y: auto;
+                    overscroll-behavior: contain;
                 }
                 #__fynexo_hud_suggest__ {
                     border-top: 1px solid var(--fnx-border);
@@ -1644,7 +1645,7 @@
                     border-bottom: 1px solid var(--fnx-border);
                     background: transparent;
                     color: var(--fnx-fg);
-                    padding: 8px 11px;
+                    padding: 7px 11px;
                     display: flex;
                     align-items: center;
                     gap: 9px;
@@ -1680,11 +1681,15 @@
                 }
                 .fnx-suggest-title {
                     font-size: 12.5px;
-                    font-weight: 500;
+                    font-weight: 400;
                     color: var(--fnx-fg);
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
+                }
+                .fnx-suggest-hl {
+                    font-weight: 700;
+                    color: var(--fnx-fg);
                 }
                 .fnx-suggest-url {
                     font-size: 11px;
@@ -1702,6 +1707,82 @@
                     border-radius: var(--r-sm);
                     padding: 2px 6px;
                     flex-shrink: 0;
+                }
+                .fnx-suggest-acts {
+                    display: flex;
+                    align-items: center;
+                    gap: 2px;
+                    flex-shrink: 0;
+                }
+                .fnx-suggest-act {
+                    width: 24px;
+                    height: 24px;
+                    border: none;
+                    border-radius: var(--r-sm);
+                    background: transparent;
+                    color: var(--fnx-muted);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    padding: 0;
+                    opacity: 0.65;
+                    transition: background 0.1s ease, color 0.1s ease, opacity 0.1s ease;
+                }
+                .fnx-suggest-row:hover .fnx-suggest-act,
+                .fnx-suggest-row.selected .fnx-suggest-act,
+                #__fynexo_shell__.fnx-is-mobile .fnx-suggest-act {
+                    opacity: 1;
+                }
+                .fnx-suggest-act:hover {
+                    background: var(--fnx-surface);
+                    color: var(--fnx-fg);
+                }
+                .fnx-suggest-act-del:hover {
+                    color: var(--fnx-danger);
+                }
+                .fnx-suggest-filters {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 6px 11px;
+                    border-top: 1px solid var(--fnx-border);
+                    background: var(--fnx-surface);
+                    overflow-x: auto;
+                    scrollbar-width: none;
+                    flex-shrink: 0;
+                }
+                .fnx-suggest-filters::-webkit-scrollbar { display: none; }
+                .fnx-suggest-filter-label {
+                    font-size: 11px;
+                    color: var(--fnx-muted);
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                }
+                .fnx-suggest-filter-chip {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 3px 8px;
+                    border-radius: var(--r-sm);
+                    border: 1px solid var(--fnx-border);
+                    background: transparent;
+                    color: var(--fnx-secondary);
+                    font-size: 11px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+                }
+                .fnx-suggest-filter-chip:hover {
+                    background: var(--fnx-hover);
+                    color: var(--fnx-fg);
+                }
+                .fnx-suggest-filter-chip.active {
+                    background: var(--fnx-accent-soft);
+                    border-color: var(--fnx-accent);
+                    color: var(--fnx-fg);
                 }
                 #__fynexo_hud_quick__,
                 #__fynexo_inline_quick__ {

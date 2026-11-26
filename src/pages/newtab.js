@@ -38,7 +38,14 @@
         let activeTheme = boot.active_theme || {};
         let bookmarks = Array.isArray(boot.bookmarks) ? boot.bookmarks : [];
         let historyItems = Array.isArray(boot.history) ? boot.history : [];
+        let recentSearches = Array.isArray(boot.recent_searches) ? boot.recent_searches : [];
         let blockedAds = Number(boot.blocked_ads) || 0;
+        let ntFilterScope = 'all';
+        let ntSuggestOpenOnEmpty = false;
+        let ntRemoteSuggestCache = new Map();
+        let ntSuggestReqSeq = 0;
+        let ntSuggestDebounceTimer = null;
+        let ntActiveReq = null;
 
         function getEngines() {
             return (Array.isArray(config.search_engines) && config.search_engines.length > 0)
@@ -118,8 +125,13 @@
             if (String(urlStr || '').startsWith('fynexo://')) {
                 const svg = createSvgEl('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none' });
                 svg.appendChild(createSvgEl('path', {
-                    d: 'M8 2.2l1.35 4.45L13.8 8l-4.45 1.35L8 13.8l-1.35-4.45L2.2 8l4.45-1.35z',
+                    d: 'M4.2 3.1C4.2 2.49 4.69 2 5.3 2H12.9C13.38 2 13.68 2.52 13.43 2.93L12.1 4.95C11.9 5.25 11.56 5.43 11.2 5.43H7.45V13.4C7.45 13.84 7.09 14.2 6.65 14.2H5.0C4.56 14.2 4.2 13.84 4.2 13.4V3.1Z',
                     fill: 'var(--nt-accent)'
+                }));
+                svg.appendChild(createSvgEl('path', {
+                    d: 'M7.45 7.45H11.55C12.0 7.45 12.28 7.93 12.04 8.32L11.0 10.02C10.81 10.33 10.47 10.52 10.11 10.52H7.45V7.45Z',
+                    fill: 'var(--nt-accent)',
+                    opacity: '0.78'
                 }));
                 return svg;
             }
@@ -301,6 +313,7 @@
             if (!raw) return '';
             if (/^fynexo:\/\//i.test(raw)) return raw;
             if (/^(settings|preferences|about:settings)$/i.test(raw)) return 'fynexo://settings';
+            if (/^(history|fynexo:history|about:history)$/i.test(raw)) return 'fynexo://history';
             if (raw.startsWith('!')) {
                 const sp = raw.indexOf(' ');
                 const tok = (sp === -1 ? raw : raw.slice(0, sp)).toLowerCase();
@@ -887,7 +900,172 @@
             );
             return list.map((c) => ({ kind: 'cmd', title: '> ' + (zh ? c[0] : c[1]), kw: (c[0] + ' ' + c[1] + ' ' + c[2]).toLowerCase(), url: zh ? '回车执行' : 'Enter to run', tag: zh ? '命令' : 'Command', run: c[3] }));
         }
-        function renderSuggestions() {
+        function isLikelyUrlOrDomain(raw) {
+            const s = String(raw || '').trim();
+            if (!s || /\s/.test(s)) return false;
+            if (/^(https?:\/\/|fynexo:\/\/|about:|file:\/\/|localhost(?::\d+)?)/i.test(s)) return true;
+            return /^[a-z0-9-]+(\.[a-z0-9-]+)+([/:?#].*)?$/i.test(s);
+        }
+
+        function recordSearchIfQuery(rawInput) {
+            const q = String(rawInput || '').trim();
+            if (
+                config.incognito ||
+                !q ||
+                q.length > 160 ||
+                q.startsWith('>') ||
+                q.startsWith('!') ||
+                isLikelyUrlOrDomain(q) ||
+                evalSafeMathExpr(q)
+            ) {
+                return;
+            }
+            const lower = q.toLowerCase();
+            recentSearches = [q].concat(
+                recentSearches.filter(x => String(x || '').toLowerCase() !== lower)
+            ).slice(0, 24);
+            sendIpc({ type: 'RECORD_SEARCH', query: q, incognito: !!config.incognito });
+        }
+
+        function appendNtHighlightedText(el, text, rawQuery, suffixMode) {
+            const str = String(text || '');
+            const q = String(rawQuery || '').trim();
+            el.textContent = '';
+            if (!q) {
+                el.textContent = str;
+                return;
+            }
+            const lowerStr = str.toLowerCase();
+            const lowerQ = q.toLowerCase();
+            if (suffixMode && lowerStr.startsWith(lowerQ) && str.length > q.length) {
+                el.appendChild(document.createTextNode(str.slice(0, q.length)));
+                const strong = document.createElement('strong');
+                strong.className = 'nt-suggest-hl';
+                strong.textContent = str.slice(q.length);
+                el.appendChild(strong);
+                return;
+            }
+            const idx = lowerStr.indexOf(lowerQ);
+            if (idx === -1) {
+                el.textContent = str;
+                return;
+            }
+            if (idx > 0) el.appendChild(document.createTextNode(str.slice(0, idx)));
+            const strong = document.createElement('strong');
+            strong.className = 'nt-suggest-hl';
+            strong.textContent = str.slice(idx, idx + q.length);
+            el.appendChild(strong);
+            if (idx + q.length < str.length) {
+                el.appendChild(document.createTextNode(str.slice(idx + q.length)));
+            }
+        }
+
+        function createNtSuggestGlyph(kind) {
+            const wrap = document.createElement('span');
+            wrap.className = 'nt-emblem';
+            if (kind === 'clock') {
+                const svg = createSvgEl('svg', { width: 13.5, height: 13.5, viewBox: '0 0 16 16', fill: 'none' });
+                svg.style.color = 'var(--nt-dim)';
+                svg.appendChild(createSvgEl('circle', { cx: 8, cy: 8, r: 5.5, stroke: 'currentColor', 'stroke-width': 1.4 }));
+                svg.appendChild(createSvgEl('path', { d: 'M8 4.8v3.4l2.3 1.4', stroke: 'currentColor', 'stroke-width': 1.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+                wrap.appendChild(svg);
+                return wrap;
+            }
+            if (kind === 'search') {
+                const svg = createSvgEl('svg', { width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none' });
+                svg.style.color = 'var(--nt-dim)';
+                svg.appendChild(createSvgEl('circle', { cx: 7.2, cy: 7.2, r: 4.5, stroke: 'currentColor', 'stroke-width': 1.45 }));
+                svg.appendChild(createSvgEl('path', { d: 'M10.5 10.5L13.8 13.8', stroke: 'currentColor', 'stroke-width': 1.55, 'stroke-linecap': 'round' }));
+                wrap.appendChild(svg);
+                return wrap;
+            }
+            const fb = document.createElement('span');
+            fb.className = 'nt-emblem-fallback nt-emblem-fallback--mono';
+            fb.textContent = kind === 'calc' ? '=' : kind === 'cmd' ? '>' : '!';
+            fb.style.color = 'var(--nt-accent)';
+            wrap.appendChild(fb);
+            return wrap;
+        }
+
+        function createNtActionSvg(kind) {
+            if (kind === 'fill') {
+                const svg = createSvgEl('svg', { width: 11.5, height: 11.5, viewBox: '0 0 16 16', fill: 'none' });
+                svg.appendChild(createSvgEl('path', { d: 'M12 12L4.5 4.5M4.5 10V4.5H10', stroke: 'currentColor', 'stroke-width': 1.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+                return svg;
+            }
+            const svg = createSvgEl('svg', { width: 10, height: 10, viewBox: '0 0 12 12', fill: 'none' });
+            svg.appendChild(createSvgEl('path', { d: 'M2.5 2.5l7 7M9.5 2.5l-7 7', stroke: 'currentColor', 'stroke-width': 1.5, 'stroke-linecap': 'round' }));
+            return svg;
+        }
+
+        function getNtCachedSuggest(engineId, query) {
+            const key = String(engineId || 'google').toLowerCase() + '\0' + String(query || '').trim().toLowerCase();
+            return ntRemoteSuggestCache.get(key) || null;
+        }
+
+        function setNtCachedSuggest(engineId, query, list) {
+            if (config.incognito) return;
+            const key = String(engineId || 'google').toLowerCase() + '\0' + String(query || '').trim().toLowerCase();
+            if (ntRemoteSuggestCache.size >= 40) {
+                const firstKey = ntRemoteSuggestCache.keys().next().value;
+                if (firstKey !== undefined) ntRemoteSuggestCache.delete(firstKey);
+            }
+            ntRemoteSuggestCache.set(key, list);
+        }
+
+        function scheduleNtRemoteSuggest(rawTrim) {
+            if (ntSuggestDebounceTimer) {
+                clearTimeout(ntSuggestDebounceTimer);
+                ntSuggestDebounceTimer = null;
+            }
+            if (
+                config.incognito ||
+                ntFilterScope !== 'all' ||
+                !rawTrim ||
+                rawTrim.length > 120 ||
+                rawTrim.startsWith('>') ||
+                rawTrim.startsWith('!') ||
+                rawTrim.startsWith('/') ||
+                isLikelyUrlOrDomain(rawTrim) ||
+                evalSafeMathExpr(rawTrim)
+            ) {
+                return;
+            }
+            const engId = config.search_engine || 'google';
+            if (getNtCachedSuggest(engId, rawTrim)) return;
+            const reqId = ++ntSuggestReqSeq;
+            ntActiveReq = { reqId: reqId, query: rawTrim, engine: engId };
+            ntSuggestDebounceTimer = setTimeout(() => {
+                ntSuggestDebounceTimer = null;
+                if (!ntActiveReq || ntActiveReq.reqId !== reqId) return;
+                sendIpc({
+                    type: 'FETCH_SEARCH_SUGGESTIONS',
+                    req_id: reqId,
+                    query: rawTrim,
+                    engine: engId,
+                    incognito: !!config.incognito
+                });
+            }, 140);
+        }
+
+        window.__fynexo_on_newtab_suggestions__ = function(payload) {
+            if (!payload || typeof payload !== 'object') return;
+            const list = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+            const q = String(payload.query || '').trim();
+            const eng = String(payload.engine || config.search_engine || 'google');
+            if (q) setNtCachedSuggest(eng, q, list);
+            if (
+                ntActiveReq &&
+                ntActiveReq.reqId === payload.req_id &&
+                searchInput.value.trim().toLowerCase() === q.toLowerCase()
+            ) {
+                renderSuggestions({ preserveSelection: true });
+            }
+        };
+
+        function renderSuggestions(opts) {
+            const preserveSelection = !!(opts && opts.preserveSelection);
+            const prevIdx = preserveSelection ? ntSuggestIdx : -1;
             const rawTrim = searchInput.value.trim();
             const q = rawTrim.toLowerCase();
             const hasVal = searchInput.value.length > 0;
@@ -895,111 +1073,241 @@
             if (searchBox) searchBox.classList.toggle('has-value', hasVal);
             suggestEl.textContent = '';
 
-            if (!q) {
+            if (!q && !ntSuggestOpenOnEmpty) {
                 ntSuggestItems = [];
                 ntSuggestIdx = -1;
                 suggestEl.style.display = 'none';
                 return;
             }
 
+            const zh = isZh();
+            const engObj = currentEngineObj(config.search_engine);
+            const engName = (engObj && engObj.name) || 'Google';
+            const engId = (engObj && engObj.id) || config.search_engine || 'google';
             const matches = [];
             const seen = Object.create(null);
 
+            function pushMatch(item) {
+                const key =
+                    item.kind === 'calc' || item.kind === 'cmd'
+                        ? item.kind + ':' + item.title
+                        : item.kind === 'bang'
+                          ? 'bang:' + item.trigger
+                          : item.kind === 'recent_search' || item.kind === 'suggest' || item.kind === 'search'
+                            ? 'sq:' + String(item.query || item.title || '').toLowerCase()
+                            : canonicalHistoryUrl(item.url);
+                if (!key || seen[key]) return;
+                seen[key] = true;
+                matches.push(item);
+            }
+
             const calc = evalSafeMathExpr(rawTrim);
             if (calc) {
-                matches.push({
+                pushMatch({
                     kind: 'calc',
                     title: '= ' + calc.text,
-                    url: isZh() ? '点击或回车复制结果' : 'Click or Enter to copy',
-                    tag: isZh() ? '计算' : 'Calc',
+                    url: zh ? '点击或回车复制结果' : 'Click or Enter to copy',
+                    tag: zh ? '计算' : 'Calc',
                     run: () => {
                         try { navigator.clipboard.writeText(String(calc.value)); } catch (_) {}
                         const tagEl = suggestEl.querySelector('.nt-suggest-item .nt-suggest-tag');
-                        if (tagEl) tagEl.textContent = isZh() ? '已复制' : 'Copied';
+                        if (tagEl) tagEl.textContent = zh ? '已复制' : 'Copied';
                     }
                 });
             }
             const isPalette = q.startsWith('>');
             if (isPalette) {
                 const needle = q.slice(1).trim();
-                ntPaletteCommands().forEach((c) => { if (!needle || c.kw.includes(needle)) matches.push(c); });
+                ntPaletteCommands().forEach((c) => { if (!needle || c.kw.includes(needle)) pushMatch(c); });
             }
 
-            if (q.startsWith('!')) {
+            const isBang = q.startsWith('!');
+            if (isBang) {
                 const tok = q.split(' ')[0];
                 getBangs().forEach(b => {
                     if (!b || !b.trigger) return;
                     const trig = (b.trigger.startsWith('!') ? b.trigger : '!' + b.trigger).toLowerCase();
                     if (trig.startsWith(tok) || (b.name || '').toLowerCase().includes(tok.slice(1))) {
-                        matches.push({ kind: 'bang', trigger: trig, title: `${trig} — ${b.name || trig}`, url: b.url || '', tag: '!Bang' });
+                        pushMatch({ kind: 'bang', trigger: trig, title: `${trig} — ${b.name || trig}`, url: b.url || '', tag: '!Bang' });
                     }
                 });
             }
 
-            const scTag = isZh() ? '常用' : 'Shortcut';
-            bookmarks.forEach(b => {
-                const key = (b.url || '').toLowerCase();
-                if (!seen[key] && ((b.title || '').toLowerCase().includes(q) || key.includes(q))) {
-                    seen[key] = true;
-                    matches.push({ kind: 'url', title: b.title || formatHost(b.url), url: b.url, tag: scTag });
-                }
-            });
+            const scope = isPalette || isBang ? 'special' : ntFilterScope;
+            if (!isPalette && !isBang) {
+                const looksLikeUrl = isLikelyUrlOrDomain(rawTrim);
+                const scTag = zh ? '收藏' : 'Saved';
+                const recTag = zh ? '历史' : 'History';
 
-            const recTag = isZh() ? '最近' : 'Recent';
-            dedupeHistoryItems(historyItems).forEach(h => {
-                const key = canonicalHistoryUrl(h.url);
-                const cleanTitle = cleanHistoryTitle(h.title, h.url);
-                if (!seen[key] && (cleanTitle.toLowerCase().includes(q) || key.includes(q))) {
-                    seen[key] = true;
-                    matches.push({ kind: 'url', title: cleanTitle, url: h.url, tag: recTag });
+                // 0. Direct URL when typing a domain
+                if (scope === 'all' && rawTrim && looksLikeUrl) {
+                    pushMatch({
+                        kind: 'url',
+                        title: rawTrim,
+                        url: resolveQuery(rawTrim, engId),
+                        tag: zh ? '前往网址' : 'Go'
+                    });
                 }
-            });
 
-            if (q && !isPalette && !q.startsWith('!')) {
-                const siteTag = isZh() ? '推荐站点' : 'Site';
-                const popularDomains = [
-                    ['GitHub', 'https://github.com', 'github git gh code repo'],
-                    ['YouTube', 'https://www.youtube.com', 'youtube yt video'],
-                    ['Bilibili', 'https://www.bilibili.com', 'bilibili bili b站 哔哩哔哩'],
-                    ['Google', 'https://www.google.com', 'google search'],
-                    ['Bing', 'https://www.bing.com', 'bing search'],
-                    ['Wikipedia', 'https://www.wikipedia.org', 'wikipedia wiki 维基百科'],
-                    ['Reddit', 'https://www.reddit.com', 'reddit forum'],
-                    ['X / Twitter', 'https://x.com', 'twitter x.com'],
-                    ['Stack Overflow', 'https://stackoverflow.com', 'stackoverflow stack qa'],
-                    ['MDN Web Docs', 'https://developer.mozilla.org', 'mdn mozilla web docs css js'],
-                    ['Crates.io (Rust)', 'https://crates.io', 'crates rust cargo'],
-                    ['Docs.rs (Rust)', 'https://docs.rs', 'docs.rs rust documentation'],
-                    ['npm Registry', 'https://www.npmjs.com', 'npm node package js'],
-                    ['Zhihu 知乎', 'https://www.zhihu.com', 'zhihu 知乎'],
-                    ['V2EX', 'https://www.v2ex.com', 'v2ex developer'],
-                    ['ChatGPT', 'https://chatgpt.com', 'chatgpt openai ai'],
-                    ['Claude', 'https://claude.ai', 'claude anthropic ai'],
-                    ['Gemini', 'https://gemini.google.com', 'gemini google ai']
-                ];
-                for (let i = 0; i < popularDomains.length; i++) {
-                    const d = popularDomains[i];
-                    const key = canonicalHistoryUrl(d[1]);
-                    if (!seen[key] && (d[0].toLowerCase().includes(q) || d[1].toLowerCase().includes(q) || d[2].includes(q))) {
-                        seen[key] = true;
-                        matches.push({ kind: 'url', title: d[0], url: d[1], tag: siteTag });
+                // 0b. Top exact/prefix bookmark or history hit
+                if (scope === 'all' && q && !looksLikeUrl) {
+                    let topHit = null;
+                    for (let i = 0; i < bookmarks.length; i++) {
+                        const b = bookmarks[i];
+                        const host = formatHost(b.url).toLowerCase();
+                        const title = (b.title || '').toLowerCase();
+                        if (host.startsWith(q) || title.startsWith(q)) {
+                            topHit = { kind: 'bookmark', title: b.title || formatHost(b.url), url: b.url, tag: scTag };
+                            break;
+                        }
+                    }
+                    if (!topHit) {
+                        const deduped = dedupeHistoryItems(historyItems);
+                        for (let i = 0; i < deduped.length; i++) {
+                            const h = deduped[i];
+                            if (formatHost(h.url).toLowerCase().startsWith(q)) {
+                                topHit = { kind: 'history', title: cleanHistoryTitle(h.title, h.url), url: h.url, tag: recTag };
+                                break;
+                            }
+                        }
+                    }
+                    if (topHit) pushMatch(topHit);
+                }
+
+                // 1. Recent Searches
+                if (scope === 'all' || scope === 'history') {
+                    let rsCount = 0;
+                    const rsMax = !q ? 4 : scope === 'history' ? 5 : 3;
+                    for (let i = 0; i < recentSearches.length && rsCount < rsMax; i++) {
+                        const sq = String(recentSearches[i] || '').trim();
+                        if (!sq) continue;
+                        if (!q || sq.toLowerCase().includes(q)) {
+                            pushMatch({
+                                kind: 'recent_search',
+                                query: sq,
+                                title: sq,
+                                url: resolveQuery(sq, engId),
+                                hint: zh ? `${engName} 搜索` : `${engName} Search`,
+                                tag: zh ? '最近搜索' : 'Recent'
+                            });
+                            rsCount++;
+                        }
                     }
                 }
-                const engObj = currentEngineObj(config.search_engine);
-                const engName = (engObj && engObj.name) || 'Google';
-                const searchUrl = resolveQuery(rawTrim, config.search_engine);
-                matches.push({
-                    kind: 'url',
-                    title: isZh() ? `使用 ${engName} 搜索 “${rawTrim}”` : `Search ${engName} for "${rawTrim}"`,
-                    url: searchUrl,
-                    tag: engName
-                });
+
+                // 2. Direct Search + Live Online Suggestions
+                if (scope === 'all' && rawTrim && !looksLikeUrl) {
+                    pushMatch({
+                        kind: 'search',
+                        query: rawTrim,
+                        title: rawTrim,
+                        url: resolveQuery(rawTrim, engId),
+                        hint: zh ? `使用 ${engName} 搜索` : `Search with ${engName}`,
+                        tag: engName
+                    });
+                    const remoteList = getNtCachedSuggest(engId, rawTrim);
+                    if (Array.isArray(remoteList)) {
+                        for (let i = 0; i < Math.min(remoteList.length, 5); i++) {
+                            const s = remoteList[i];
+                            pushMatch({
+                                kind: 'suggest',
+                                query: s,
+                                title: s,
+                                url: resolveQuery(s, engId),
+                                hint: zh ? `${engName} 推荐搜索` : `${engName} suggestion`,
+                                tag: ''
+                            });
+                        }
+                    }
+                }
+
+                // 3. Bookmarks
+                if (scope === 'all' || scope === 'bookmarks') {
+                    let bmCount = 0;
+                    const bmMax = scope === 'bookmarks' ? 8 : !q ? 3 : 3;
+                    for (let i = 0; i < bookmarks.length && bmCount < bmMax; i++) {
+                        const b = bookmarks[i];
+                        const key = (b.url || '').toLowerCase();
+                        if (!q || (b.title || '').toLowerCase().includes(q) || key.includes(q)) {
+                            pushMatch({ kind: 'bookmark', title: b.title || formatHost(b.url), url: b.url, tag: scTag });
+                            bmCount++;
+                        }
+                    }
+                }
+
+                // 4. Browsing History
+                if (scope === 'all' || scope === 'history') {
+                    let hCount = 0;
+                    const hMax = scope === 'history' ? 8 : !q ? 3 : 3;
+                    const deduped = dedupeHistoryItems(historyItems);
+                    for (let i = 0; i < deduped.length && hCount < hMax; i++) {
+                        const h = deduped[i];
+                        const key = canonicalHistoryUrl(h.url);
+                        const cleanTitle = cleanHistoryTitle(h.title, h.url);
+                        if (!q || cleanTitle.toLowerCase().includes(q) || key.includes(q)) {
+                            pushMatch({ kind: 'history', title: cleanTitle, url: h.url, tag: recTag });
+                            hCount++;
+                        }
+                    }
+                }
+
+                // 5. Internal Fynexo Pages & Popular Sites
+                if (scope === 'all' && q) {
+                    const internalPages = [
+                        ['fynexo://settings', zh ? '偏好设置' : 'Preferences', 'fynexo://settings settings preferences 设置 偏好'],
+                        ['fynexo://history', zh ? '浏览历史' : 'History', 'fynexo://history history 历史 历史记录'],
+                        ['fynexo://newtab', zh ? '起始页' : 'Start Page', 'fynexo://newtab newtab start home 起始页 主页']
+                    ];
+                    internalPages.forEach(p => {
+                        if (p[2].toLowerCase().includes(q)) {
+                            pushMatch({ kind: 'url', title: p[1], url: p[0], tag: 'Fynexo' });
+                        }
+                    });
+                    const siteTag = zh ? '推荐站点' : 'Site';
+                    const popularDomains = [
+                        ['GitHub', 'https://github.com', 'github git gh code repo'],
+                        ['YouTube', 'https://www.youtube.com', 'youtube yt video'],
+                        ['Bilibili', 'https://www.bilibili.com', 'bilibili bili b站 哔哩哔哩'],
+                        ['Google', 'https://www.google.com', 'google search'],
+                        ['Bing', 'https://www.bing.com', 'bing search'],
+                        ['Wikipedia', 'https://www.wikipedia.org', 'wikipedia wiki 维基百科'],
+                        ['Reddit', 'https://www.reddit.com', 'reddit forum'],
+                        ['X / Twitter', 'https://x.com', 'twitter x.com'],
+                        ['Stack Overflow', 'https://stackoverflow.com', 'stackoverflow stack qa'],
+                        ['MDN Web Docs', 'https://developer.mozilla.org', 'mdn mozilla web docs css js'],
+                        ['Crates.io (Rust)', 'https://crates.io', 'crates rust cargo'],
+                        ['Docs.rs (Rust)', 'https://docs.rs', 'docs.rs rust documentation'],
+                        ['npm Registry', 'https://www.npmjs.com', 'npm node package js'],
+                        ['Zhihu 知乎', 'https://www.zhihu.com', 'zhihu 知乎'],
+                        ['V2EX', 'https://www.v2ex.com', 'v2ex developer'],
+                        ['ChatGPT', 'https://chatgpt.com', 'chatgpt openai ai'],
+                        ['Claude', 'https://claude.ai', 'claude anthropic ai'],
+                        ['Gemini', 'https://gemini.google.com', 'gemini google ai']
+                    ];
+                    let popCount = 0;
+                    for (let i = 0; i < popularDomains.length && popCount < 2; i++) {
+                        const d = popularDomains[i];
+                        if (d[0].toLowerCase().includes(q) || d[1].toLowerCase().includes(q) || d[2].includes(q)) {
+                            pushMatch({ kind: 'url', title: d[0], url: d[1], tag: siteTag });
+                            popCount++;
+                        }
+                    }
+                }
             }
 
-            ntSuggestItems = matches.slice(0, isPalette ? 14 : 7);
-            ntSuggestIdx = calc || (isPalette && ntSuggestItems.length) ? 0 : -1;
+            if (!preserveSelection) {
+                scheduleNtRemoteSuggest(rawTrim);
+            }
 
-            if (ntSuggestItems.length === 0) {
+            ntSuggestItems = matches.slice(0, isPalette ? 14 : 9);
+            if (preserveSelection && prevIdx >= 0 && prevIdx < ntSuggestItems.length) {
+                ntSuggestIdx = prevIdx;
+            } else {
+                ntSuggestIdx = calc || (isPalette && ntSuggestItems.length) ? 0 : -1;
+            }
+
+            const showFilters = !isPalette && !isBang && (ntSuggestItems.length > 0 || ntFilterScope !== 'all');
+            if (ntSuggestItems.length === 0 && !showFilters) {
                 suggestEl.style.display = 'none';
                 return;
             }
@@ -1011,6 +1319,7 @@
                 btn.type = 'button';
                 btn.className = 'nt-suggest-item';
                 btn.dataset.idx = String(idx);
+                btn.onmousedown = (e) => e.preventDefault();
                 btn.onclick = () => {
                     if (it.kind === 'calc' || it.kind === 'cmd') { it.run(); return; }
                     if (it.kind === 'bang' && !searchInput.value.trim().includes(' ')) {
@@ -1019,19 +1328,19 @@
                         renderSuggestions();
                         return;
                     }
+                    if (it.kind === 'recent_search' || it.kind === 'suggest' || it.kind === 'search') {
+                        recordSearchIfQuery(it.query || it.title);
+                    }
                     const target = it.kind === 'bang' ? resolveQuery(searchInput.value, config.search_engine) : it.url;
                     sendIpc({ type: 'NAVIGATE', url: target });
                 };
 
                 if (it.kind === 'bang' || it.kind === 'calc' || it.kind === 'cmd') {
-                    const mono = document.createElement('span');
-                    mono.className = 'nt-emblem';
-                    const fb = document.createElement('span');
-                    fb.className = 'nt-emblem-fallback nt-emblem-fallback--mono';
-                    fb.textContent = it.kind === 'calc' ? '=' : it.kind === 'cmd' ? '>' : '!';
-                    fb.style.color = 'var(--nt-accent)';
-                    mono.appendChild(fb);
-                    btn.appendChild(mono);
+                    btn.appendChild(createNtSuggestGlyph(it.kind));
+                } else if (it.kind === 'recent_search') {
+                    btn.appendChild(createNtSuggestGlyph('clock'));
+                } else if (it.kind === 'suggest' || it.kind === 'search') {
+                    btn.appendChild(createNtSuggestGlyph('search'));
                 } else {
                     btn.appendChild(createSiteEmblem(it.url, it.title));
                 }
@@ -1040,28 +1349,124 @@
                 meta.className = 'nt-suggest-meta';
                 const t = document.createElement('span');
                 t.className = 'nt-suggest-title';
-                t.textContent = it.title;
+                const suffixHl = it.kind === 'suggest' || it.kind === 'recent_search';
+                appendNtHighlightedText(t, it.title, rawTrim, suffixHl);
                 const u = document.createElement('span');
                 u.className = 'nt-suggest-url';
-                u.textContent = it.kind === 'bang' || it.kind === 'calc' || it.kind === 'cmd' ? it.url : formatHost(it.url);
+                const subText =
+                    it.kind === 'bang' || it.kind === 'calc' || it.kind === 'cmd'
+                        ? it.url
+                        : it.kind === 'recent_search' || it.kind === 'suggest' || it.kind === 'search'
+                          ? (it.hint || '')
+                          : formatHost(it.url);
+                if (subText) {
+                    if (it.kind === 'bookmark' || it.kind === 'history' || it.kind === 'url') {
+                        appendNtHighlightedText(u, subText, rawTrim, false);
+                    } else {
+                        u.textContent = subText;
+                    }
+                }
                 meta.appendChild(t);
-                meta.appendChild(u);
-
-                const tag = document.createElement('span');
-                tag.className = 'nt-suggest-tag';
-                tag.textContent = it.tag;
+                if (subText) meta.appendChild(u);
 
                 btn.appendChild(meta);
-                btn.appendChild(tag);
+                if (it.tag) {
+                    const tag = document.createElement('span');
+                    tag.className = 'nt-suggest-tag';
+                    tag.textContent = it.tag;
+                    btn.appendChild(tag);
+                }
+
+                if (it.kind === 'recent_search' || it.kind === 'suggest' || it.kind === 'history') {
+                    const acts = document.createElement('span');
+                    acts.className = 'nt-suggest-acts';
+                    if (it.kind === 'recent_search' || it.kind === 'suggest') {
+                        const fillBtn = document.createElement('span');
+                        fillBtn.className = 'nt-suggest-act';
+                        fillBtn.setAttribute('role', 'button');
+                        fillBtn.title = zh ? '填入搜索框' : 'Fill query';
+                        fillBtn.appendChild(createNtActionSvg('fill'));
+                        fillBtn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+                        fillBtn.onclick = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            searchInput.value = it.query;
+                            ntSuggestOpenOnEmpty = true;
+                            searchInput.focus();
+                            renderSuggestions();
+                        };
+                        acts.appendChild(fillBtn);
+                    }
+                    if (it.kind === 'recent_search' || it.kind === 'history') {
+                        const delBtn = document.createElement('span');
+                        delBtn.className = 'nt-suggest-act nt-suggest-act-del';
+                        delBtn.setAttribute('role', 'button');
+                        delBtn.title = zh ? '移除此条记录' : 'Remove item';
+                        delBtn.appendChild(createNtActionSvg('del'));
+                        delBtn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+                        delBtn.onclick = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (it.kind === 'recent_search') {
+                                const low = it.query.toLowerCase();
+                                recentSearches = recentSearches.filter(x => String(x || '').toLowerCase() !== low);
+                                sendIpc({ type: 'REMOVE_SEARCH', query: it.query });
+                            } else {
+                                const key = canonicalHistoryUrl(it.url);
+                                historyItems = historyItems.filter(h => canonicalHistoryUrl(h.url) !== key);
+                                sendIpc({ type: 'DELETE_HISTORY_ITEM', url: it.url });
+                                renderHistory();
+                            }
+                            renderSuggestions({ preserveSelection: true });
+                        };
+                        acts.appendChild(delBtn);
+                    }
+                    btn.appendChild(acts);
+                }
+
                 frag.appendChild(btn);
             });
+
+            if (showFilters) {
+                const fBar = document.createElement('div');
+                fBar.className = 'nt-suggest-filters';
+                const fLabel = document.createElement('span');
+                fLabel.className = 'nt-suggest-filter-label';
+                fLabel.textContent = zh ? '筛选范围：' : 'Filter:';
+                fBar.appendChild(fLabel);
+                [
+                    ['all', zh ? '全部' : 'All'],
+                    ['history', zh ? '历史' : 'History'],
+                    ['bookmarks', zh ? '收藏' : 'Favorites']
+                ].forEach(([id, label]) => {
+                    const chip = document.createElement('button');
+                    chip.type = 'button';
+                    chip.className = 'nt-suggest-filter-chip' + (ntFilterScope === id ? ' active' : '');
+                    chip.textContent = label;
+                    chip.onmousedown = (e) => e.preventDefault();
+                    chip.onclick = (e) => {
+                        e.stopPropagation();
+                        ntFilterScope = ntFilterScope === id && id !== 'all' ? 'all' : id;
+                        ntSuggestOpenOnEmpty = true;
+                        renderSuggestions();
+                        searchInput.focus();
+                    };
+                    fBar.appendChild(chip);
+                });
+                frag.appendChild(fBar);
+            }
+
             suggestEl.appendChild(frag);
             syncSuggestSelection();
         }
 
         function syncSuggestSelection() {
             suggestEl.querySelectorAll('.nt-suggest-item').forEach((el, i) => {
-                el.classList.toggle('selected', i === ntSuggestIdx);
+                const isSel = i === ntSuggestIdx;
+                el.classList.toggle('selected', isSel);
+                if (isSel && typeof el.scrollIntoView === 'function') {
+                    try { el.scrollIntoView({ block: 'nearest' }); } catch (_) {}
+                }
             });
         }
 
@@ -1074,11 +1479,16 @@
                     renderSuggestions();
                     return;
                 }
+                if (it.kind === 'recent_search' || it.kind === 'suggest' || it.kind === 'search') {
+                    recordSearchIfQuery(it.query || it.title);
+                }
                 const target = it.kind === 'bang' ? resolveQuery(searchInput.value, config.search_engine) : it.url;
                 sendIpc({ type: 'NAVIGATE', url: target });
                 return;
             }
-            const target = resolveQuery(searchInput.value, config.search_engine);
+            const rawVal = searchInput.value;
+            recordSearchIfQuery(rawVal);
+            const target = resolveQuery(rawVal, config.search_engine);
             if (target) {
                 sendIpc({ type: 'NAVIGATE', url: target });
             }
@@ -1121,6 +1531,9 @@
                     applySurface();
                     sendIpc({ type: 'SAVE_CONFIG', config: config });
                     searchInput.focus();
+                    if (searchInput.value.trim() || ntSuggestOpenOnEmpty) {
+                        renderSuggestions();
+                    }
                 };
                 engineMenuEl.appendChild(opt);
             }
@@ -1140,9 +1553,15 @@
             }
         }
 
+        searchInput.addEventListener('pointerdown', () => {
+            closeEngineMenu();
+            ntSuggestOpenOnEmpty = true;
+            renderSuggestions();
+        });
         searchInput.addEventListener('focus', closeEngineMenu);
         searchInput.addEventListener('input', () => {
             closeEngineMenu();
+            ntSuggestOpenOnEmpty = true;
             renderSuggestions();
         });
         searchInput.addEventListener('keydown', (e) => {
@@ -1158,8 +1577,22 @@
                 syncSuggestSelection();
                 return;
             }
+            if (e.key === 'Tab' && ntSuggestItems.length > 0) {
+                const cand =
+                    ntSuggestIdx >= 0 && ntSuggestItems[ntSuggestIdx]
+                        ? ntSuggestItems[ntSuggestIdx]
+                        : ntSuggestItems.find(it => it.kind === 'suggest' || it.kind === 'recent_search');
+                if (cand && (cand.kind === 'suggest' || cand.kind === 'recent_search') && cand.query) {
+                    e.preventDefault();
+                    searchInput.value = cand.query;
+                    ntSuggestOpenOnEmpty = true;
+                    renderSuggestions();
+                    return;
+                }
+            }
             if (e.key === 'Escape') {
                 closeEngineMenu();
+                ntSuggestOpenOnEmpty = false;
                 suggestEl.style.display = 'none';
                 ntSuggestIdx = -1;
                 searchInput.blur();
@@ -1220,6 +1653,8 @@
 
         document.addEventListener('click', (e) => {
             if (!e.target.closest || !e.target.closest('.nt-search-wrap')) {
+                ntSuggestOpenOnEmpty = false;
+                ntFilterScope = 'all';
                 suggestEl.style.display = 'none';
                 closeEngineMenu();
             } else if (!e.target.closest('#ntEngineBtn') && !e.target.closest('#ntEngineMenu')) {
@@ -1229,6 +1664,7 @@
 
         clearBtn.onclick = () => {
             searchInput.value = '';
+            ntSuggestOpenOnEmpty = true;
             renderSuggestions();
             searchInput.focus();
         };
@@ -1392,6 +1828,8 @@
             if (payload.active_theme) activeTheme = payload.active_theme;
             if (Array.isArray(payload.bookmarks)) bookmarks = payload.bookmarks;
             if (Array.isArray(payload.history)) historyItems = payload.history;
+            if (Array.isArray(payload.recent_searches)) recentSearches = payload.recent_searches;
+            if (config.incognito) ntRemoteSuggestCache.clear();
             if (typeof payload.blocked_ads === 'number') blockedAds = payload.blocked_ads;
             applySurface();
             renderBookmarks();

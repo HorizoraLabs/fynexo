@@ -278,7 +278,8 @@ impl AppState {
             keybinds_path: KeybindsConfig::path_display(),
             data_dir: data_dir_display(),
             bookmarks: self.userdata.bookmarks.clone(),
-            history: self.userdata.history.iter().take(40).cloned().collect(),
+            history: self.userdata.history.clone(),
+            recent_searches: self.userdata.recent_searches.clone(),
             site_rules: self.site_rules.clone(),
             adblock: self.adblock.clone(),
             keybinds: self.keybinds.clone(),
@@ -304,6 +305,8 @@ impl AppState {
             .unwrap_or_else(|| Self::default_theme_colors());
         let enabled_rules: Vec<&SiteRule> = self.site_rules.iter().filter(|r| r.enabled).collect();
         let history_slice = &self.userdata.history[..self.userdata.history.len().min(25)];
+        let searches_slice =
+            &self.userdata.recent_searches[..self.userdata.recent_searches.len().min(20)];
         let chrome_extensions: Vec<HudChromeExtension> = self
             .chrome_extensions
             .iter()
@@ -317,6 +320,7 @@ impl AppState {
             enabled_rules,
             bookmarks: &self.userdata.bookmarks,
             history: history_slice,
+            recent_searches: searches_slice,
             tabs,
             mode_themes: crate::config::collect_mode_themes(&self.config, &self.themes),
             downloads: &self.recent_downloads,
@@ -361,13 +365,32 @@ impl AppState {
             .resolve_active_theme_ref()
             .unwrap_or_else(|| Self::default_theme_colors());
         let history_slice = &self.userdata.history[..self.userdata.history.len().min(40)];
+        let searches_slice =
+            &self.userdata.recent_searches[..self.userdata.recent_searches.len().min(20)];
         let slim = crate::config::NewTabBootPayload {
             config: &self.config,
             styles: &self.styles,
             active_theme,
             bookmarks: &self.userdata.bookmarks,
             history: history_slice,
+            recent_searches: searches_slice,
             blocked_ads: adblock::blocked_count(),
+        };
+        crate::util::json_for_html_script(&slim)
+    }
+
+    /// Serialize full history & search logs for `fynexo://history`.
+    pub fn history_boot_json(&self) -> String {
+        let active_theme = self
+            .resolve_active_theme_ref()
+            .unwrap_or_else(|| Self::default_theme_colors());
+        let slim = crate::config::HistoryBootPayload {
+            config: &self.config,
+            styles: &self.styles,
+            active_theme,
+            bookmarks: &self.userdata.bookmarks,
+            history: &self.userdata.history,
+            recent_searches: &self.userdata.recent_searches,
         };
         crate::util::json_for_html_script(&slim)
     }

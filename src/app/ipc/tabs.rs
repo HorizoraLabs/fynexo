@@ -50,6 +50,11 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                     || target_url.eq_ignore_ascii_case("about:newtab")
                 {
                     "fynexo://newtab".to_string()
+                } else if target_url.eq_ignore_ascii_case("fynexo:history")
+                    || target_url.eq_ignore_ascii_case("history")
+                    || target_url.eq_ignore_ascii_case("about:history")
+                {
+                    "fynexo://history".to_string()
                 } else if !target_url.starts_with("http://")
                     && !target_url.starts_with("https://")
                 {
@@ -86,8 +91,8 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                     } else {
                         source_tab_id
                     };
-                    if formatted_url == "fynexo://settings" {
-                        if let Some(existing_id) = tm.find_tab_by_logical_url("fynexo://settings") {
+                    if formatted_url == "fynexo://settings" || formatted_url == "fynexo://history" {
+                        if let Some(existing_id) = tm.find_tab_by_logical_url(&formatted_url) {
                             if existing_id != target_tid {
                                 tm.switch_tab(existing_id);
                                 (true, Some(existing_id))

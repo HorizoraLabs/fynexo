@@ -263,6 +263,9 @@
          if (/^https?:\/\/fynexo\.localhost(?::\d+)?\/settings/i.test(href)) {
             return 'fynexo://settings';
          }
+         if (/^https?:\/\/fynexo\.localhost(?::\d+)?\/history/i.test(href)) {
+            return 'fynexo://history';
+         }
          if (/^https?:\/\/fynexo\.localhost(?::\d+)?(?:\/newtab|\/?$)/i.test(href)) {
             return 'fynexo://newtab';
          }
@@ -1844,6 +1847,11 @@
    exposeBridge('__fynexo_on_resource_stats__', function (stats) {
       if (isInternalSettings() && typeof window.__fynexo_on_settings_perf__ === 'function') {
          window.__fynexo_on_settings_perf__(stats);
+      }
+   });
+   exposeBridge('__fynexo_on_search_suggestions__', function (payload) {
+      if (isInternalAny() && typeof window.__fynexo_on_newtab_suggestions__ === 'function') {
+         window.__fynexo_on_newtab_suggestions__(payload);
       }
    });
    exposeBridge('__fynexo_content_action__', function (action, payload) {

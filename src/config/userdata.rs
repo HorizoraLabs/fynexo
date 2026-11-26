@@ -64,6 +64,7 @@ pub fn default_shortcuts() -> Vec<BookmarkItem> {
 pub struct UserData {
     pub bookmarks: Vec<BookmarkItem>,
     pub history: Vec<HistoryItem>,
+    pub recent_searches: Vec<String>,
 }
 
 impl Default for UserData {
@@ -71,6 +72,7 @@ impl Default for UserData {
         Self {
             bookmarks: default_shortcuts(),
             history: Vec::new(),
+            recent_searches: Vec::new(),
         }
     }
 }
@@ -326,10 +328,15 @@ impl UserData {
         data_dir().join("fynexo_history.json")
     }
 
+    pub fn searches_path() -> PathBuf {
+        data_dir().join("fynexo_searches.json")
+    }
+
     pub fn load() -> Self {
         let legacy_path = data_dir().join("fynexo_userdata.json");
         let sc_path = Self::shortcuts_path();
         let hist_path = Self::history_path();
+        let search_path = Self::searches_path();
 
         // Seamless migration from legacy combined fynexo_userdata.json if present
         if !sc_path.exists() && legacy_path.exists() {
@@ -337,6 +344,7 @@ impl UserData {
                 if let Ok(legacy) = serde_json::from_str::<UserData>(&raw) {
                     legacy.save_shortcuts();
                     legacy.save_history();
+                    legacy.save_searches();
                     return legacy;
                 }
             }
@@ -364,7 +372,20 @@ impl UserData {
             Vec::new()
         };
 
-        Self { bookmarks, history }
+        let recent_searches = if search_path.exists() {
+            fs::read_to_string(&search_path)
+                .ok()
+                .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        Self {
+            bookmarks,
+            history,
+            recent_searches,
+        }
     }
 
     pub fn reload_shortcuts(&mut self) {
@@ -397,6 +418,27 @@ impl UserData {
         if let Ok(json) = serde_json::to_string(&self.history) {
             crate::util::schedule_atomic_write(
                 Self::history_path(),
+                json.into_bytes(),
+                std::time::Duration::from_millis(350),
+            );
+        }
+    }
+
+    pub fn save_searches(&self) {
+        if let Ok(json) = serde_json::to_string(&self.recent_searches) {
+            crate::util::schedule_atomic_write(
+                Self::searches_path(),
+                json.into_bytes(),
+                std::time::Duration::ZERO,
+            );
+            crate::util::flush_pending_writes();
+        }
+    }
+
+    pub fn save_searches_debounced(&self) {
+        if let Ok(json) = serde_json::to_string(&self.recent_searches) {
+            crate::util::schedule_atomic_write(
+                Self::searches_path(),
                 json.into_bytes(),
                 std::time::Duration::from_millis(350),
             );
@@ -618,7 +660,58 @@ impl UserData {
 
     pub fn clear_history(&mut self) {
         self.history.clear();
+        self.recent_searches.clear();
         self.save_history();
+        self.save_searches();
+    }
+
+    pub fn record_search(&mut self, raw_query: &str) -> bool {
+        let cleaned: String = raw_query.chars().filter(|c| !c.is_control()).collect();
+        let trimmed = cleaned.trim();
+        if trimmed.is_empty()
+            || trimmed.chars().count() > 160
+            || trimmed.starts_with('>')
+            || trimmed.starts_with('!')
+        {
+            return false;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("http://")
+            || lower.starts_with("https://")
+            || lower.starts_with("fynexo://")
+            || lower.starts_with("about:")
+        {
+            return false;
+        }
+        if let Some(pos) = self
+            .recent_searches
+            .iter()
+            .position(|q| q.eq_ignore_ascii_case(trimmed))
+        {
+            if pos == 0 && self.recent_searches[0] == trimmed {
+                return false;
+            }
+            self.recent_searches.remove(pos);
+        }
+        self.recent_searches.insert(0, trimmed.to_string());
+        if self.recent_searches.len() > 24 {
+            self.recent_searches.truncate(24);
+        }
+        self.save_searches_debounced();
+        true
+    }
+
+    pub fn remove_search(&mut self, query: &str) -> bool {
+        let trimmed = query.trim();
+        let prev = self.recent_searches.len();
+        self.recent_searches
+            .retain(|q| !q.eq_ignore_ascii_case(trimmed));
+        if self.recent_searches.len() != prev {
+            self.save_searches_debounced();
+            true
+        } else {
+            false
+        }
     }
 
     pub fn remove_history_item(&mut self, url: &str) -> bool {
@@ -633,6 +726,49 @@ impl UserData {
             false
         }
     }
+
+    pub fn remove_history_items(&mut self, urls: &[String]) -> usize {
+        if urls.is_empty() {
+            return 0;
+        }
+        let keys: Vec<String> = urls
+            .iter()
+            .map(|u| normalize_url_key(u).to_ascii_lowercase())
+            .collect();
+        let prev = self.history.len();
+        self.history.retain(|h| {
+            let k = normalize_url_key(&h.url).to_ascii_lowercase();
+            !keys.iter().any(|target| target == &k)
+        });
+        let removed = prev.saturating_sub(self.history.len());
+        if removed > 0 {
+            self.save_history();
+        }
+        removed
+    }
+
+    pub fn remove_searches(&mut self, queries: &[String]) -> usize {
+        if queries.is_empty() {
+            return 0;
+        }
+        let prev = self.recent_searches.len();
+        self.recent_searches
+            .retain(|q| !queries.iter().any(|t| q.eq_ignore_ascii_case(t.trim())));
+        let removed = prev.saturating_sub(self.recent_searches.len());
+        if removed > 0 {
+            self.save_searches();
+        }
+        removed
+    }
+
+    pub fn clear_searches(&mut self) -> bool {
+        if self.recent_searches.is_empty() {
+            return false;
+        }
+        self.recent_searches.clear();
+        self.save_searches();
+        true
+    }
 }
 
 #[cfg(test)]
@@ -645,6 +781,7 @@ mod tests {
         let mut ud = UserData {
             bookmarks: Vec::new(),
             history: Vec::new(),
+            recent_searches: Vec::new(),
         };
         assert!(ud.record_visit("Video A", "https://example.com/watch?v=1"));
         assert_eq!(ud.history.len(), 1);
@@ -667,6 +804,18 @@ mod tests {
         assert!(ud.remove_history_item("https://example.com/watch?v=1"));
         assert!(ud.history.is_empty());
         assert!(!ud.remove_history_item("https://example.com/watch?v=1"));
+
+        // Recent search deduplication, URL filtering, removal, and clearing.
+        assert!(ud.record_search("azur promilia taiwan"));
+        assert!(ud.record_search("rust async"));
+        assert!(!ud.record_search("https://example.com"));
+        assert!(!ud.record_search(">settings"));
+        assert!(ud.record_search("Azur Promilia Taiwan"));
+        assert_eq!(ud.recent_searches, vec!["Azur Promilia Taiwan", "rust async"]);
+        assert!(ud.remove_search("azur promilia taiwan"));
+        assert_eq!(ud.recent_searches, vec!["rust async"]);
+        ud.clear_history();
+        assert!(ud.recent_searches.is_empty());
     }
 
     #[test]

@@ -61,6 +61,11 @@
       typeof window.__fynexo_android__.setUserAgentMode === 'function'
          ? window.__fynexo_android__.setUserAgentMode.bind(window.__fynexo_android__)
          : null;
+   const __fnxAndroidFetchSuggest =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.fetchSearchSuggestions === 'function'
+         ? window.__fynexo_android__.fetchSearchSuggestions.bind(window.__fynexo_android__)
+         : null;
 
    function applyAndroidZoomNow(zoomFactor) {
       if (!__fnxAndroidSetZoom) return;
@@ -298,6 +303,9 @@
    let historyItems = Array.isArray(bootPayload.history)
       ? bootPayload.history
       : [];
+   let recentSearches = Array.isArray(bootPayload.recent_searches)
+      ? bootPayload.recent_searches
+      : [];
    let recentDownloads = Array.isArray(bootPayload.downloads)
       ? bootPayload.downloads
       : [];
@@ -348,6 +356,7 @@
          enabled_rules: enabledRules,
          bookmarks: bookmarks,
          history: historyItems.slice(0, 25),
+         recent_searches: recentSearches.slice(0, 20),
          downloads: recentDownloads,
          chrome_ext_engine_active: chromeExtEngineActive,
          chrome_extensions: chromeExtensions.map((e) => ({
@@ -781,6 +790,11 @@
    let lastDrawerTabsSig = '';
    let suggestItems = [];
    let suggestIndex = -1;
+   let omniFilterScope = 'all';
+   let omniRemoteSuggestCache = new Map();
+   let omniSuggestReqSeq = 0;
+   let omniSuggestDebounceTimer = null;
+   let activeOmniSuggestCtx = null;
    let hudToastTimer = null;
    let progressTimer = null;
    let progressCrawlTimer = null;
@@ -1024,6 +1038,11 @@
             )
                return 'settings';
             if (
+               host === 'history' ||
+               (host === 'localhost' && path === 'history')
+            )
+               return 'history';
+            if (
                host === 'newtab' ||
                (host === 'localhost' && (path === '' || path === 'newtab'))
             )
@@ -1035,6 +1054,7 @@
             host === 'fynexo.localhost'
          ) {
             if (path === 'settings') return 'settings';
+            if (path === 'history') return 'history';
             if (path === '' || path === 'newtab') return 'newtab';
          }
       } catch (_) {}
@@ -1045,22 +1065,28 @@
       return parseInternalRoute(rawUrl) === 'settings';
    }
 
+   function isInternalHistory(rawUrl) {
+      return parseInternalRoute(rawUrl) === 'history';
+   }
+
    function isInternalNewtab(rawUrl) {
       return parseInternalRoute(rawUrl) === 'newtab';
    }
 
    function isInternalAny(rawUrl) {
-      return isInternalSettings(rawUrl) || isInternalNewtab(rawUrl);
+      return isInternalSettings(rawUrl) || isInternalHistory(rawUrl) || isInternalNewtab(rawUrl);
    }
 
    function canonicalCurrentUrl() {
       if (IS_HUD_SHELL) {
          const raw = getCurrentRawUrl();
          if (isInternalSettings(raw)) return 'fynexo://settings';
+         if (isInternalHistory(raw)) return 'fynexo://history';
          if (isInternalNewtab(raw)) return 'fynexo://newtab';
          return raw || 'fynexo://newtab';
       }
       if (isInternalSettings()) return 'fynexo://settings';
+      if (isInternalHistory()) return 'fynexo://history';
       if (isInternalNewtab()) return 'fynexo://newtab';
       return window.location.href || '';
    }
@@ -1094,10 +1120,13 @@
       const zh = isZh();
       const ntTxt = zh ? '搜索或输入网址' : 'Search or enter URL';
       const prefTxt = zh ? '偏好设置' : 'Preferences';
+      const histTxt = zh ? '浏览历史' : 'History';
       if (!rawUrl && isInternalNewtab()) return ntTxt;
       if (!rawUrl && isInternalSettings()) return prefTxt;
+      if (!rawUrl && isInternalHistory()) return histTxt;
       if (isInternalNewtab(rawUrl)) return ntTxt;
       if (isInternalSettings(rawUrl)) return prefTxt;
+      if (isInternalHistory(rawUrl)) return histTxt;
       if (!rawUrl || rawUrl === 'about:blank') return ntTxt;
       try {
          const parsed = new URL(rawUrl);
@@ -1112,6 +1141,7 @@
 
    function extractMonogram(rawUrl, title) {
       if (isInternalNewtab(rawUrl)) return 'F';
+      if (isInternalHistory(rawUrl)) return 'H';
       if (!rawUrl || isInternalSettings(rawUrl)) return 'S';
       try {
          const parsed = new URL(rawUrl);
@@ -1126,7 +1156,7 @@
    }
 
    function monogramAccentColor(rawUrl) {
-      if (isInternalNewtab(rawUrl)) return 'var(--fnx-accent)';
+      if (isInternalNewtab(rawUrl) || isInternalHistory(rawUrl)) return 'var(--fnx-accent)';
       if (!rawUrl || isInternalSettings(rawUrl)) return 'var(--fnx-secondary)';
       let host = '';
       let hostKey = '';
@@ -1193,6 +1223,7 @@
 
    function siteBrandIconName(rawUrl) {
       if (isInternalNewtab(rawUrl)) return 'siteNewtab';
+      if (isInternalHistory(rawUrl)) return 'history';
       if (!rawUrl || isInternalSettings(rawUrl)) return 'siteSettings';
       let host = '';
       try {
@@ -2735,24 +2766,27 @@
    function updateProtocolIcon(containerEl, rawUrl) {
       if (!containerEl) return;
       const isSet = isInternalSettings(rawUrl);
+      const isHist = isInternalHistory(rawUrl);
       const isNt = isInternalNewtab(rawUrl);
       const isHttps = rawUrl && rawUrl.startsWith('https://');
       const isUnsafeHttp = isInsecureExternalHttp(rawUrl);
       const kind = isSet
          ? 'settings'
-         : isNt
-           ? 'search'
-           : isUnsafeHttp
-             ? 'alert'
-             : isHttps
-               ? 'lock'
-               : 'search';
+         : isHist
+           ? 'history'
+           : isNt
+             ? 'search'
+             : isUnsafeHttp
+               ? 'alert'
+               : isHttps
+                 ? 'lock'
+                 : 'search';
       if (containerEl.dataset.iconKind !== kind) {
          containerEl.dataset.iconKind = kind;
          containerEl.textContent = '';
          containerEl.appendChild(createIcon(kind));
       }
-      containerEl.style.color = isSet
+      containerEl.style.color = isSet || isHist
          ? 'var(--fnx-accent)'
          : isUnsafeHttp
            ? '#F59E0B'
@@ -2879,6 +2913,7 @@
       if (typeof syncChromeStoreBannerRef === 'function') syncChromeStoreBannerRef(href);
       const label = formatHostLabel(href);
       const isSet = isInternalSettings(href);
+      const isHist = isInternalHistory(href);
       const isNt = isInternalNewtab(href);
       const engName = currentEngineObj().name || 'Google';
 
@@ -2903,6 +2938,12 @@
             domEl.textContent = 'settings';
             domEl.style.color = 'var(--fnx-fg)';
             pathEl.textContent = zh ? ' · 偏好设置' : ' · Studio Preferences';
+            pathEl.style.color = 'var(--fnx-muted)';
+         } else if (isHist) {
+            if (schemeEl) schemeEl.textContent = 'fynexo://';
+            domEl.textContent = 'history';
+            domEl.style.color = 'var(--fnx-fg)';
+            pathEl.textContent = zh ? ' · 浏览历史' : ' · History';
             pathEl.style.color = 'var(--fnx-muted)';
          } else {
             try {
@@ -3526,6 +3567,7 @@
       tabState.tabs.forEach((tab, idx) => {
          const isActive = tab.id === tabState.active_id;
          const isSet = isInternalSettings(tab.url);
+         const isHist = isInternalHistory(tab.url);
          const isNt = isInternalNewtab(tab.url);
          const card = document.createElement('div');
          card.className = isActive
@@ -3543,9 +3585,11 @@
          t.className = 'fnx-drawer-title';
          const cleanTitle = isSet
             ? (zh ? '偏好设置' : 'Preferences')
-            : isNt
-              ? (zh ? '起始页' : 'Start page')
-              : tab.title || (zh ? '新标签页' : 'New tab');
+            : isHist
+              ? (zh ? '浏览历史' : 'History')
+              : isNt
+                ? (zh ? '起始页' : 'Start page')
+                : tab.title || (zh ? '新标签页' : 'New tab');
          if (tab.pinned) {
             const pinBadge = document.createElement('span');
             pinBadge.className = 'fnx-drawer-pin-icon';
@@ -3561,9 +3605,11 @@
          u.className = 'fnx-drawer-url';
          u.textContent = isSet
             ? 'fynexo://settings'
-            : isNt
-              ? 'fynexo://newtab'
-              : formatHostLabel(tab.url || '');
+            : isHist
+              ? 'fynexo://history'
+              : isNt
+                ? 'fynexo://newtab'
+                : formatHostLabel(tab.url || '');
 
          meta.appendChild(t);
          meta.appendChild(u);
@@ -4474,13 +4520,16 @@
                tabState.tabs.forEach((tab, idx) => {
                   const isActive = tab.id === tabState.active_id;
                   const isSet = isInternalSettings(tab.url);
+                  const isHist = isInternalHistory(tab.url);
                   const isNt = isInternalNewtab(tab.url);
                   const zh = isZh();
                   const cleanTitle = isSet
                      ? (zh ? '偏好设置' : 'Preferences')
-                     : isNt
-                       ? (zh ? '起始页' : 'Start page')
-                       : tab.title || (zh ? '新标签页' : 'New tab');
+                     : isHist
+                       ? (zh ? '浏览历史' : 'History')
+                       : isNt
+                         ? (zh ? '起始页' : 'Start page')
+                         : tab.title || (zh ? '新标签页' : 'New tab');
 
                   const el = document.createElement('div');
                   let cls = isActive ? 'fnx-tab-item active' : 'fnx-tab-item';
@@ -4770,12 +4819,141 @@
       );
       return cmds.map((c) => ({ kind: 'cmd', title: '> ' + (zh ? c.zh : c.en), kw: (c.zh + ' ' + c.en + ' ' + c.kw).toLowerCase(), hint: zh ? '回车执行' : 'Enter to run', badge: zh ? '命令' : 'Command', run: c.run }));
    }
-   function renderOmniboxSuggestions(rawQuery, listEl, inputEl, closeFn) {
+   function isLikelyUrlOrDomain(raw) {
+      const s = String(raw || '').trim();
+      if (!s || /\s/.test(s)) return false;
+      if (/^(https?:\/\/|fynexo:\/\/|about:|file:\/\/|localhost(?::\d+)?)/i.test(s)) return true;
+      return /^[a-z0-9-]+(\.[a-z0-9-]+)+([/:?#].*)?$/i.test(s);
+   }
+
+   function recordSearchIfQuery(rawInput) {
+      const q = String(rawInput || '').trim();
+      if (
+         config.incognito ||
+         !q ||
+         q.length > 160 ||
+         q.startsWith('>') ||
+         q.startsWith('!') ||
+         isLikelyUrlOrDomain(q) ||
+         evalSafeMathExpr(q)
+      ) {
+         return;
+      }
+      const lower = q.toLowerCase();
+      recentSearches = [q].concat(
+         recentSearches.filter((x) => String(x || '').toLowerCase() !== lower),
+      ).slice(0, 24);
+      sendIpc({
+         type: 'RECORD_SEARCH',
+         query: q,
+         incognito: !!config.incognito,
+      });
+   }
+
+   function appendHighlightedText(el, text, rawQuery, suffixMode) {
+      const str = String(text || '');
+      const q = String(rawQuery || '').trim();
+      el.textContent = '';
+      if (!q) {
+         el.textContent = str;
+         return;
+      }
+      const lowerStr = str.toLowerCase();
+      const lowerQ = q.toLowerCase();
+      if (suffixMode && lowerStr.startsWith(lowerQ) && str.length > q.length) {
+         el.appendChild(document.createTextNode(str.slice(0, q.length)));
+         const strong = document.createElement('strong');
+         strong.className = 'fnx-suggest-hl';
+         strong.textContent = str.slice(q.length);
+         el.appendChild(strong);
+         return;
+      }
+      const idx = lowerStr.indexOf(lowerQ);
+      if (idx === -1) {
+         el.textContent = str;
+         return;
+      }
+      if (idx > 0) el.appendChild(document.createTextNode(str.slice(0, idx)));
+      const strong = document.createElement('strong');
+      strong.className = 'fnx-suggest-hl';
+      strong.textContent = str.slice(idx, idx + q.length);
+      el.appendChild(strong);
+      if (idx + q.length < str.length) {
+         el.appendChild(document.createTextNode(str.slice(idx + q.length)));
+      }
+   }
+
+   function getCachedRemoteSuggestions(engineId, query) {
+      const key = String(engineId || 'google').toLowerCase() + '\0' + String(query || '').trim().toLowerCase();
+      return omniRemoteSuggestCache.get(key) || null;
+   }
+
+   function setCachedRemoteSuggestions(engineId, query, list) {
+      if (config.incognito) return;
+      const key = String(engineId || 'google').toLowerCase() + '\0' + String(query || '').trim().toLowerCase();
+      if (omniRemoteSuggestCache.size >= 40) {
+         const firstKey = omniRemoteSuggestCache.keys().next().value;
+         if (firstKey !== undefined) omniRemoteSuggestCache.delete(firstKey);
+      }
+      omniRemoteSuggestCache.set(key, list);
+   }
+
+   function scheduleRemoteSuggestFetch(trimmed, listEl, inputEl, closeFn) {
+      if (omniSuggestDebounceTimer) {
+         clearTimeout(omniSuggestDebounceTimer);
+         omniSuggestDebounceTimer = null;
+      }
+      if (
+         config.incognito ||
+         omniFilterScope !== 'all' ||
+         !trimmed ||
+         trimmed.length > 120 ||
+         trimmed.startsWith('>') ||
+         trimmed.startsWith('!') ||
+         trimmed.startsWith('/') ||
+         isLikelyUrlOrDomain(trimmed) ||
+         evalSafeMathExpr(trimmed)
+      ) {
+         return;
+      }
+      const engId = config.search_engine || 'google';
+      if (getCachedRemoteSuggestions(engId, trimmed)) {
+         return;
+      }
+      const reqId = ++omniSuggestReqSeq;
+      activeOmniSuggestCtx = {
+         reqId: reqId,
+         query: trimmed,
+         engine: engId,
+         listEl: listEl,
+         inputEl: inputEl,
+         closeFn: closeFn,
+      };
+      omniSuggestDebounceTimer = setTimeout(() => {
+         omniSuggestDebounceTimer = null;
+         if (!activeOmniSuggestCtx || activeOmniSuggestCtx.reqId !== reqId) return;
+         sendIpc({
+            type: 'FETCH_SEARCH_SUGGESTIONS',
+            req_id: reqId,
+            query: trimmed,
+            engine: engId,
+            incognito: !!config.incognito,
+         });
+      }, 140);
+   }
+
+   function renderOmniboxSuggestions(rawQuery, listEl, inputEl, closeFn, opts) {
       if (!shadowRoot || !listEl) return;
+      const preserveSelection = !!(opts && opts.preserveSelection);
+      const prevIdx = preserveSelection ? suggestIndex : -1;
       listEl.textContent = '';
 
       const trimmed = (rawQuery || '').trim();
       const q = trimmed.toLowerCase();
+      const zh = isZh();
+      const engObj = currentEngineObj(config.search_engine);
+      const engName = (engObj && engObj.name) || 'Google';
+      const engId = (engObj && engObj.id) || config.search_engine || 'google';
       const results = [];
       const seen = Object.create(null);
 
@@ -4787,7 +4965,9 @@
                  ? item.kind + ':' + item.title
                  : item.kind === 'bang'
                    ? 'bang:' + item.trigger
-                   : normalizeUrlKey(item.url);
+                   : item.kind === 'recent_search' || item.kind === 'suggest' || item.kind === 'search'
+                     ? 'sq:' + String(item.query || item.title || '').toLowerCase()
+                     : normalizeUrlKey(item.url);
          if (!key || seen[key]) return;
          seen[key] = true;
          results.push(item);
@@ -4798,9 +4978,9 @@
          pushCandidate({
             kind: 'calc',
             title: '= ' + calc.text,
-            hint: isZh() ? '点击或回车复制结果' : 'Click or Enter to copy',
-            badge: isZh() ? '计算' : 'Calc',
-            run: () => copyTextToClipboard(String(calc.value), (isZh() ? '已复制：' : 'Copied: ') + calc.text),
+            hint: zh ? '点击或回车复制结果' : 'Click or Enter to copy',
+            badge: zh ? '计算' : 'Calc',
+            run: () => copyTextToClipboard(String(calc.value), (zh ? '已复制：' : 'Copied: ') + calc.text),
          });
       }
       const isPalette = q.startsWith('>');
@@ -4811,8 +4991,8 @@
          });
       }
 
-      // 0. Bang Shortcuts when starting with '!'
-      if (q.startsWith('!')) {
+      const isBang = q.startsWith('!');
+      if (isBang) {
          const bangs = getBangs();
          const tok = q.split(' ')[0];
          for (let i = 0; i < bangs.length; i++) {
@@ -4836,125 +5016,238 @@
          }
       }
 
-      // 1. Open Tabs
-      for (let i = 0; i < tabState.tabs.length; i++) {
-         const t = tabState.tabs[i];
-         if (t.id === tabState.active_id || isInternalAny(t.url)) continue;
-         const title = t.title || formatHostLabel(t.url);
-         const url = t.url || '';
-         if (
-            !q ||
-            title.toLowerCase().includes(q) ||
-            url.toLowerCase().includes(q)
-         ) {
+      const scope = isPalette || isBang ? 'special' : omniFilterScope;
+
+      if (!isPalette && !isBang) {
+         const looksLikeUrl = isLikelyUrlOrDomain(trimmed);
+
+         // 0. Direct URL action when user types a domain/URL
+         if (scope === 'all' && trimmed && looksLikeUrl) {
+            const directUrl = resolveUrl(trimmed, engId);
             pushCandidate({
-               kind: 'tab',
-               tabId: t.id,
-               title: title,
-               url: url,
-               badge: isZh() ? '标签' : 'Tab',
+               kind: 'url',
+               title: trimmed,
+               url: directUrl,
+               badge: zh ? '前往网址' : 'Go to URL',
             });
          }
-      }
 
-      // 2. Bookmarks
-      for (let i = 0; i < bookmarks.length; i++) {
-         const b = bookmarks[i];
-         const title = b.title || formatHostLabel(b.url);
-         const url = b.url || '';
-         if (
-            !q ||
-            title.toLowerCase().includes(q) ||
-            url.toLowerCase().includes(q)
-         ) {
-            pushCandidate({
-               kind: 'bookmark',
-               title: title,
-               url: url,
-               badge: isZh() ? '收藏' : 'Saved',
-            });
+         // 0b. Top exact/prefix Bookmark or History URL hit (Edge/Chrome style top match)
+         if (scope === 'all' && q && !looksLikeUrl) {
+            let topHit = null;
+            for (let i = 0; i < bookmarks.length; i++) {
+               const b = bookmarks[i];
+               const host = formatHostLabel(b.url).toLowerCase();
+               const title = (b.title || '').toLowerCase();
+               if (host.startsWith(q) || title.startsWith(q)) {
+                  topHit = {
+                     kind: 'bookmark',
+                     title: b.title || formatHostLabel(b.url),
+                     url: b.url,
+                     badge: zh ? '收藏' : 'Saved',
+                  };
+                  break;
+               }
+            }
+            if (!topHit) {
+               for (let i = 0; i < historyItems.length; i++) {
+                  const h = historyItems[i];
+                  const host = formatHostLabel(h.url).toLowerCase();
+                  if (host.startsWith(q)) {
+                     topHit = {
+                        kind: 'history',
+                        title: h.title || formatHostLabel(h.url),
+                        url: h.url,
+                        badge: zh ? '历史' : 'History',
+                     };
+                     break;
+                  }
+               }
+            }
+            if (topHit) pushCandidate(topHit);
          }
-      }
 
-      // 3. Recent History
-      for (let i = 0; i < historyItems.length; i++) {
-         const h = historyItems[i];
-         const title = h.title || formatHostLabel(h.url);
-         const url = h.url || '';
-         if (
-            q &&
-            (title.toLowerCase().includes(q) || url.toLowerCase().includes(q))
-         ) {
-            pushCandidate({
-               kind: 'history',
-               title: title,
-               url: url,
-               badge: isZh() ? '历史' : 'History',
-            });
-         } else if (!q && results.length < 5) {
-            pushCandidate({
-               kind: 'history',
-               title: title,
-               url: url,
-               badge: isZh() ? '最近' : 'Recent',
-            });
-         }
-      }
-
-      // 4. Smart Popular Domain Completions & Direct Search Engine Suggestion Rows
-      if (q && !isPalette && !q.startsWith('!')) {
-         const popularDomains = [
-            ['GitHub', 'https://github.com', 'github git gh code repo'],
-            ['YouTube', 'https://www.youtube.com', 'youtube yt video'],
-            ['Bilibili', 'https://www.bilibili.com', 'bilibili bili b站 哔哩哔哩'],
-            ['Google', 'https://www.google.com', 'google search'],
-            ['Bing', 'https://www.bing.com', 'bing search'],
-            ['Wikipedia', 'https://www.wikipedia.org', 'wikipedia wiki 维基百科'],
-            ['Reddit', 'https://www.reddit.com', 'reddit forum'],
-            ['X / Twitter', 'https://x.com', 'twitter x.com'],
-            ['Stack Overflow', 'https://stackoverflow.com', 'stackoverflow stack qa'],
-            ['MDN Web Docs', 'https://developer.mozilla.org', 'mdn mozilla web docs css js'],
-            ['Crates.io (Rust)', 'https://crates.io', 'crates rust cargo'],
-            ['Docs.rs (Rust)', 'https://docs.rs', 'docs.rs rust documentation'],
-            ['npm Registry', 'https://www.npmjs.com', 'npm node package js'],
-            ['Zhihu 知乎', 'https://www.zhihu.com', 'zhihu 知乎'],
-            ['V2EX', 'https://www.v2ex.com', 'v2ex developer'],
-            ['ChatGPT', 'https://chatgpt.com', 'chatgpt openai ai'],
-            ['Claude', 'https://claude.ai', 'claude anthropic ai'],
-            ['Gemini', 'https://gemini.google.com', 'gemini google ai']
-         ];
-         for (let i = 0; i < popularDomains.length; i++) {
-            const d = popularDomains[i];
-            if (
-               d[0].toLowerCase().includes(q) ||
-               d[1].toLowerCase().includes(q) ||
-               d[2].includes(q)
-            ) {
-               pushCandidate({
-                  kind: 'url',
-                  title: d[0],
-                  url: d[1],
-                  badge: isZh() ? '推荐站点' : 'Site',
-               });
+         // 1. Recent Searches (shown on focus when empty AND filtered while typing)
+         if (scope === 'all' || scope === 'history') {
+            let rsCount = 0;
+            const rsMax = !q ? 4 : scope === 'history' ? 5 : 3;
+            for (let i = 0; i < recentSearches.length && rsCount < rsMax; i++) {
+               const sq = String(recentSearches[i] || '').trim();
+               if (!sq) continue;
+               const sqLower = sq.toLowerCase();
+               if (!q || sqLower.includes(q)) {
+                  pushCandidate({
+                     kind: 'recent_search',
+                     query: sq,
+                     title: sq,
+                     url: resolveUrl(sq, engId),
+                     hint: zh ? `${engName} 搜索` : `${engName} Search`,
+                     badge: zh ? '最近搜索' : 'Recent',
+                  });
+                  rsCount++;
+               }
             }
          }
-         const engObj = currentEngineObj(config.search_engine);
-         const engName = (engObj && engObj.name) || 'Google';
-         const searchUrl = resolveUrl(trimmed, config.search_engine);
-         pushCandidate({
-            kind: 'search',
-            title: isZh()
-               ? `使用 ${engName} 搜索 “${trimmed}”`
-               : `Search ${engName} for "${trimmed}"`,
-            url: searchUrl,
-            badge: engName,
-         });
+
+         // 2. Direct Search Row + Live Online Search Suggestions
+         if (scope === 'all' && trimmed && !looksLikeUrl) {
+            pushCandidate({
+               kind: 'search',
+               query: trimmed,
+               title: trimmed,
+               url: resolveUrl(trimmed, engId),
+               hint: zh ? `使用 ${engName} 搜索` : `Search with ${engName}`,
+               badge: engName,
+            });
+            const remoteList = getCachedRemoteSuggestions(engId, trimmed);
+            if (Array.isArray(remoteList)) {
+               for (let i = 0; i < Math.min(remoteList.length, 5); i++) {
+                  const s = remoteList[i];
+                  pushCandidate({
+                     kind: 'suggest',
+                     query: s,
+                     title: s,
+                     url: resolveUrl(s, engId),
+                     hint: zh ? `${engName} 推荐搜索` : `${engName} suggestion`,
+                     badge: '',
+                  });
+               }
+            }
+         }
+
+         // 3. Open Tabs
+         if (scope === 'all' || scope === 'tabs') {
+            let tabCount = 0;
+            const tabMax = scope === 'tabs' ? 8 : !q ? 2 : 2;
+            for (let i = 0; i < tabState.tabs.length && tabCount < tabMax; i++) {
+               const t = tabState.tabs[i];
+               if (t.id === tabState.active_id || isInternalAny(t.url)) continue;
+               const title = t.title || formatHostLabel(t.url);
+               const url = t.url || '';
+               if (!q || title.toLowerCase().includes(q) || url.toLowerCase().includes(q)) {
+                  pushCandidate({
+                     kind: 'tab',
+                     tabId: t.id,
+                     title: title,
+                     url: url,
+                     badge: zh ? '切换标签' : 'Switch tab',
+                  });
+                  tabCount++;
+               }
+            }
+         }
+
+         // 4. Bookmarks / Favorites
+         if (scope === 'all' || scope === 'bookmarks') {
+            let bmCount = 0;
+            const bmMax = scope === 'bookmarks' ? 8 : !q ? 3 : 3;
+            for (let i = 0; i < bookmarks.length && bmCount < bmMax; i++) {
+               const b = bookmarks[i];
+               const title = b.title || formatHostLabel(b.url);
+               const url = b.url || '';
+               if (!q || title.toLowerCase().includes(q) || url.toLowerCase().includes(q)) {
+                  pushCandidate({
+                     kind: 'bookmark',
+                     title: title,
+                     url: url,
+                     badge: zh ? '收藏' : 'Saved',
+                  });
+                  bmCount++;
+               }
+            }
+         }
+
+         // 5. Browsing History
+         if (scope === 'all' || scope === 'history') {
+            let histCount = 0;
+            const histMax = scope === 'history' ? 8 : !q ? 3 : 3;
+            for (let i = 0; i < historyItems.length && histCount < histMax; i++) {
+               const h = historyItems[i];
+               const title = h.title || formatHostLabel(h.url);
+               const url = h.url || '';
+               if (!q || title.toLowerCase().includes(q) || url.toLowerCase().includes(q)) {
+                  pushCandidate({
+                     kind: 'history',
+                     title: title,
+                     url: url,
+                     badge: zh ? '历史' : 'History',
+                  });
+                  histCount++;
+               }
+            }
+         }
+
+         // 6. Internal Fynexo Pages & Popular Domain Completions
+         if (scope === 'all' && q) {
+            const internalPages = [
+               ['fynexo://settings', zh ? '偏好设置' : 'Preferences', 'fynexo://settings settings preferences 设置 偏好'],
+               ['fynexo://history', zh ? '浏览历史' : 'History', 'fynexo://history history 历史 历史记录'],
+               ['fynexo://newtab', zh ? '起始页' : 'Start Page', 'fynexo://newtab newtab start home 起始页 主页'],
+            ];
+            for (let i = 0; i < internalPages.length; i++) {
+               const p = internalPages[i];
+               if (p[2].toLowerCase().includes(q)) {
+                  pushCandidate({
+                     kind: 'internal',
+                     title: p[1],
+                     url: p[0],
+                     badge: 'Fynexo',
+                  });
+               }
+            }
+            const popularDomains = [
+               ['GitHub', 'https://github.com', 'github git gh code repo'],
+               ['YouTube', 'https://www.youtube.com', 'youtube yt video'],
+               ['Bilibili', 'https://www.bilibili.com', 'bilibili bili b站 哔哩哔哩'],
+               ['Google', 'https://www.google.com', 'google search'],
+               ['Bing', 'https://www.bing.com', 'bing search'],
+               ['Wikipedia', 'https://www.wikipedia.org', 'wikipedia wiki 维基百科'],
+               ['Reddit', 'https://www.reddit.com', 'reddit forum'],
+               ['X / Twitter', 'https://x.com', 'twitter x.com'],
+               ['Stack Overflow', 'https://stackoverflow.com', 'stackoverflow stack qa'],
+               ['MDN Web Docs', 'https://developer.mozilla.org', 'mdn mozilla web docs css js'],
+               ['Crates.io (Rust)', 'https://crates.io', 'crates rust cargo'],
+               ['Docs.rs (Rust)', 'https://docs.rs', 'docs.rs rust documentation'],
+               ['npm Registry', 'https://www.npmjs.com', 'npm node package js'],
+               ['Zhihu 知乎', 'https://www.zhihu.com', 'zhihu 知乎'],
+               ['V2EX', 'https://www.v2ex.com', 'v2ex developer'],
+               ['ChatGPT', 'https://chatgpt.com', 'chatgpt openai ai'],
+               ['Claude', 'https://claude.ai', 'claude anthropic ai'],
+               ['Gemini', 'https://gemini.google.com', 'gemini google ai'],
+            ];
+            let popCount = 0;
+            for (let i = 0; i < popularDomains.length && popCount < 2; i++) {
+               const d = popularDomains[i];
+               if (
+                  d[0].toLowerCase().includes(q) ||
+                  d[1].toLowerCase().includes(q) ||
+                  d[2].includes(q)
+               ) {
+                  pushCandidate({
+                     kind: 'url',
+                     title: d[0],
+                     url: d[1],
+                     badge: zh ? '推荐站点' : 'Site',
+                  });
+                  popCount++;
+               }
+            }
+         }
       }
 
-      suggestItems = results.slice(0, isPalette ? 12 : 7);
-      suggestIndex = calc || (isPalette && suggestItems.length) ? 0 : -1;
+      if (!preserveSelection) {
+         scheduleRemoteSuggestFetch(trimmed, listEl, inputEl, closeFn);
+      }
 
-      if (suggestItems.length === 0) {
+      suggestItems = results.slice(0, isPalette ? 12 : 9);
+      if (preserveSelection && prevIdx >= 0 && prevIdx < suggestItems.length) {
+         suggestIndex = prevIdx;
+      } else {
+         suggestIndex = calc || (isPalette && suggestItems.length) ? 0 : -1;
+      }
+
+      const showFilterBar = !isPalette && !isBang && (suggestItems.length > 0 || omniFilterScope !== 'all');
+      if (suggestItems.length === 0 && !showFilterBar) {
          listEl.style.display = 'none';
          return;
       }
@@ -4964,7 +5257,7 @@
       suggestItems.forEach((item, idx) => {
          const row = document.createElement('button');
          row.type = 'button';
-         row.className = 'fnx-suggest-row';
+         row.className = 'fnx-suggest-row' + (idx === suggestIndex ? ' selected' : '');
          row.dataset.idx = String(idx);
          row.onmousedown = (e) => e.preventDefault();
 
@@ -4973,48 +5266,112 @@
          const iconName =
             item.kind === 'bookmark'
                ? 'starFilled'
-               : item.kind === 'history'
+               : item.kind === 'history' || item.kind === 'recent_search'
                  ? 'history'
-                  : item.kind === 'bang'
-                    ? 'search'
-                    : item.kind === 'cmd' || item.kind === 'calc'
-                      ? 'settings'
-                      : 'go';
+                 : item.kind === 'suggest' || item.kind === 'search' || item.kind === 'bang'
+                   ? 'search'
+                   : item.kind === 'internal'
+                     ? 'siteNewtab'
+                     : item.kind === 'cmd' || item.kind === 'calc'
+                       ? 'settings'
+                       : 'go';
          iconWrap.appendChild(createIcon(iconName));
-         if (item.kind === 'bookmark' || item.kind === 'bang')
+         if (item.kind === 'bookmark' || item.kind === 'bang' || item.kind === 'internal')
             iconWrap.style.color = 'var(--fnx-accent)';
 
          const textWrap = document.createElement('span');
          textWrap.className = 'fnx-suggest-main';
          const tSpan = document.createElement('span');
          tSpan.className = 'fnx-suggest-title';
-         tSpan.textContent = item.title;
+         const suffixHl = item.kind === 'suggest' || item.kind === 'recent_search';
+         appendHighlightedText(tSpan, item.title, trimmed, suffixHl);
+
          const uSpan = document.createElement('span');
          uSpan.className = 'fnx-suggest-url';
-         uSpan.textContent =
-             item.kind === 'calc' || item.kind === 'cmd'
-                ? item.hint
-                : item.kind === 'bang'
-                  ? item.url
-                  : formatHostLabel(item.url);
+         const subText =
+            item.kind === 'calc' || item.kind === 'cmd' || item.kind === 'recent_search' || item.kind === 'search' || item.kind === 'suggest'
+               ? item.hint || ''
+               : item.kind === 'bang' || item.kind === 'internal'
+                 ? item.url
+                 : formatHostLabel(item.url);
+         if (subText) {
+            if (item.kind === 'bookmark' || item.kind === 'history' || item.kind === 'tab' || item.kind === 'url') {
+               appendHighlightedText(uSpan, subText, trimmed, false);
+            } else {
+               uSpan.textContent = subText;
+            }
+         }
          textWrap.appendChild(tSpan);
-         textWrap.appendChild(uSpan);
-
-         const tag = document.createElement('span');
-         tag.className = 'fnx-suggest-badge';
-         tag.textContent = item.badge;
+         if (subText) textWrap.appendChild(uSpan);
 
          row.appendChild(iconWrap);
          row.appendChild(textWrap);
-         row.appendChild(tag);
+
+         if (item.badge) {
+            const tag = document.createElement('span');
+            tag.className = 'fnx-suggest-badge';
+            tag.textContent = item.badge;
+            row.appendChild(tag);
+         }
+
+         if (item.kind === 'recent_search' || item.kind === 'suggest' || item.kind === 'history') {
+            const acts = document.createElement('span');
+            acts.className = 'fnx-suggest-acts';
+            if (item.kind === 'recent_search' || item.kind === 'suggest') {
+               const fillBtn = document.createElement('span');
+               fillBtn.className = 'fnx-suggest-act';
+               fillBtn.setAttribute('role', 'button');
+               fillBtn.title = zh ? '填入搜索框' : 'Fill query';
+               fillBtn.appendChild(createIcon('fillArrow'));
+               fillBtn.onmousedown = (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+               };
+               fillBtn.onclick = (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  inputEl.value = item.query;
+                  inputEl.focus();
+                  renderOmniboxSuggestions(item.query, listEl, inputEl, closeFn);
+               };
+               acts.appendChild(fillBtn);
+            }
+            if (item.kind === 'recent_search' || item.kind === 'history') {
+               const delBtn = document.createElement('span');
+               delBtn.className = 'fnx-suggest-act fnx-suggest-act-del';
+               delBtn.setAttribute('role', 'button');
+               delBtn.title = zh ? '移除此条记录' : 'Remove item';
+               delBtn.appendChild(createIcon('closeSmall'));
+               delBtn.onmousedown = (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+               };
+               delBtn.onclick = (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (item.kind === 'recent_search') {
+                     const low = item.query.toLowerCase();
+                     recentSearches = recentSearches.filter((x) => String(x || '').toLowerCase() !== low);
+                     sendIpc({ type: 'REMOVE_SEARCH', query: item.query });
+                  } else {
+                     const key = normalizeUrlKey(item.url);
+                     historyItems = historyItems.filter((h) => normalizeUrlKey(h.url) !== key);
+                     sendIpc({ type: 'DELETE_HISTORY_ITEM', url: item.url });
+                  }
+                  renderOmniboxSuggestions(inputEl.value, listEl, inputEl, closeFn, { preserveSelection: true });
+               };
+               acts.appendChild(delBtn);
+            }
+            row.appendChild(acts);
+         }
 
          row.onclick = () => {
-             if (item.kind === 'calc' || item.kind === 'cmd') {
-                if (item.kind === 'cmd' && closeFn) closeFn();
-                item.run();
-                return;
-             }
-             if (item.kind === 'bang') {
+            if (item.kind === 'calc' || item.kind === 'cmd') {
+               if (item.kind === 'cmd' && closeFn) closeFn();
+               item.run();
+               return;
+            }
+            if (item.kind === 'bang') {
                const cur = inputEl.value.trim();
                if (!cur.includes(' ')) {
                   inputEl.value = item.trigger + ' ';
@@ -5034,6 +5391,9 @@
                sendIpc({ type: 'NAVIGATE', url: resolved });
                return;
             }
+            if (item.kind === 'recent_search' || item.kind === 'suggest' || item.kind === 'search') {
+               recordSearchIfQuery(item.query || item.title);
+            }
             if (closeFn) closeFn();
             if (item.kind === 'tab' && item.tabId) {
                if (!IS_HUD_SHELL) triggerProgress();
@@ -5047,6 +5407,39 @@
          };
          frag.appendChild(row);
       });
+
+      if (showFilterBar) {
+         const fBar = document.createElement('div');
+         fBar.className = 'fnx-suggest-filters';
+         const fLabel = document.createElement('span');
+         fLabel.className = 'fnx-suggest-filter-label';
+         fLabel.textContent = zh ? '筛选范围：' : 'Filter:';
+         fBar.appendChild(fLabel);
+
+         const scopes = [
+            ['all', zh ? '全部' : 'All', null],
+            ['history', zh ? '历史' : 'History', 'history'],
+            ['bookmarks', zh ? '收藏' : 'Favorites', 'star'],
+            ['tabs', zh ? '标签页' : 'Tabs', 'go'],
+         ];
+         scopes.forEach(([id, label, icon]) => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'fnx-suggest-filter-chip' + (omniFilterScope === id ? ' active' : '');
+            if (icon) chip.appendChild(createIcon(icon));
+            chip.appendChild(document.createTextNode(label));
+            chip.onmousedown = (e) => e.preventDefault();
+            chip.onclick = (e) => {
+               e.stopPropagation();
+               omniFilterScope = omniFilterScope === id && id !== 'all' ? 'all' : id;
+               renderOmniboxSuggestions(inputEl.value, listEl, inputEl, closeFn);
+               inputEl.focus();
+            };
+            fBar.appendChild(chip);
+         });
+         frag.appendChild(fBar);
+      }
+
       listEl.appendChild(frag);
    }
 
@@ -5054,7 +5447,11 @@
       if (!listEl) return;
       const rows = listEl.querySelectorAll('.fnx-suggest-row');
       rows.forEach((r, idx) => {
-         r.classList.toggle('selected', idx === suggestIndex);
+         const isSel = idx === suggestIndex;
+         r.classList.toggle('selected', isSel);
+         if (isSel && typeof r.scrollIntoView === 'function') {
+            try { r.scrollIntoView({ block: 'nearest' }); } catch (_) {}
+         }
       });
    }
 
@@ -5203,6 +5600,18 @@
             updateSuggestHighlight(listEl);
             return;
          }
+         if (e.key === 'Tab' && suggestItems.length > 0) {
+            const candidate =
+               suggestIndex >= 0 && suggestItems[suggestIndex]
+                  ? suggestItems[suggestIndex]
+                  : suggestItems.find((it) => it.kind === 'suggest' || it.kind === 'recent_search');
+            if (candidate && (candidate.kind === 'suggest' || candidate.kind === 'recent_search') && candidate.query) {
+               e.preventDefault();
+               inputEl.value = candidate.query;
+               renderOmniboxSuggestions(candidate.query, listEl, inputEl, closeFn);
+               return;
+            }
+         }
          if (e.key === 'Escape') {
             e.preventDefault();
             e.stopPropagation();
@@ -5232,6 +5641,9 @@
                   }
                   submitFn();
                   return;
+               }
+               if (item.kind === 'recent_search' || item.kind === 'suggest' || item.kind === 'search') {
+                  recordSearchIfQuery(item.query || item.title);
                }
                if (closeFn) closeFn();
                flushScrollSync();
@@ -5274,6 +5686,13 @@
          )
       ) {
          return 'fynexo://newtab';
+      }
+      if (
+         /^(history|fynexo:history|about:history)$/i.test(
+            raw,
+         )
+      ) {
+         return 'fynexo://history';
       }
 
       // Bang shortcut resolution (!gh, !yt, !b, !w, etc.)
@@ -5587,6 +6006,9 @@
          if (Array.isArray(rtPayload.bookmarks))
             bookmarks = rtPayload.bookmarks;
          if (Array.isArray(rtPayload.history)) historyItems = rtPayload.history;
+         if (Array.isArray(rtPayload.recent_searches))
+            recentSearches = rtPayload.recent_searches;
+         if (config.incognito) omniRemoteSuggestCache.clear();
          if (Array.isArray(rtPayload.downloads)) recentDownloads = rtPayload.downloads;
          if (Array.isArray(rtPayload.chrome_extensions))
             chromeExtensions = rtPayload.chrome_extensions;
@@ -5641,6 +6063,9 @@
       }
       if (Array.isArray(payload.bookmarks)) bookmarks = payload.bookmarks;
       if (Array.isArray(payload.history)) historyItems = payload.history;
+      if (Array.isArray(payload.recent_searches))
+         recentSearches = payload.recent_searches;
+      if (config.incognito) omniRemoteSuggestCache.clear();
       if (Array.isArray(payload.chrome_extensions))
          chromeExtensions = payload.chrome_extensions;
       if (typeof payload.chrome_ext_engine_active === 'boolean')
@@ -5887,6 +6312,43 @@
          isInternalSettings()
       ) {
          window.__fynexo_on_settings_perf__(stats);
+      }
+   });
+
+   exposeBridge('__fynexo_android_fetch_suggest__', function (reqId, url, engine, query) {
+      if (__fnxAndroidFetchSuggest) {
+         try {
+            __fnxAndroidFetchSuggest(Number(reqId) || 0, String(url || ''), String(engine || ''), String(query || ''), __FNX_BRIDGE_TOKEN);
+         } catch (_) {}
+      }
+   });
+
+   exposeBridge('__fynexo_on_search_suggestions__', function (payload) {
+      if (!payload || typeof payload !== 'object') return;
+      if (
+         isInternalAny() &&
+         typeof window.__fynexo_on_newtab_suggestions__ === 'function'
+      ) {
+         window.__fynexo_on_newtab_suggestions__(payload);
+      }
+      const list = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+      const q = String(payload.query || '').trim();
+      const eng = String(payload.engine || config.search_engine || 'google');
+      if (q) {
+         setCachedRemoteSuggestions(eng, q, list);
+      }
+      const ctx = activeOmniSuggestCtx;
+      if (
+         ctx &&
+         ctx.reqId === payload.req_id &&
+         (isInlineActive || isModalActive) &&
+         ctx.inputEl &&
+         ctx.listEl &&
+         ctx.inputEl.value.trim().toLowerCase() === q.toLowerCase()
+      ) {
+         renderOmniboxSuggestions(ctx.inputEl.value, ctx.listEl, ctx.inputEl, ctx.closeFn, {
+            preserveSelection: true,
+         });
       }
    });
 
@@ -8653,7 +9115,7 @@
 
             siteInfoIconSlot.textContent = '';
             if (internal) {
-               siteInfoIconSlot.appendChild(createIcon('spark'));
+               siteInfoIconSlot.appendChild(createIcon('brand'));
                siteInfoTitleTxt.textContent = zh ? 'Fynexo 内置页面' : 'Fynexo Studio Page';
                siteInfoProtoBadge.textContent = 'Internal';
                siteInfoProtoBadge.style.color = 'var(--fnx-accent)';
@@ -13181,6 +13643,17 @@
          histTitle.textContent = isZh() ? '浏览历史记录' : 'Browsing History';
          const histCountBadge = document.createElement('span');
          histCountBadge.className = 'fnx-pop-badge';
+         const histOpenFullBtn = document.createElement('button');
+         histOpenFullBtn.type = 'button';
+         histOpenFullBtn.className = 'fnx-pop-badge';
+         histOpenFullBtn.style.cssText =
+            'cursor: pointer; border-color: var(--fnx-border-hover); color: var(--fnx-fg);';
+         histOpenFullBtn.textContent = isZh() ? '全部历史 ↗' : 'Full page ↗';
+         histOpenFullBtn.onclick = () => {
+            closeHistoryDrawer();
+            triggerProgress();
+            sendIpc({ type: 'NAVIGATE', url: 'fynexo://history' });
+         };
          const histCloseBtn = document.createElement('button');
          histCloseBtn.type = 'button';
          histCloseBtn.className = 'fnx-sp-close';
@@ -13190,6 +13663,7 @@
          histHeadRight.style.cssText =
             'display: inline-flex; align-items: center; gap: 6px;';
          histHeadRight.appendChild(histCountBadge);
+         histHeadRight.appendChild(histOpenFullBtn);
          histHeadRight.appendChild(histCloseBtn);
          histHeader.appendChild(histTitle);
          histHeader.appendChild(histHeadRight);
@@ -13210,7 +13684,7 @@
          histFooter.type = 'button';
          histFooter.className = 'fnx-pop-footer-row';
          const histFooterLabel = document.createElement('span');
-         histFooterLabel.textContent = isZh() ? '在偏好设置中管理历史记录' : 'Manage browsing history';
+         histFooterLabel.textContent = isZh() ? '打开完整历史页面与筛选' : 'Open full history & filters';
          const histFooterArrow = document.createElement('span');
          histFooterArrow.textContent = '→';
          histFooter.appendChild(histFooterLabel);
@@ -13323,6 +13797,17 @@
             if (typeof closeAllNavPopovers === 'function')
                closeAllNavPopovers();
             hideTabContextMenu();
+            // Mobile: jump directly to full fynexo://history page (Scheme B dual-track)
+            if (window.innerWidth <= 768) {
+               triggerProgress();
+               sendIpc({ type: 'NAVIGATE', url: 'fynexo://history' });
+               return;
+            }
+            const zh = isZh();
+            histTitle.textContent = zh ? '浏览历史' : 'Browsing History';
+            histOpenFullBtn.textContent = zh ? '全部历史 ↗' : 'Full page ↗';
+            histSearchInput.placeholder = zh ? '搜索最近访问的网页...' : 'Search recent pages...';
+            histFooterLabel.textContent = zh ? '打开完整历史页面与筛选' : 'Open full history & filters';
             isHistoryDrawerOpen = true;
             historyCard.style.transition = '';
             historyCard.style.transform = '';
@@ -13349,7 +13834,7 @@
          histFooter.onclick = () => {
             closeHistoryDrawer();
             triggerProgress();
-            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings' });
+            sendIpc({ type: 'NAVIGATE', url: 'fynexo://history' });
          };
          openHistoryDrawerRef = openHistoryDrawer;
          closeHistoryDrawerRef = closeHistoryDrawer;
@@ -13724,6 +14209,7 @@
             dropdown.appendChild(inlineQuick);
             shell.appendChild(dropdown);
 
+            omniFilterScope = 'all';
             positionInlineDropdown(dropdown);
             renderHudQuickBar(inlineQuick, deactivateInlineAddressBar);
             renderOmniboxSuggestions(
@@ -13734,7 +14220,9 @@
             );
 
             const submitInline = () => {
-               const target = resolveUrl(inp.value, config.search_engine);
+               const rawVal = inp.value;
+               recordSearchIfQuery(rawVal);
+               const target = resolveUrl(rawVal, config.search_engine);
                deactivateInlineAddressBar();
                if (target) {
                   flushScrollSync();
@@ -13780,6 +14268,12 @@
                      type: 'PATCH_HUD_PREFS',
                      search_engine: config.search_engine,
                   });
+                  renderOmniboxSuggestions(
+                     inp.value,
+                     inlineSuggest,
+                     inp,
+                     deactivateInlineAddressBar,
+                  );
                }
                inp.focus();
             };
@@ -13862,7 +14356,9 @@
             syncClearVisibility();
 
             const submitModal = () => {
-               const target = resolveUrl(input.value, config.search_engine);
+               const rawVal = input.value;
+               recordSearchIfQuery(rawVal);
+               const target = resolveUrl(rawVal, config.search_engine);
                deactivateModalHud();
                if (target) {
                   flushScrollSync();
@@ -13908,6 +14404,12 @@
                      type: 'PATCH_HUD_PREFS',
                      search_engine: config.search_engine,
                   });
+                  renderOmniboxSuggestions(
+                     input.value,
+                     hudSuggest,
+                     input,
+                     deactivateModalHud,
+                  );
                }
                input.focus();
             };
@@ -13925,6 +14427,7 @@
             modalBar.appendChild(btnClear);
             modalBar.appendChild(btnGo);
 
+            omniFilterScope = 'all';
             renderHudQuickBar(hudQuick, deactivateModalHud);
             renderOmniboxSuggestions('', hudSuggest, input, deactivateModalHud);
             hudRoot.style.display = 'flex';

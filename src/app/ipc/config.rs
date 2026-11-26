@@ -15,7 +15,7 @@ use super::{export_json_with_toast, is_zh_cfg, is_zh_lang, IpcCtx};
 
 pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -> bool {
     let IpcCtx {
-        source_win_id: _,
+        source_win_id,
         source_tab_id: _,
         app_state,
         tab_manager,
@@ -454,6 +454,110 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                 if removed {
                     let _ = proxy.send_event(UserEvent::SyncConfig);
                 }
+            }
+        }
+        "DELETE_HISTORY_BATCH" => {
+            let urls: Vec<String> = val["urls"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let searches: Vec<String> = val["searches"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let (removed_total, zh) = {
+                let mut locked = app_state.lock_safe();
+                let n1 = locked.userdata.remove_history_items(&urls);
+                let n2 = locked.userdata.remove_searches(&searches);
+                (n1 + n2, is_zh_lang(&locked.config.language))
+            };
+            if removed_total > 0 {
+                let _ = proxy.send_event(UserEvent::SyncConfig);
+                let _ = proxy.send_event(UserEvent::Toast(if zh {
+                    format!("已删除 {} 条历史记录", removed_total)
+                } else {
+                    format!("Removed {} history items", removed_total)
+                }));
+            }
+        }
+        "CLEAR_SEARCHES" => {
+            let (cleared, zh) = {
+                let mut locked = app_state.lock_safe();
+                let c = locked.userdata.clear_searches();
+                (c, is_zh_lang(&locked.config.language))
+            };
+            if cleared {
+                let _ = proxy.send_event(UserEvent::SyncConfig);
+                let _ = proxy.send_event(UserEvent::Toast(if zh {
+                    "已清空搜索记录".to_string()
+                } else {
+                    "Search history cleared".to_string()
+                }));
+            }
+        }
+        "RECORD_SEARCH" => {
+            if let Some(q) = val["query"].as_str() {
+                let req_incognito = val["incognito"].as_bool().unwrap_or(false);
+                let mut locked = app_state.lock_safe();
+                if !locked.config.incognito && !req_incognito && locked.userdata.record_search(q) {
+                    drop(locked);
+                    let _ = proxy.send_event(UserEvent::SyncConfig);
+                }
+            }
+        }
+        "REMOVE_SEARCH" => {
+            if let Some(q) = val["query"].as_str() {
+                let removed = app_state.lock_safe().userdata.remove_search(q);
+                if removed {
+                    let _ = proxy.send_event(UserEvent::SyncConfig);
+                }
+            }
+        }
+        "FETCH_SEARCH_SUGGESTIONS" => {
+            let query = val["query"].as_str().unwrap_or("").trim().to_string();
+            let req_id = val["req_id"].as_u64().unwrap_or(0);
+            let req_incognito = val["incognito"].as_bool().unwrap_or(false);
+            if query.is_empty() || req_incognito {
+                return true;
+            }
+            let (incognito, engine_id, engine_url_hint, zh) = {
+                let locked = app_state.lock_safe();
+                let eng = val["engine"]
+                    .as_str()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or(&locked.config.search_engine)
+                    .to_string();
+                let hint = locked
+                    .config
+                    .search_engines
+                    .iter()
+                    .find(|e| e.id.eq_ignore_ascii_case(&eng))
+                    .map(|e| e.url.clone());
+                (
+                    locked.config.incognito,
+                    eng,
+                    hint,
+                    is_zh_lang(&locked.config.language),
+                )
+            };
+            if !incognito {
+                super::super::suggest::spawn_fetch_suggestions(
+                    source_win_id,
+                    req_id,
+                    query,
+                    engine_id,
+                    engine_url_hint,
+                    zh,
+                    proxy.clone(),
+                );
             }
         }
         "OPEN_DATA_DIR" => {

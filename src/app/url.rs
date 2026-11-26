@@ -15,6 +15,11 @@ pub fn to_webview_url(url: &str) -> String {
         || base.eq_ignore_ascii_case("http://fynexo.localhost/settings")
     {
         Some("settings")
+    } else if base.eq_ignore_ascii_case("fynexo://history")
+        || base.starts_with("fynexo://history")
+        || base.eq_ignore_ascii_case("http://fynexo.localhost/history")
+    {
+        Some("history")
     } else {
         None
     };
@@ -41,6 +46,12 @@ pub fn normalize_logical_url(url: &str) -> String {
         || trimmed.contains("fynexo.settings")
     {
         "fynexo://settings".to_string()
+    } else if trimmed.starts_with("fynexo://history")
+        || trimmed.contains("fynexo.localhost/history")
+        || trimmed.contains("fynexo://localhost/history")
+        || trimmed.contains("fynexo.history")
+    {
+        "fynexo://history".to_string()
     } else if trimmed.starts_with("fynexo://newtab")
         || trimmed.contains("fynexo.localhost/newtab")
         || trimmed.contains("fynexo://localhost/newtab")
@@ -57,7 +68,7 @@ pub fn normalize_logical_url(url: &str) -> String {
 #[inline]
 pub fn is_internal_url(url: &str) -> bool {
     let norm = normalize_logical_url(url);
-    norm == "fynexo://newtab" || norm == "fynexo://settings"
+    norm == "fynexo://newtab" || norm == "fynexo://settings" || norm == "fynexo://history"
 }
 
 #[cfg(test)]
@@ -66,7 +77,7 @@ mod tests {
 
     #[test]
     fn to_webview_and_back_roundtrip_for_internal_pages() {
-        for logical in ["fynexo://newtab", "fynexo://settings"] {
+        for logical in ["fynexo://newtab", "fynexo://settings", "fynexo://history"] {
             let physical = to_webview_url(logical);
             assert_ne!(physical, logical);
             assert_eq!(normalize_logical_url(&physical), logical);

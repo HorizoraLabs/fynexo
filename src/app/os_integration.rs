@@ -198,64 +198,127 @@ pub fn start_single_instance_listener(profile_id: &str, proxy: EventLoopProxy<Us
 #[cfg(not(target_os = "windows"))]
 pub fn start_single_instance_listener(_profile_id: &str, _proxy: EventLoopProxy<UserEvent>) {}
 
-/// Procedurally render a crisp 64×64 anti-aliased RGBA Fynexo brand icon
-/// (dark obsidian squircle badge with Fynexo's signature indigo-violet 4-point spark emblem).
+fn poly_sdf(px: f32, py: f32, pts: &[(f32, f32)]) -> f32 {
+    let mut d = f32::INFINITY;
+    let mut inside = false;
+    let n = pts.len();
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = pts[i];
+        let (xj, yj) = pts[j];
+        let ex = xj - xi;
+        let ey = yj - yi;
+        let wx = px - xi;
+        let wy = py - yi;
+        let t = ((wx * ex + wy * ey) / (ex * ex + ey * ey + 1e-12)).clamp(0.0, 1.0);
+        let dx = wx - ex * t;
+        let dy = wy - ey * t;
+        let dist2 = dx * dx + dy * dy;
+        if dist2 < d {
+            d = dist2;
+        }
+        let cond = (yi > py) != (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi + 1e-12) + xi;
+        if cond {
+            inside = !inside;
+        }
+        j = i;
+    }
+    let dist = d.sqrt();
+    if inside {
+        -dist
+    } else {
+        dist
+    }
+}
+
+/// Procedurally render a crisp anti-aliased RGBA Fynexo brand icon
+/// (dark obsidian squircle badge with Fynexo's sculpted 2-blade geometric "F" monogram).
 pub fn render_app_icon_rgba(size: u32) -> Vec<u8> {
+    const TOP_BLADE: [(f32, f32); 4] = [(33.5, 27.5), (78.5, 27.5), (71.5, 40.5), (33.5, 40.5)];
+    const MID_BLADE: [(f32, f32); 4] = [(33.5, 46.5), (68.5, 46.5), (61.8, 59.0), (33.5, 59.0)];
+    const STEM_BLADE: [(f32, f32); 4] = [(33.5, 46.5), (47.2, 46.5), (47.2, 74.2), (33.5, 81.0)];
+
     let mut rgba = vec![0u8; (size * size * 4) as usize];
-    let inv = 1.0 / (size as f32);
+    let scale = 108.0 / (size as f32);
+    let edge_aa = (64.0 / (size as f32)).max(0.35);
 
     let sample = |px: f32, py: f32| -> [f32; 4] {
-        // Normalized coords in [-1, 1]
-        let nx = px * inv * 2.0 - 1.0;
-        let ny = py * inv * 2.0 - 1.0;
-        let ax = nx.abs();
-        let ay = ny.abs();
+        let u = px * scale;
+        let v = py * scale;
 
-        // Rounded-square SDF (squircle-like box radius)
-        let r = 0.28f32;
-        let b = 0.90 - r;
-        let qx = (ax - b).max(0.0);
-        let qy = (ay - b).max(0.0);
+        // Rounded squircle container centered at (54, 54)
+        let nx = (u - 54.0).abs();
+        let ny = (v - 54.0).abs();
+        let r = 21.5f32;
+        let b = 51.0 - r;
+        let qx = (nx - b).max(0.0);
+        let qy = (ny - b).max(0.0);
         let sdf = (qx * qx + qy * qy).sqrt() - r;
-        if sdf > 0.02 {
+        if sdf > edge_aa {
             return [0.0, 0.0, 0.0, 0.0];
         }
-        let alpha = ((-sdf + 0.02) / 0.04).clamp(0.0, 1.0);
+        let alpha = ((edge_aa - sdf) / (2.0 * edge_aa)).clamp(0.0, 1.0);
 
-        // Background vertical gradient: obsidian (#151824) -> deep slate (#0B0D14)
-        let t_bg = ((ny + 1.0) * 0.5).clamp(0.0, 1.0);
-        let mut cr = 23.0 + (11.0 - 23.0) * t_bg;
-        let mut cg = 26.0 + (13.0 - 26.0) * t_bg;
-        let mut cb = 38.0 + (20.0 - 38.0) * t_bg;
+        // Obsidian-indigo studio backdrop
+        let t_diag = ((u * 0.42 + v * 0.58) / 108.0).clamp(0.0, 1.0);
+        let mut cr = 22.0 + (9.0 - 22.0) * t_diag;
+        let mut cg = 26.0 + (11.0 - 26.0) * t_diag;
+        let mut cb = 43.0 + (18.0 - 43.0) * t_diag;
 
-        // Subtle radial glow behind the center spark
-        let dist2 = nx * nx + ny * ny;
-        let glow = (-dist2 * 3.8).exp() * 0.28;
-        cr += 124.0 * glow;
-        cg += 134.0 * glow;
+        // Ambient indigo aura behind the F mark
+        let gx = (u - 50.0) / 38.0;
+        let gy = (v - 44.0) / 38.0;
+        let glow = (-(gx * gx + gy * gy) * 1.45).exp() * 0.36;
+        cr += 96.0 * glow;
+        cg += 108.0 * glow;
         cb += 255.0 * glow;
 
-        // Crisp subtle rim highlight inside border
-        if sdf > -0.055 {
-            let rim = 0.34;
-            cr = cr * (1.0 - rim) + 92.0 * rim;
-            cg = cg * (1.0 - rim) + 104.0 * rim;
-            cb = cb * (1.0 - rim) + 158.0 * rim;
+        // Crisp hairline glass rim
+        if sdf > -1.4 && sdf <= 0.1 {
+            let top_bias = (1.0 - (v - 4.0) / 86.0).clamp(0.2, 1.0);
+            let rim = ((sdf + 1.4) / 1.4).clamp(0.0, 1.0) * 0.28 * top_bias;
+            cr = cr * (1.0 - rim) + 158.0 * rim;
+            cg = cg * (1.0 - rim) + 170.0 * rim;
+            cb = cb * (1.0 - rim) + 255.0 * rim;
         }
 
-        // 4-point geometric spark emblem: (|x|/s)^0.58 + (|y|/s)^0.58 <= 1
-        let s = 0.64f32;
-        let star_val = (ax / s).powf(0.58) + (ay / s).powf(0.58);
-        if star_val < 1.04 {
-            let star_a = ((1.04 - star_val) / 0.08).clamp(0.0, 1.0);
-            let t_st = ((nx + ny + 1.2) / 2.4).clamp(0.0, 1.0);
-            // Indigo (#7C86FF) -> Soft Periwinkle (#C4B5FD)
-            let sr = 124.0 + (196.0 - 124.0) * t_st;
-            let sg = 134.0 + (181.0 - 134.0) * t_st;
-            let sb = 255.0 + (253.0 - 255.0) * t_st;
-            cr = cr * (1.0 - star_a) + sr * star_a;
-            cg = cg * (1.0 - star_a) + sg * star_a;
-            cb = cb * (1.0 - star_a) + sb * star_a;
+        // Subtle drop shadow
+        let sh_top = poly_sdf(u - 0.8, v - 2.4, &TOP_BLADE) - 1.2;
+        let sh_low = poly_sdf(u - 0.8, v - 2.4, &MID_BLADE)
+            .min(poly_sdf(u - 0.8, v - 2.4, &STEM_BLADE))
+            - 1.2;
+        let sh_min = sh_top.min(sh_low);
+        if sh_min < 5.5 {
+            let sh_a = ((5.5 - sh_min) / 6.5).clamp(0.0, 1.0) * 0.38;
+            cr *= 1.0 - sh_a;
+            cg *= 1.0 - sh_a;
+            cb *= 1.0 - sh_a;
+        }
+
+        // Lower Stem + Mid Blade (electric indigo -> violet-blue)
+        let d_low = poly_sdf(u, v, &MID_BLADE).min(poly_sdf(u, v, &STEM_BLADE)) - 1.1;
+        if d_low < edge_aa {
+            let a = ((edge_aa - d_low) / (2.0 * edge_aa)).clamp(0.0, 1.0);
+            let t = (((u - 33.5) * 0.65 + (v - 46.5) * 0.85) / 52.0).clamp(0.0, 1.0);
+            let lr = 148.0 + (92.0 - 148.0) * t;
+            let lg = 160.0 + (102.0 - 160.0) * t;
+            let lb = 255.0 + (245.0 - 255.0) * t;
+            cr = cr * (1.0 - a) + lr * a;
+            cg = cg * (1.0 - a) + lg * a;
+            cb = cb * (1.0 - a) + lb * a;
+        }
+
+        // Upper Sweeping Crown (crisp white -> soft periwinkle)
+        let d_top = poly_sdf(u, v, &TOP_BLADE) - 1.2;
+        if d_top < edge_aa {
+            let a = ((edge_aa - d_top) / (2.0 * edge_aa)).clamp(0.0, 1.0);
+            let t = ((u - 33.5) / 46.0).clamp(0.0, 1.0);
+            let tr = 255.0 + (214.0 - 255.0) * t;
+            let tg = 255.0 + (222.0 - 255.0) * t;
+            let tb = 255.0;
+            cr = cr * (1.0 - a) + tr * a;
+            cg = cg * (1.0 - a) + tg * a;
+            cb = cb * (1.0 - a) + tb * a;
         }
 
         [

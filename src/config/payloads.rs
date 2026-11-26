@@ -52,6 +52,8 @@ pub struct RuntimePayload {
     pub data_dir: String,
     pub bookmarks: Vec<BookmarkItem>,
     pub history: Vec<HistoryItem>,
+    #[serde(default)]
+    pub recent_searches: Vec<String>,
     pub site_rules: Vec<SiteRule>,
     pub adblock: AdblockConfig,
     pub keybinds: KeybindsConfig,
@@ -101,6 +103,8 @@ pub struct HudBootPayload<'a> {
     pub enabled_rules: Vec<&'a SiteRule>,
     pub bookmarks: &'a [BookmarkItem],
     pub history: &'a [HistoryItem],
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    pub recent_searches: &'a [String],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tabs: Option<&'a crate::tabs::TabState>,
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -152,6 +156,7 @@ impl<'a> HudBootPayload<'a> {
             enabled_rules,
             bookmarks: &payload.bookmarks,
             history: history_slice,
+            recent_searches: &payload.recent_searches[..payload.recent_searches.len().min(20)],
             tabs,
             mode_themes,
             downloads: &[],
@@ -187,7 +192,21 @@ pub struct NewTabBootPayload<'a> {
     pub active_theme: &'a ThemeColors,
     pub bookmarks: &'a [BookmarkItem],
     pub history: &'a [HistoryItem],
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    pub recent_searches: &'a [String],
     pub blocked_ads: usize,
+}
+
+/// Full history boot payload for `fynexo://history` (includes all stored visits & searches).
+#[derive(Serialize, Clone, Debug)]
+pub struct HistoryBootPayload<'a> {
+    pub config: &'a AppConfig,
+    pub styles: &'a ComponentStyles,
+    pub active_theme: &'a ThemeColors,
+    pub bookmarks: &'a [BookmarkItem],
+    pub history: &'a [HistoryItem],
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    pub recent_searches: &'a [String],
 }
 
 impl<'a> NewTabBootPayload<'a> {
@@ -199,6 +218,7 @@ impl<'a> NewTabBootPayload<'a> {
             active_theme: &payload.active_theme,
             bookmarks: &payload.bookmarks,
             history: history_slice,
+            recent_searches: &payload.recent_searches[..payload.recent_searches.len().min(20)],
             blocked_ads: payload.blocked_ads,
         }
     }

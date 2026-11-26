@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-fynexo-internal="history">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <title>History — Fynexo</title>
+    <style>
+__FNX_HISTORY_CSS__
+    </style>
+</head>
+<body>
+    <div id="__fynexo_history_app__">
+        <header class="ht-header">
+            <div class="ht-header-inner">
+                <div class="ht-title-row">
+                    <div class="ht-brand">
+                        <svg class="ht-brand-glyph" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <path d="M3.4 2.1H13.6L11.85 5.25H2.6V2.9C2.6 2.46 2.96 2.1 3.4 2.1Z" fill="currentColor"/>
+                            <path d="M2.6 6.7H11.25L9.65 9.65H5.9V12.65L2.6 14.05V6.7Z" fill="currentColor" opacity="0.78"/>
+                        </svg>
+                        <h1 class="ht-title" id="htPageTitle">浏览历史</h1>
+                        <span class="ht-count-pill" id="htTotalPill">0</span>
+                    </div>
+                    <div class="ht-head-actions">
+                        <button type="button" class="ht-btn" id="btnHtSelectMode">批量管理</button>
+                        <button type="button" class="ht-btn ht-btn-danger" id="btnHtClearAll">清空全部</button>
+                    </div>
+                </div>
+
+                <div class="ht-search-row">
+                    <div class="ht-search-box">
+                        <svg class="ht-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <circle cx="7.2" cy="7.2" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M10.6 10.6L13.8 13.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        </svg>
+                        <input type="text" id="inputHtSearch" class="ht-search-input" placeholder="搜索网页标题、域名或搜索记录..." autocomplete="off" spellcheck="false">
+                        <kbd class="ht-search-kbd" id="htSearchKbd">/</kbd>
+                        <button type="button" id="btnHtClearSearch" class="ht-search-clear" aria-label="Clear search" style="display: none;">×</button>
+                    </div>
+                    <select id="selectHtSort" class="ht-select" aria-label="Sort order">
+                        <option value="recent">按最近访问</option>
+                        <option value="visits">按访问次数</option>
+                    </select>
+                </div>
+
+                <div class="ht-filters-wrap">
+                    <div class="ht-filter-strip" id="htScopeBar" role="tablist"></div>
+                    <div class="ht-filter-sep" aria-hidden="true"></div>
+                    <div class="ht-filter-strip" id="htTimeBar" role="group"></div>
+                </div>
+
+                <div class="ht-domain-bar" id="htDomainBar" style="display: none;"></div>
+            </div>
+        </header>
+
+        <div class="ht-batch-bar" id="htBatchBar" style="display: none;">
+            <div class="ht-batch-inner">
+                <span class="ht-batch-label" id="htBatchCount">已选 0 项</span>
+                <div class="ht-batch-actions">
+                    <button type="button" class="ht-btn ht-btn-sm" id="btnHtSelectAll">全选当前</button>
+                    <button type="button" class="ht-btn ht-btn-sm ht-btn-danger" id="btnHtDeleteSelected">删除所选</button>
+                    <button type="button" class="ht-btn ht-btn-sm" id="btnHtCancelBatch">完成</button>
+                </div>
+            </div>
+        </div>
+
+        <main class="ht-main">
+            <section class="ht-card ht-searches-card" id="htSearchesSection" style="display: none;">
+                <div class="ht-group-head">
+                    <div class="ht-group-title-wrap">
+                        <span class="ht-group-title" id="htSearchesTitle">最近搜索记录</span>
+                        <span class="ht-group-count" id="htSearchesCount">0</span>
+                    </div>
+                    <button type="button" class="ht-link-btn" id="btnHtClearSearches">清空搜索</button>
+                </div>
+                <div class="ht-search-chips" id="htSearchesList"></div>
+            </section>
+
+            <div id="htGroupsContainer" class="ht-groups"></div>
+
+            <div id="htEmptyState" class="ht-empty" style="display: none;">
+                <div class="ht-empty-title" id="htEmptyTitle">暂无匹配的历史记录</div>
+                <div class="ht-empty-desc" id="htEmptyDesc">尝试切换筛选条件或清除关键词。</div>
+                <button type="button" class="ht-btn" id="btnHtResetFilters" style="display: none;">重置筛选条件</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+__FNX_HISTORY_JS__
+    </script>
+</body>
+</html>

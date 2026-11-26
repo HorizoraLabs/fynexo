@@ -119,4 +119,19 @@ pub enum UserEvent {
         win_id: usize,
         url: String,
     },
+    SearchSuggestions {
+        win_id: usize,
+        req_id: u64,
+        query: String,
+        engine: String,
+        suggestions: Vec<String>,
+    },
+    #[cfg(target_os = "android")]
+    AndroidFetchSuggestions {
+        win_id: usize,
+        req_id: u64,
+        url: String,
+        engine: String,
+        query: String,
+    },
 }
