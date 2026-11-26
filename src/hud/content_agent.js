@@ -595,7 +595,7 @@
       }
       if (wantForceDark && (siteDm === 'on' || !isPageAlreadyDark())) {
          chunks.push(
-            'html:not([data-fynexo-internal]){background-color:#111113!important;}html:not([data-fynexo-internal])>body{filter:invert(0.92) hue-rotate(180deg)!important;background-color:#ffffff;}html:not([data-fynexo-internal])>body img,html:not([data-fynexo-internal])>body video,html:not([data-fynexo-internal])>body picture,html:not([data-fynexo-internal])>body canvas,html:not([data-fynexo-internal])>body iframe,html:not([data-fynexo-internal])>body svg:not(:root),html:not([data-fynexo-internal])>body [style*="background-image"]{filter:invert(1) hue-rotate(180deg)!important;}',
+            'html:not([data-fynexo-internal]){background-color:#111113!important;}html:not([data-fynexo-internal])>body{filter:invert(0.92) hue-rotate(180deg)!important;background-color:#ffffff;min-height:100dvh!important;}html:not([data-fynexo-internal])>body img,html:not([data-fynexo-internal])>body video,html:not([data-fynexo-internal])>body picture,html:not([data-fynexo-internal])>body canvas,html:not([data-fynexo-internal])>body iframe,html:not([data-fynexo-internal])>body svg:not(:root),html:not([data-fynexo-internal])>body [style*="background-image"]{filter:invert(1) hue-rotate(180deg)!important;}',
          );
       }
       if (config.adblock !== false && !isLocalDev && !isCurrentHostWhitelisted()) {

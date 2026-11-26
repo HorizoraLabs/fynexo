@@ -654,14 +654,12 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     } else {
                         tab_url.as_str()
                     };
-                    if let (Ok(rt_json), Ok(tabs_json)) = (
-                        serialize_runtime_for_win(
-                            &state_for_event.lock_safe(),
-                            runtime_url,
-                            bw.incognito_window,
-                        ),
-                        serde_json::to_string(&tab_state),
-                    ) {
+                    let rt_json_res = {
+                        let st = state_for_event.lock_safe();
+                        serialize_runtime_for_win(&st, runtime_url, bw.incognito_window)
+                    };
+                    let tabs_json_res = serde_json::to_string(&tab_state);
+                    if let (Ok(rt_json), Ok(tabs_json)) = (rt_json_res, tabs_json_res) {
                         let full_str = if is_full { "true" } else { "false" };
                         let muted_str = if is_tab_muted { "true" } else { "false" };
                         let mut script = format!(
@@ -739,46 +737,60 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                             .map(|tid| (tid, tm.url_and_scroll_for(tid).0))
                             .collect()
                     };
-                    let st = state_for_event.lock_safe();
-                    let mut internal_payload: Option<(String, u64)> = None;
-                    let mut external_payload: Option<(String, u64)> = None;
-                    if let Ok(hud_json) =
-                        serialize_runtime_for_win(&st, "fynexo://settings", bw.incognito_window)
-                    {
-                        let h = crate::util::fnv1a_hash64(hud_json.as_bytes());
-                        internal_payload = Some((hud_json.clone(), h));
-                        #[cfg(target_os = "windows")]
+                    let (hud_script_opt, per_tab_updates) = {
+                        let st = state_for_event.lock_safe();
+                        let mut internal_payload: Option<(String, u64)> = None;
+                        let mut external_payload: Option<(String, u64)> = None;
+                        #[allow(unused_mut)]
+                        let mut hud_script: Option<String> = None;
+                        if let Ok(hud_json) =
+                            serialize_runtime_for_win(&st, "fynexo://settings", bw.incognito_window)
                         {
-                            let hud_script = format!(
-                                "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
-                                hud_json, bridge_tok_js
-                            );
-                            let _ = bw.hud_webview.evaluate_script(&hud_script);
+                            let h = crate::util::fnv1a_hash64(hud_json.as_bytes());
+                            internal_payload = Some((hud_json.clone(), h));
+                            #[cfg(target_os = "windows")]
+                            {
+                                hud_script = Some(format!(
+                                    "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
+                                    hud_json, bridge_tok_js
+                                ));
+                            }
                         }
+                        let mut updates = Vec::with_capacity(tab_urls.len());
+                        for (tid, tab_url) in tab_urls {
+                            let z = effective_zoom_for_url(&st, &tab_url);
+                            let is_int = security::is_internal_origin(&tab_url);
+                            let cached = if is_int {
+                                internal_payload.clone()
+                            } else {
+                                if external_payload.is_none() {
+                                    if let Ok(json) = serialize_runtime_for_win(
+                                        &st,
+                                        "https://external.invalid/",
+                                        bw.incognito_window,
+                                    ) {
+                                        let h = crate::util::fnv1a_hash64(json.as_bytes());
+                                        external_payload = Some((json, h));
+                                    }
+                                }
+                                external_payload.clone()
+                            };
+                            updates.push((tid, z, cached));
+                        }
+                        (hud_script, updates)
+                    };
+                    #[cfg(target_os = "windows")]
+                    if let Some(hud_script) = hud_script_opt {
+                        let _ = bw.hud_webview.evaluate_script(&hud_script);
                     }
-                    for (tid, tab_url) in tab_urls {
-                        let z = effective_zoom_for_url(&st, &tab_url);
+                    #[cfg(not(target_os = "windows"))]
+                    let _ = hud_script_opt;
+                    for (tid, z, cached) in per_tab_updates {
                         if let Some(wv) = bw.pool.get_webview(tid) {
                             let _ = wv.zoom(z);
                         }
-                        let is_int = security::is_internal_origin(&tab_url);
-                        let cached = if is_int {
-                            internal_payload.as_ref()
-                        } else {
-                            if external_payload.is_none() {
-                                if let Ok(json) = serialize_runtime_for_win(
-                                    &st,
-                                    "https://external.invalid/",
-                                    bw.incognito_window,
-                                ) {
-                                    let h = crate::util::fnv1a_hash64(json.as_bytes());
-                                    external_payload = Some((json, h));
-                                }
-                            }
-                            external_payload.as_ref()
-                        };
                         if let Some((json, hash)) = cached {
-                            if bw.pool.should_push_runtime(tid, *hash) {
+                            if bw.pool.should_push_runtime(tid, hash) {
                                 if let Some(wv) = bw.pool.get_webview(tid) {
                                     let script = format!(
                                         "window.__fynexo_set_runtime__ && window.__fynexo_set_runtime__({}, {});",
@@ -789,7 +801,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                             }
                         }
                     }
-                    drop(st);
                     apply_pool_policy(bw, &state_for_event);
                 }
             }
@@ -1066,7 +1077,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             Event::UserEvent(UserEvent::ApplyZoom(_factor)) => {
-                let st = state_for_event.lock_safe();
                 for bw in windows.values() {
                     let live_ids = bw.pool.live_ids();
                     let tab_urls: Vec<(usize, String)> = {
@@ -1076,8 +1086,14 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                             .map(|tid| (tid, tm.url_and_scroll_for(tid).0))
                             .collect()
                     };
-                    for (tid, url) in tab_urls {
-                        let z = effective_zoom_for_url(&st, &url);
+                    let tab_zooms: Vec<(usize, f64)> = {
+                        let st = state_for_event.lock_safe();
+                        tab_urls
+                            .iter()
+                            .map(|(tid, url)| (*tid, effective_zoom_for_url(&st, url)))
+                            .collect()
+                    };
+                    for (tid, z) in tab_zooms {
                         if let Some(wv) = bw.pool.get_webview(tid) {
                             let _ = wv.zoom(z);
                         }
@@ -1308,14 +1324,17 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     bw.pool.clear_runtime_hash(id);
                     if let Some(wv) = bw.pool.get_webview(id) {
                         let _ = wv.reload();
-                    } else if let Some(target_url) = bw.tab_manager.lock_safe().switch_tab(id) {
-                        adblock::set_active_page_url(&target_url);
-                        let _ = event_proxy_for_run.send_event(UserEvent::SwitchTab {
-                            win_id,
-                            id,
-                            url: target_url,
-                        });
-                        let _ = event_proxy_for_run.send_event(UserEvent::SyncTabs(win_id));
+                    } else {
+                        let target_url_opt = bw.tab_manager.lock_safe().switch_tab(id);
+                        if let Some(target_url) = target_url_opt {
+                            adblock::set_active_page_url(&target_url);
+                            let _ = event_proxy_for_run.send_event(UserEvent::SwitchTab {
+                                win_id,
+                                id,
+                                url: target_url,
+                            });
+                            let _ = event_proxy_for_run.send_event(UserEvent::SyncTabs(win_id));
+                        }
                     }
                 }
             }
@@ -1382,7 +1401,31 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 #[cfg(not(target_os = "windows"))]
-                let _ = win_id;
+                {
+                    let zh = crate::i18n::is_zh_locale(&state_for_event.lock_safe().config.language);
+                    let stats_json = build_resource_stats_json(&windows);
+                    let total_mb = stats_json["total_mb"].as_f64().unwrap_or(0.0);
+                    let toast_txt = if zh {
+                        if total_mb > 0.5 {
+                            format!("已刷新内存统计（当前约 {:.0} MB，系统自动回收中）", total_mb)
+                        } else {
+                            "移动端由系统自动管理内存回收".to_string()
+                        }
+                    } else if total_mb > 0.5 {
+                        format!("Memory stats refreshed (~{:.0} MB, OS-managed)", total_mb)
+                    } else {
+                        "Memory trimming is managed automatically by the OS".to_string()
+                    };
+                    if let Some(bw) = windows.get(&win_id) {
+                        if let Ok(json_msg) = serde_json::to_string(&toast_txt) {
+                            let script = format!(
+                                "window.__fynexo_on_resource_stats__ && window.__fynexo_on_resource_stats__({}, {}); window.__fynexo_toast__ && window.__fynexo_toast__({}, {});",
+                                stats_json, bridge_tok_js, json_msg, bridge_tok_js
+                            );
+                            bw.eval_hud_and_tabs(&script);
+                        }
+                    }
+                }
             }
             Event::UserEvent(UserEvent::SweepIdleTabs) => {
                 let (sleep_mins, auto_trim) = {
@@ -2011,6 +2054,68 @@ fn perform_switch_tab(
     reveal_scheduler: &RevealScheduler,
     bridge_tok_js: &str,
 ) {
+    #[cfg(target_os = "android")]
+    {
+        let old_id = bw.active_tab_id;
+        if id == old_id && bw.pool.contains(id) {
+            return;
+        }
+        bw.active_tab_id = id;
+        let target = to_webview_url(url);
+        let is_internal = is_internal_url(url);
+        if is_internal {
+            bw.loading_tabs.remove(&id);
+        } else {
+            bw.loading_tabs.insert(id);
+        }
+        let tab_state = bw.tab_manager.lock_safe().get_state();
+        if let Some(wv) = bw.pool.rebind_single_webview(id) {
+            let mut script = String::new();
+            if let Ok(tabs_json) = serde_json::to_string(&tab_state) {
+                script.push_str(&format!(
+                    "window.__fynexo_set_tabs__ && window.__fynexo_set_tabs__({}, {}); ",
+                    tabs_json, bridge_tok_js
+                ));
+            }
+            if is_internal {
+                script.push_str(&format!(
+                    "window.__fynexo_finish_progress__ && window.__fynexo_finish_progress__(true, {});",
+                    bridge_tok_js
+                ));
+            } else {
+                script.push_str(&format!(
+                    "window.__fynexo_trigger_progress__ && window.__fynexo_trigger_progress__({});",
+                    bridge_tok_js
+                ));
+            }
+            let _ = wv.evaluate_script(&script);
+            let _ = wv.load_url(&target);
+        } else {
+            let cbounds = bw.content_bounds_val();
+            if let Ok(new_tv) = build_tab_webview(
+                &bw.window,
+                web_context,
+                TabLaunch {
+                    win_id: bw.win_id,
+                    tab_id: id,
+                    url: &target,
+                    visible: true,
+                    init_bounds: cbounds,
+                },
+                app_state,
+                &bw.tab_manager,
+                reveal_scheduler.proxy(),
+            ) {
+                bw.pool.insert_live(id, new_tv);
+                bw.reveal_tab_safe(id, bridge_tok_js);
+            }
+        }
+        let live_ids = bw.pool.live_ids();
+        bw.tab_manager.lock_safe().sync_suspended_flags(&live_ids);
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
     let cbounds = bw.content_bounds_val();
     let old_id = bw.active_tab_id;
     if id == old_id && bw.pool.contains(id) {
@@ -2187,6 +2292,7 @@ fn perform_switch_tab(
     }
 
     apply_pool_policy(bw, app_state);
+    }
 }
 
 fn apply_pool_policy(bw: &mut BrowserWindow, app_state: &Arc<Mutex<AppState>>) {
@@ -2242,6 +2348,7 @@ fn complete_pending_reveal(
     apply_pool_policy(bw, app_state);
 }
 
+#[cfg(not(target_os = "android"))]
 fn tabs_for_bg(tab_manager: &Arc<Mutex<TabManager>>, id: usize) -> bool {
     tab_manager
         .lock_safe()
@@ -2339,6 +2446,15 @@ fn eval_on_active_and_visible(
     visible_id: Option<usize>,
     script: &str,
 ) {
+    #[cfg(target_os = "android")]
+    {
+        if let Some(wv) = pool.active_or_visible_webview(active_id) {
+            let _ = wv.evaluate_script(script);
+        }
+        let _ = visible_id;
+    }
+    #[cfg(not(target_os = "android"))]
+    {
     if let Some(wv) = pool.get_webview(active_id) {
         let _ = wv.evaluate_script(script);
     }
@@ -2348,6 +2464,7 @@ fn eval_on_active_and_visible(
                 let _ = vis.evaluate_script(script);
             }
         }
+    }
     }
 }
 
@@ -2426,6 +2543,7 @@ fn serialize_runtime_for_win(
     }
 }
 
+#[cfg(not(target_os = "android"))]
 fn sync_foreground_env(
     webview: &wry::WebView,
     state: &AppState,

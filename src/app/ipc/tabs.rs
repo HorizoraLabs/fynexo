@@ -326,9 +326,8 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
         }
         "SWITCH_TAB" => {
             if let Some(id) = val["id"].as_u64() {
-                if let Some(target_url) =
-                    tab_manager.lock_safe().switch_tab(id as usize)
-                {
+                let target_url_opt = tab_manager.lock_safe().switch_tab(id as usize);
+                if let Some(target_url) = target_url_opt {
                     adblock::set_active_page_url(&target_url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
                         win_id: source_win_id,
@@ -341,9 +340,8 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
         }
         "TOGGLE_PIN_TAB" => {
             if let Some(id) = val["id"].as_u64() {
-                if let Some(pinned) =
-                    tab_manager.lock_safe().toggle_pin_tab(id as usize)
-                {
+                let pinned_opt = tab_manager.lock_safe().toggle_pin_tab(id as usize);
+                if let Some(pinned) = pinned_opt {
                     let zh = is_zh_cfg(app_state);
                     let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                     let _ = proxy.send_event(UserEvent::Toast(
@@ -358,9 +356,8 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
         }
         "TOGGLE_BACKGROUND_PLAY" => {
             if let Some(id) = val["id"].as_u64() {
-                if let Some(active) =
-                    tab_manager.lock_safe().toggle_background_play(id as usize)
-                {
+                let active_opt = tab_manager.lock_safe().toggle_background_play(id as usize);
+                if let Some(active) = active_opt {
                     let zh = is_zh_cfg(app_state);
                     let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                     let _ = proxy.send_event(UserEvent::Toast(
@@ -388,9 +385,8 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
         }
         "TOGGLE_MUTE_TAB" => {
             if let Some(id) = val["id"].as_u64() {
-                if let Some(muted) =
-                    tab_manager.lock_safe().toggle_mute_tab(id as usize)
-                {
+                let muted_opt = tab_manager.lock_safe().toggle_mute_tab(id as usize);
+                if let Some(muted) = muted_opt {
                     let zh = is_zh_cfg(app_state);
                     let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
                     let _ = proxy.send_event(UserEvent::ToggleTabMute {
@@ -432,8 +428,12 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
         }
         "LOAD_WORKSPACE" => {
             if let Some(name) = val["name"].as_str() {
-                if let Some(target_url) = tab_manager.lock_safe().load_workspace(name) {
-                    let next_id = tab_manager.lock_safe().active_id;
+                let loaded = {
+                    let mut tm = tab_manager.lock_safe();
+                    tm.load_workspace(name)
+                        .map(|target_url| (tm.active_id, target_url))
+                };
+                if let Some((next_id, target_url)) = loaded {
                     let zh = is_zh_cfg(app_state);
                     adblock::set_active_page_url(&target_url);
                     let _ = proxy.send_event(UserEvent::ResetWorkspace {
@@ -510,9 +510,8 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
         }
         "DUPLICATE_TAB" => {
             if let Some(id) = val["id"].as_u64() {
-                if let Some((new_id, nav_url)) =
-                    tab_manager.lock_safe().duplicate_tab(id as usize)
-                {
+                let dup_opt = tab_manager.lock_safe().duplicate_tab(id as usize);
+                if let Some((new_id, nav_url)) = dup_opt {
                     adblock::set_active_page_url(&nav_url);
                     let _ = proxy.send_event(UserEvent::SwitchTab {
                         win_id: source_win_id,
@@ -572,10 +571,12 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
             let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
         }
         "REOPEN_CLOSED_TAB" => {
-            if let Some((url, _scroll_y)) =
-                tab_manager.lock_safe().reopen_closed_tab()
-            {
-                let next_id = tab_manager.lock_safe().active_id;
+            let reopened = {
+                let mut tm = tab_manager.lock_safe();
+                tm.reopen_closed_tab()
+                    .map(|(url, _scroll_y)| (tm.active_id, url))
+            };
+            if let Some((next_id, url)) = reopened {
                 let zh = is_zh_cfg(app_state);
                 adblock::set_active_page_url(&url);
                 let _ = proxy.send_event(UserEvent::SwitchTab {

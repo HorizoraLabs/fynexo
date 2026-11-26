@@ -495,9 +495,12 @@
                     renderEngineMenu();
                 }
             }
-            document.getElementById('ntSearchInput').placeholder = zh
-                ? `在 ${engName} 中搜索或输入网址，输入 > 执行命令...`
-                : `Search ${engName} or enter address, type > for commands...`;
+            const isNarrow = (window.innerWidth || 1024) <= 520;
+            document.getElementById('ntSearchInput').placeholder = isNarrow
+                ? (zh ? `在 ${engName} 搜索或输入网址...` : `Search ${engName} or URL...`)
+                : (zh
+                    ? `在 ${engName} 中搜索或输入网址，输入 > 执行命令...`
+                    : `Search ${engName} or enter address, type > for commands...`);
 
             const clearBtnEl = document.getElementById('ntClearBtn');
             if (clearBtnEl) clearBtnEl.title = zh ? '清空输入' : 'Clear';

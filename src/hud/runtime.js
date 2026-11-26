@@ -41,6 +41,46 @@
       typeof window.__fynexo_android__.getPageBlockedAds === 'function'
          ? window.__fynexo_android__.getPageBlockedAds.bind(window.__fynexo_android__)
          : null;
+   const __fnxAndroidPrintPage =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.printPage === 'function'
+         ? window.__fynexo_android__.printPage.bind(window.__fynexo_android__)
+         : null;
+   const __fnxAndroidSetZoom =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.setZoomPercent === 'function'
+         ? window.__fynexo_android__.setZoomPercent.bind(window.__fynexo_android__)
+         : null;
+   const __fnxAndroidOpenDownloads =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.openDownloads === 'function'
+         ? window.__fynexo_android__.openDownloads.bind(window.__fynexo_android__)
+         : null;
+   const __fnxAndroidSetUaMode =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.setUserAgentMode === 'function'
+         ? window.__fynexo_android__.setUserAgentMode.bind(window.__fynexo_android__)
+         : null;
+
+   function applyAndroidZoomNow(zoomFactor) {
+      if (!__fnxAndroidSetZoom) return;
+      const pct = Math.max(50, Math.min(250, Math.round((Number(zoomFactor) || 1.0) * 100)));
+      try {
+         __fnxAndroidSetZoom(pct);
+      } catch (_) {}
+   }
+
+   function triggerNativeOrWindowPrint() {
+      if (__fnxAndroidPrintPage) {
+         try {
+            __fnxAndroidPrintPage(String(document.title || 'Fynexo Page'));
+            return;
+         } catch (_) {}
+      }
+      try {
+         window.print();
+      } catch (_) {}
+   }
    let __fnxIpcShielded = false;
    let __fnxAndroidShielded = false;
 
@@ -1630,6 +1670,7 @@
             html:not([data-fynexo-internal]) > body {
                 filter: invert(0.92) hue-rotate(180deg) !important;
                 background-color: #ffffff;
+                min-height: 100dvh !important;
             }
             html:not([data-fynexo-internal]) > body img,
             html:not([data-fynexo-internal]) > body video,
@@ -1881,7 +1922,10 @@
          if (mobPos === 'top') {
             mobPaddingRules += `padding-top: calc(${mobH} + env(safe-area-inset-top, 0px)) !important;`;
          } else {
-            mobPaddingRules += `padding-bottom: calc(${mobH} + max(env(safe-area-inset-bottom, 0px), 12px)) !important;`;
+            const mobSafeB = __FNX_MOBILE_HOST
+               ? 'env(safe-area-inset-bottom, 0px)'
+               : 'max(env(safe-area-inset-bottom, 0px), 12px)';
+            mobPaddingRules += `padding-bottom: calc(${mobH} + ${mobSafeB}) !important;`;
          }
       }
 
@@ -2241,10 +2285,10 @@
             }
 
             #__fynexo_bottom_bar__ {
-                height: calc(${mb.height || '54px'} + ${mobIsTop ? 'env(safe-area-inset-top, 0px)' : 'max(env(safe-area-inset-bottom, 0px), 12px)'});
+                height: calc(${mb.height || '54px'} + ${mobIsTop ? 'env(safe-area-inset-top, 0px)' : (__FNX_MOBILE_HOST ? 'env(safe-area-inset-bottom, 0px)' : 'max(env(safe-area-inset-bottom, 0px), 12px)')});
                 padding-left: max(env(safe-area-inset-left, 0px), ${mb.padding_x || '8px'});
                 padding-right: max(env(safe-area-inset-right, 0px), ${mb.padding_x || '8px'});
-                padding-bottom: ${mobIsTop ? '0px' : 'max(env(safe-area-inset-bottom, 0px), 12px)'};
+                padding-bottom: ${mobIsTop ? '0px' : (__FNX_MOBILE_HOST ? 'env(safe-area-inset-bottom, 0px)' : 'max(env(safe-area-inset-bottom, 0px), 12px)')};
                 padding-top: ${mobIsTop ? 'env(safe-area-inset-top, 0px)' : '0px'};
                 top: ${mobIsTop ? '0' : 'auto'};
                 bottom: ${mobIsTop ? 'auto' : '0'};
@@ -2290,13 +2334,13 @@
             `
                   : `
                 #__fynexo_topbar__ {
-                    display: ${tb.visible_on_mobile === true && !isFullscreen ? 'flex' : 'none'} !important;
+                    display: ${tb.visible_on_mobile === true && !isFullscreen && !isReaderOpen ? 'flex' : 'none'} !important;
                 }
                 #__fynexo_bottom_bar__ {
-                    display: ${mb.visible !== false && !isPageKeyboardOpen && !isFullscreen ? 'flex' : 'none'} !important;
+                    display: ${mb.visible !== false && !isPageKeyboardOpen && !isFullscreen && !isReaderOpen ? 'flex' : 'none'} !important;
                 }
                 #__fynexo_progress__ {
-                    display: ${mb.visible !== false && !isPageKeyboardOpen && !isFullscreen ? 'none' : 'block'} !important;
+                    display: ${mb.visible !== false && !isPageKeyboardOpen && !isFullscreen && !isReaderOpen ? 'none' : (isReaderOpen ? 'none' : 'block')} !important;
                 }
                 #__fynexo_hud_card__ {
                     width: calc(100vw - 20px) !important;
@@ -3253,6 +3297,7 @@
       if (article) article.textContent = '';
       if (document.documentElement)
          document.documentElement.style.overflow = '';
+      applyShadowStyles();
       try {
          window.scrollTo(0, readerSavedScroll);
       } catch (_) {}
@@ -3397,6 +3442,7 @@
 
       readerSavedScroll = window.scrollY || window.pageYOffset || 0;
       isReaderOpen = true;
+      applyShadowStyles();
       syncReaderTypography();
       overlay.style.display = 'flex';
       overlay.scrollTop = 0;
@@ -4250,9 +4296,7 @@
          icon: 'printer',
          onClick: () => {
             setTimeout(() => {
-               try {
-                  window.print();
-               } catch (_) {}
+               triggerNativeOrWindowPrint();
             }, 30);
          },
       });
@@ -5686,6 +5730,10 @@
          if (closeHistoryDrawerRef) closeHistoryDrawerRef();
          return true;
       }
+      if (isDevDrawerOpenRef && isDevDrawerOpenRef()) {
+         if (toggleDevDrawerRef) toggleDevDrawerRef(false);
+         return true;
+      }
       if (
          tabContextMenuEl &&
          tabContextMenuEl.style.display === 'flex'
@@ -6706,6 +6754,11 @@
 
             popoverEl.style.visibility = 'hidden';
             popoverEl.style.display = 'flex';
+            if (isMobilePlatform()) {
+               popoverEl.style.maxWidth = Math.max(220, Math.min(320, vw - 16)) + 'px';
+            } else {
+               popoverEl.style.maxWidth = '';
+            }
             const popW = popoverEl.getBoundingClientRect().width || 240;
 
             if (align === 'left') {
@@ -6723,11 +6776,21 @@
 
             const openUp = rect.top > vh * 0.55;
             if (openUp) {
-               const bottomOffset = Math.max(8, vh - rect.top + 8);
+               let anchorTop = rect.top;
+               const mobBarEl = shadowRoot
+                  ? shadowRoot.getElementById('__fynexo_bottom_bar__')
+                  : null;
+               if (mobBarEl) {
+                  const br = mobBarEl.getBoundingClientRect();
+                  if (br.height > 0 && br.top > vh * 0.5) {
+                     anchorTop = Math.min(anchorTop, br.top);
+                  }
+               }
+               const bottomOffset = Math.max(8, vh - anchorTop + 10);
                popoverEl.style.top = 'auto';
                popoverEl.style.bottom = Math.round(bottomOffset) + 'px';
                popoverEl.style.maxHeight =
-                  Math.max(180, Math.round(rect.top - 16)) + 'px';
+                  Math.max(180, Math.round(anchorTop - 20)) + 'px';
                popoverEl.style.overflowY = 'auto';
                popoverEl.classList.add('fnx-nav-popover--up');
             } else {
@@ -6934,6 +6997,14 @@
                span.textContent = zh ? zhTxt : enTxt;
             }
             darkLabel.textContent = zh ? '智能夜间深色' : 'Smart Force Dark';
+            if (typeof desktopSiteLabel !== 'undefined' && desktopSiteLabel) {
+               desktopSiteLabel.textContent = zh ? '桌面版网站' : 'Desktop site';
+            }
+            if (typeof desktopSiteSwitch !== 'undefined' && desktopSiteSwitch) {
+               const isDeskUa =
+                  String(config.user_agent_mode || 'default').toLowerCase() === 'desktop';
+               desktopSiteSwitch.classList.toggle('on', isDeskUa);
+            }
             zoomLabel.textContent = zh ? '网页缩放' : 'Zoom';
             darkSwitch.classList.toggle('on', !!config.force_dark);
             zoomValSpan.textContent =
@@ -7059,20 +7130,82 @@
          };
          mainMenuEl.appendChild(darkItem);
 
+         // Mobile 1-Tap Desktop Site Toggle (switches UA to Desktop Chrome & reloads current page)
+         const desktopSiteItem = document.createElement('div');
+         desktopSiteItem.className = 'fnx-menu-item fnx-mobile-only-row';
+         desktopSiteItem.setAttribute('role', 'menuitem');
+         desktopSiteItem.tabIndex = 0;
+         const desktopSiteLeft = document.createElement('div');
+         desktopSiteLeft.style.cssText =
+            'display: flex; align-items: center; gap: 9px; min-width: 0;';
+         const desktopSiteIconSlot = document.createElement('span');
+         desktopSiteIconSlot.className = 'fnx-menu-icon';
+         desktopSiteIconSlot.appendChild(createIcon('globe'));
+         desktopSiteLeft.appendChild(desktopSiteIconSlot);
+         const desktopSiteLabel = document.createElement('span');
+         desktopSiteLabel.textContent = isZh() ? '桌面版网站' : 'Desktop site';
+         desktopSiteLeft.appendChild(desktopSiteLabel);
+         desktopSiteItem.appendChild(desktopSiteLeft);
+         const desktopSiteSwitch = document.createElement('span');
+         desktopSiteSwitch.className =
+            String(config.user_agent_mode || 'default').toLowerCase() === 'desktop'
+               ? 'fnx-pop-switch on'
+               : 'fnx-pop-switch';
+         desktopSiteItem.appendChild(desktopSiteSwitch);
+         desktopSiteItem.onclick = (e) => {
+            e.stopPropagation();
+            const isDeskNow =
+               String(config.user_agent_mode || 'default').toLowerCase() === 'desktop';
+            const nextUa = isDeskNow ? 'default' : 'desktop';
+            config.user_agent_mode = nextUa;
+            rawBaseConfig.user_agent_mode = nextUa;
+            if (__fnxAndroidSetUaMode) {
+               try {
+                  __fnxAndroidSetUaMode(nextUa);
+               } catch (_) {}
+            }
+            sendIpc({ type: 'PATCH_HUD_PREFS', user_agent_mode: nextUa });
+            syncMainMenuUI();
+            closeAllNavPopovers();
+            const zh = isZh();
+            const internal = isInternalAny();
+            showHudToast(
+               nextUa === 'desktop'
+                  ? (zh
+                       ? (internal ? '已开启桌面版网站（访问外网时生效）' : '已切换桌面版网站，正在刷新...')
+                       : (internal ? 'Desktop site ON (applies to websites)' : 'Desktop site ON, reloading...'))
+                  : (zh
+                       ? (internal ? '已恢复移动版网站' : '已恢复移动版网站，正在刷新...')
+                       : (internal ? 'Mobile site restored' : 'Mobile site restored, reloading...')),
+            );
+            if (!internal) {
+               triggerProgress();
+               setTimeout(() => {
+                  try {
+                     window.location.reload();
+                  } catch (_) {}
+               }, 80);
+            }
+         };
+         mainMenuEl.appendChild(desktopSiteItem);
+
          // Compact Contextual Mode Entry (opens dedicated Mode Switcher popover; no duplicated chip grid)
          const modeMenuRow = document.createElement('div');
          modeMenuRow.className = 'fnx-menu-item';
          modeMenuRow.setAttribute('role', 'menuitem');
          modeMenuRow.tabIndex = 0;
+         const modeLeft = document.createElement('div');
+         modeLeft.style.cssText =
+            'display: flex; align-items: center; gap: 9px; min-width: 0;';
          const modeMenuIconSlot = document.createElement('span');
-         modeMenuIconSlot.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; flex-shrink: 0;';
+         modeMenuIconSlot.className = 'fnx-menu-icon';
          modeMenuIconSlot.appendChild(createIcon('spark'));
          const modeTitleLbl = document.createElement('span');
-         modeTitleLbl.style.cssText = 'flex: 1; min-width: 0;';
+         modeLeft.appendChild(modeMenuIconSlot);
+         modeLeft.appendChild(modeTitleLbl);
          const modeActiveSub = document.createElement('span');
          modeActiveSub.style.cssText = 'font-size: 11px; color: var(--fnx-accent); font-weight: 600; flex-shrink: 0; max-width: 115px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
-         modeMenuRow.appendChild(modeMenuIconSlot);
-         modeMenuRow.appendChild(modeTitleLbl);
+         modeMenuRow.appendChild(modeLeft);
          modeMenuRow.appendChild(modeActiveSub);
          const openModeFromMenu = (ev) => {
             if (ev && ev.stopPropagation) ev.stopPropagation();
@@ -7214,6 +7347,7 @@
                const cur = Number(config.default_zoom) || 1.0;
                const next = Math.max(0.5, Number((cur - 0.1).toFixed(1)));
                config.default_zoom = next;
+               applyAndroidZoomNow(next);
                sendIpc({ type: 'SET_ZOOM', zoom: next });
                zoomValSpan.textContent = Math.round(next * 100) + '%';
             },
@@ -7231,6 +7365,7 @@
          zoomValSpan.onclick = (e) => {
             e.stopPropagation();
             config.default_zoom = 1.0;
+            applyAndroidZoomNow(1.0);
             sendIpc({ type: 'SET_ZOOM', zoom: 1.0 });
             zoomValSpan.textContent = '100%';
          };
@@ -7242,6 +7377,7 @@
                const cur = Number(config.default_zoom) || 1.0;
                const next = Math.min(2.5, Number((cur + 0.1).toFixed(1)));
                config.default_zoom = next;
+               applyAndroidZoomNow(next);
                sendIpc({ type: 'SET_ZOOM', zoom: next });
                zoomValSpan.textContent = Math.round(next * 100) + '%';
             },
@@ -7294,7 +7430,7 @@
                      payload: {},
                   });
                } else {
-                  try { window.print(); } catch (_) {}
+                  triggerNativeOrWindowPrint();
                }
             },
             '打印当前页面...',
@@ -9231,10 +9367,15 @@
          };
          const btnOpenDlFolder = document.createElement('button');
          btnOpenDlFolder.type = 'button';
-         btnOpenDlFolder.className = 'fnx-pop-link fnx-desktop-only-row';
+         btnOpenDlFolder.className = 'fnx-pop-link';
          btnOpenDlFolder.textContent = isZh() ? '打开文件夹' : 'Open folder';
          btnOpenDlFolder.onclick = (ev) => {
             if (ev && ev.isTrusted === false && !isInternalAny()) return;
+            if (__fnxAndroidOpenDownloads) {
+               closeAllNavPopovers();
+               try { __fnxAndroidOpenDownloads(); } catch (_) {}
+               return;
+            }
             sendIpc({ type: 'OPEN_DOWNLOADS_DIR' });
          };
          dlHeaderActions.appendChild(btnClearDlList);
@@ -9410,6 +9551,11 @@
                      btnReveal.onclick = (ev) => {
                         ev.stopPropagation();
                         if (ev.isTrusted === false && !isInternalAny()) return;
+                        if (__fnxAndroidOpenDownloads) {
+                           closeAllNavPopovers();
+                           try { __fnxAndroidOpenDownloads(); } catch (_) {}
+                           return;
+                        }
                         sendIpc({
                            type: 'REVEAL_DOWNLOAD_FILE',
                            id: Number(dl.id) || 0,
@@ -9422,6 +9568,11 @@
                }
                row.onclick = (ev) => {
                   if (ev && ev.isTrusted === false && !isInternalAny()) return;
+                  if (__fnxAndroidOpenDownloads) {
+                     closeAllNavPopovers();
+                     try { __fnxAndroidOpenDownloads(); } catch (_) {}
+                     return;
+                  }
                   if (st === 'completed') {
                      sendIpc({
                         type: 'OPEN_DOWNLOAD_FILE',
@@ -12170,54 +12321,85 @@
                   : htmlText;
          }
 
+         function measureDevDrawerBottomPx() {
+            const mobDockBottom =
+               isMobilePlatform() &&
+               styles.mobile_bar.visible !== false &&
+               (styles.mobile_bar.position || 'bottom').toLowerCase() !== 'top';
+            if (!mobDockBottom) return 0;
+            const mobBarEl = shadowRoot
+               ? shadowRoot.getElementById('__fynexo_bottom_bar__')
+               : null;
+            if (mobBarEl) {
+               const br = mobBarEl.getBoundingClientRect();
+               if (br.height > 0) return Math.round(br.height);
+            }
+            return Math.max(44, parseInt(styles.mobile_bar.height || '54', 10) || 54);
+         }
+
          function ensureDevDrawerMounted() {
             if (devDrawerRefs && devDrawerEl) return devDrawerRefs;
             devDrawerEl = document.createElement('div');
             devDrawerEl.id = '__fynexo_dev_drawer__';
-            devDrawerEl.style.cssText =
-               'position: fixed; left: 0; right: 0; bottom: 0; height: 340px; max-height: 82vh; z-index: 2147483646; background: var(--fnx-bg, #121215); color: var(--fnx-fg, #f4f4f6); border-top: 1px solid var(--fnx-border-hover, rgba(255,255,255,0.22)); box-shadow: 0 -12px 36px rgba(0,0,0,0.45); display: none; flex-direction: column; font: 12px/1.4 system-ui, sans-serif; pointer-events: auto;';
 
             const resizeHandle = document.createElement('div');
-            resizeHandle.style.cssText =
-               'height: 8px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; flex-shrink: 0; touch-action: none;';
+            resizeHandle.className = 'fnx-dev-resize';
             const resizePill = document.createElement('span');
-            resizePill.style.cssText =
-               'width: 38px; height: 3px; border-radius: 999px; background: var(--fnx-border-hover); opacity: 0.75; pointer-events: none;';
+            resizePill.className = 'fnx-dev-resize-pill';
             resizeHandle.appendChild(resizePill);
             let dragResizing = false;
             let dragStartY = 0;
             let dragStartH = 340;
+            let lastDragH = 340;
+            let dragMovedDown = 0;
             resizeHandle.addEventListener('pointerdown', (ev) => {
                dragResizing = true;
                dragStartY = ev.clientY || 0;
                dragStartH = devDrawerEl.getBoundingClientRect().height || 340;
+               lastDragH = dragStartH;
+               dragMovedDown = 0;
                try { resizeHandle.setPointerCapture(ev.pointerId); } catch (_) {}
                ev.preventDefault();
             });
             resizeHandle.addEventListener('pointermove', (ev) => {
                if (!dragResizing) return;
-               const dy = dragStartY - (ev.clientY || 0);
-               const maxH = Math.round((window.innerHeight || 800) * 0.82);
-               const nextH = Math.max(180, Math.min(maxH, dragStartH + dy));
+               const curY = ev.clientY || 0;
+               const dy = dragStartY - curY;
+               dragMovedDown = Math.max(0, curY - dragStartY);
+               const dockB = measureDevDrawerBottomPx();
+               const maxH = Math.max(
+                  220,
+                  Math.round((window.innerHeight || 800) - dockB - 20),
+               );
+               const nextH = Math.max(88, Math.min(maxH, Math.round(dragStartH + dy)));
+               lastDragH = nextH;
                devDrawerEl.style.height = nextH + 'px';
             });
             const endResize = (ev) => {
                if (!dragResizing) return;
                dragResizing = false;
                try { resizeHandle.releasePointerCapture(ev.pointerId); } catch (_) {}
+               if (lastDragH < 150 || (isMobilePlatform() && dragMovedDown > 130 && lastDragH < 210)) {
+                  devDrawerEl.style.height = '340px';
+                  toggleDevDrawer(false);
+               } else if (lastDragH < 200) {
+                  devDrawerEl.style.height = '200px';
+               }
             };
             resizeHandle.addEventListener('pointerup', endResize);
             resizeHandle.addEventListener('pointercancel', endResize);
             devDrawerEl.appendChild(resizeHandle);
 
             const head = document.createElement('div');
-            head.style.cssText =
-               'display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 10px 6px; border-bottom: 1px solid var(--fnx-border); flex-wrap: wrap; flex-shrink: 0; background: var(--fnx-panel, rgba(255,255,255,0.03));';
+            head.className = 'fnx-dev-head';
+
+            const headTopRow = document.createElement('div');
+            headTopRow.className = 'fnx-dev-top-row';
 
             const tabWrap = document.createElement('div');
-            tabWrap.style.cssText = 'display: flex; align-items: center; gap: 4px; flex-wrap: wrap;';
+            tabWrap.className = 'fnx-dev-tabs';
             const rightWrap = document.createElement('div');
-            rightWrap.style.cssText = 'display: flex; align-items: center; gap: 4px; flex-wrap: wrap;';
+            rightWrap.className = 'fnx-dev-tools';
 
             const tabDefs = [
                ['console', 'Console', '控制台'],
@@ -12386,13 +12568,18 @@
             }
             const btnClose = document.createElement('button');
             btnClose.type = 'button';
-            btnClose.className = 'fnx-sp-close';
-            btnClose.title = 'Close (Esc)';
+            btnClose.className = 'fnx-sp-close fnx-dev-close';
+            btnClose.title = isZh() ? '关闭 (Esc)' : 'Close (Esc)';
+            btnClose.setAttribute('aria-label', 'Close developer drawer');
             btnClose.appendChild(createIcon('close'));
-            btnClose.onclick = () => toggleDevDrawer(false);
-            rightWrap.appendChild(btnClose);
+            btnClose.onclick = (ev) => {
+               if (ev && ev.stopPropagation) ev.stopPropagation();
+               toggleDevDrawer(false);
+            };
 
-            head.appendChild(tabWrap);
+            headTopRow.appendChild(tabWrap);
+            headTopRow.appendChild(btnClose);
+            head.appendChild(headTopRow);
             head.appendChild(rightWrap);
             devDrawerEl.appendChild(head);
 
@@ -12960,13 +13147,15 @@
                }
                return;
             }
-            const mobDockBottom =
-               isMobilePlatform() &&
-               styles.mobile_bar.visible !== false &&
-               (styles.mobile_bar.position || 'bottom').toLowerCase() !== 'top';
-            devDrawerEl.style.bottom = mobDockBottom
-               ? `calc(${styles.mobile_bar.height || '54px'} + env(safe-area-inset-bottom, 0px))`
-               : '0px';
+            const dockBottomPx = measureDevDrawerBottomPx();
+            devDrawerEl.style.bottom = dockBottomPx + 'px';
+            const availH = Math.max(
+               220,
+               Math.round((window.innerHeight || 800) - dockBottomPx - 20),
+            );
+            devDrawerEl.style.maxHeight = availH + 'px';
+            const curH = parseInt(devDrawerEl.style.height, 10) || 340;
+            devDrawerEl.style.height = Math.max(220, Math.min(availH, curH)) + 'px';
             devDrawerEl.style.display = 'flex';
             refs.syncDevQuickToggles();
             refs.selectDevTab(devActiveTab);
@@ -12986,7 +13175,7 @@
          historyCard.onclick = (e) => e.stopPropagation();
 
          const histHeader = document.createElement('div');
-         histHeader.className = 'fnx-pop-header';
+         histHeader.className = 'fnx-pop-head';
          const histTitle = document.createElement('span');
          histTitle.className = 'fnx-pop-title';
          histTitle.textContent = isZh() ? '浏览历史记录' : 'Browsing History';
@@ -13176,7 +13365,7 @@
          promptCard.onclick = (e) => e.stopPropagation();
 
          const promptHeader = document.createElement('div');
-         promptHeader.className = 'fnx-pop-header';
+         promptHeader.className = 'fnx-pop-head';
          const promptTitle = document.createElement('span');
          promptTitle.className = 'fnx-pop-title';
          const promptBadge = document.createElement('span');
@@ -13878,6 +14067,18 @@
          }
 
          // Mobile Webpage Input Auto-Hide
+         // Note: On native Android (__FNX_MOBILE_HOST), MainActivity tracks real OS IME visibility
+         // via WindowInsetsCompat.Type.ime() and invokes __fynexo_on_ime_inset__(true/false).
+         // Never hide the dock blindly on `focusin`, because pages like wikipedia.org set
+         // <input autofocus> on load without opening any soft keyboard.
+         let lastWebPointerDownTs = 0;
+         document.addEventListener(
+            'pointerdown',
+            () => {
+               lastWebPointerDownTs = Date.now();
+            },
+            { capture: true, passive: true },
+         );
          document.addEventListener(
             'focusin',
             (e) => {
@@ -13889,10 +14090,15 @@
                      ? getDeepActiveElement() || e.target
                      : null;
                   if (targetEl) {
-                     setKeyboardHiddenState(true);
+                     if (!__FNX_MOBILE_HOST) {
+                        if (Date.now() - lastWebPointerDownTs < 1200) {
+                           setKeyboardHiddenState(true);
+                        }
+                     }
                      try {
                         setTimeout(() => {
                            if (
+                              isPageKeyboardOpen &&
                               targetEl &&
                               typeof targetEl.scrollIntoView === 'function'
                            ) {
@@ -13912,7 +14118,7 @@
          document.addEventListener(
             'focusout',
             () => {
-               if (window.innerWidth <= 768) {
+               if (window.innerWidth <= 768 && !__FNX_MOBILE_HOST) {
                   setTimeout(() => {
                      if (!isEditableWebElement(getDeepActiveElement())) {
                         setKeyboardHiddenState(false);
@@ -13923,7 +14129,7 @@
             true,
          );
 
-         if (window.visualViewport) {
+         if (window.visualViewport && !__FNX_MOBILE_HOST) {
             window.visualViewport.addEventListener(
                'resize',
                () => {
@@ -14150,7 +14356,7 @@
                         payload: {},
                      });
                   } else {
-                     try { window.print(); } catch (_) {}
+                     triggerNativeOrWindowPrint();
                   }
                   return;
                }
@@ -14846,9 +15052,9 @@
             });
          }
 
-         // Universal Fixed Top Header HUD-Avoidance Harmonizer (single-WebView external desktop pages)
+         // Universal Fixed Header & Mobile Bottom-Bar HUD-Avoidance Harmonizer (single-WebView external pages)
          (() => {
-            if (IS_HUD_SHELL || IS_CONTENT_TAB || isInternalAny() || isMobilePlatform()) return;
+            if (IS_HUD_SHELL || IS_CONTENT_TAB || isInternalAny()) return;
             let fixedHdrPatching = false;
             let fixedHdrTimer = null;
             let fixedHdrLastRun = 0;
@@ -14917,6 +15123,31 @@
                }
             }
 
+            function unpatchFixedBottomBar(el) {
+               if (!el) return;
+               restoreInlineProp(
+                  el,
+                  'bottom',
+                  'data-fnx-fixed-prev-btm',
+                  'data-fnx-fixed-prev-btm-pri',
+               );
+               restoreInlineProp(
+                  el,
+                  'inset-block-end',
+                  'data-fnx-fixed-prev-ibe',
+                  'data-fnx-fixed-prev-ibe-pri',
+               );
+               el.removeAttribute('data-fnx-fixed-btm');
+               el.removeAttribute('data-fnx-fixed-orig-btm');
+            }
+
+            function resetAllFixedBottomBars() {
+               const patched = document.querySelectorAll('[data-fnx-fixed-btm]');
+               for (let i = 0; i < patched.length; i++) {
+                  unpatchFixedBottomBar(patched[i]);
+               }
+            }
+
             function isExcludedFixedNode(el) {
                if (!el || el.nodeType !== 1) return true;
                if (
@@ -14972,13 +15203,35 @@
             function measureHudOffsets() {
                if (
                   isInternalAny() ||
-                  isMobilePlatform() ||
                   isFullscreen ||
-                  styles.topbar.visible_on_desktop === false ||
                   window.innerWidth < 120 ||
                   window.innerHeight < 120
                ) {
-                  return { topPx: 0, leftPx: 0 };
+                  return { topPx: 0, leftPx: 0, bottomPx: 0 };
+               }
+               if (isMobilePlatform()) {
+                  if (styles.mobile_bar.visible === false || isPageKeyboardOpen) {
+                     return { topPx: 0, leftPx: 0, bottomPx: 0 };
+                  }
+                  const mbEl =
+                     shadowRoot &&
+                     shadowRoot.getElementById('__fynexo_bottom_bar__');
+                  const mbRect = mbEl ? mbEl.getBoundingClientRect() : null;
+                  const mbH =
+                     mbRect &&
+                     mbRect.height > 1 &&
+                     mbRect.height < window.innerHeight * 0.3
+                        ? Math.ceil(mbRect.height)
+                        : 0;
+                  const mobIsTop =
+                     (styles.mobile_bar.position || 'bottom').toLowerCase() ===
+                     'top';
+                  return mobIsTop
+                     ? { topPx: mbH, leftPx: 0, bottomPx: 0 }
+                     : { topPx: 0, leftPx: 0, bottomPx: mbH };
+               }
+               if (styles.topbar.visible_on_desktop === false) {
+                  return { topPx: 0, leftPx: 0, bottomPx: 0 };
                }
                const bodyRect = document.body
                   ? document.body.getBoundingClientRect()
@@ -14999,7 +15252,7 @@
                      'vertical' && !isMobilePlatform();
                const leftPx =
                   isVert && bodyRect ? Math.max(0, Math.round(bodyRect.left)) : 0;
-               return { topPx, leftPx };
+               return { topPx, leftPx, bottomPx: 0 };
             }
 
             function applyLeftPatch(el, cs, rect, leftPx) {
@@ -15034,12 +15287,161 @@
                );
             }
 
+            function patchFixedBottomBars(bottomPx) {
+               if (!Number.isFinite(bottomPx) || bottomPx <= 1) {
+                  resetAllFixedBottomBars();
+                  return;
+               }
+               const vh = window.innerHeight;
+               const vw = window.innerWidth;
+
+               const existing = document.querySelectorAll('[data-fnx-fixed-btm]');
+               for (let i = 0; i < existing.length; i++) {
+                  const el = existing[i];
+                  if (isExcludedFixedNode(el)) {
+                     unpatchFixedBottomBar(el);
+                     continue;
+                  }
+                  const cs = getComputedStyle(el);
+                  if (cs.position !== 'fixed') {
+                     unpatchFixedBottomBar(el);
+                     continue;
+                  }
+                  const origBtm =
+                     parseInt(
+                        el.getAttribute('data-fnx-fixed-orig-btm') || '0',
+                        10,
+                     ) || 0;
+                  const btmExpr = `${origBtm + bottomPx}px`;
+                  el.style.setProperty('bottom', btmExpr, 'important');
+                  el.style.setProperty('inset-block-end', btmExpr, 'important');
+               }
+
+               const seen = typeof Set === 'function' ? new Set() : null;
+               const candidates = [];
+               const pushCand = (el) => {
+                  if (!el || el.nodeType !== 1) return;
+                  if (seen) {
+                     if (seen.has(el)) return;
+                     seen.add(el);
+                  } else if (candidates.indexOf(el) !== -1) {
+                     return;
+                  }
+                  candidates.push(el);
+               };
+
+               const sem = document.querySelectorAll(
+                  'ytm-pivot-bar-renderer, footer, nav, [role="tablist"], [role="navigation"]',
+               );
+               for (let i = 0; i < sem.length; i++) pushCand(sem[i]);
+
+               if (typeof document.elementsFromPoint === 'function') {
+                  const probeYs = [
+                     Math.max(4, vh - 4),
+                     Math.max(4, vh - Math.min(26, Math.round(bottomPx * 0.5))),
+                     Math.max(4, vh - bottomPx + 4),
+                  ];
+                  const probeXs = [
+                     Math.round(vw * 0.16),
+                     Math.round(vw * 0.38),
+                     Math.round(vw * 0.62),
+                     Math.round(vw * 0.84),
+                  ];
+                  for (let py = 0; py < probeYs.length; py++) {
+                     for (let px = 0; px < probeXs.length; px++) {
+                        let hits = [];
+                        try {
+                           hits = document.elementsFromPoint(
+                              probeXs[px],
+                              probeYs[py],
+                           );
+                        } catch (_) {}
+                        for (let h = 0; h < hits.length; h++) {
+                           let cur = hits[h];
+                           for (
+                              let d = 0;
+                              d < 10 &&
+                              cur &&
+                              cur !== document.body &&
+                              cur !== document.documentElement;
+                              d++
+                           ) {
+                              if (cur.id === '__fynexo_host__') break;
+                              pushCand(cur);
+                              cur = cur.parentElement;
+                           }
+                        }
+                     }
+                  }
+               }
+
+               for (let i = 0; i < candidates.length; i++) {
+                  const el = candidates[i];
+                  if (
+                     isExcludedFixedNode(el) ||
+                     el.hasAttribute('data-fnx-fixed-btm')
+                  ) {
+                     continue;
+                  }
+                  const cs = getComputedStyle(el);
+                  if (
+                     cs.position !== 'fixed' ||
+                     cs.display === 'none' ||
+                     cs.visibility === 'hidden' ||
+                     parseFloat(cs.opacity) === 0
+                  ) {
+                     continue;
+                  }
+                  const rect = el.getBoundingClientRect();
+                  if (
+                     rect.height < 24 ||
+                     rect.height > 120 ||
+                     rect.height >= vh * 0.25 ||
+                     rect.width < vw * 0.6
+                  ) {
+                     continue;
+                  }
+                  if (rect.bottom <= vh - bottomPx + 2 || rect.bottom > vh + 8) {
+                     continue;
+                  }
+                  if (cs.bottom === 'auto' && rect.top < vh * 0.65) {
+                     continue;
+                  }
+                  const parsedBtm =
+                     cs.bottom && cs.bottom !== 'auto'
+                        ? parseFloat(cs.bottom)
+                        : NaN;
+                  const origBtm = Number.isFinite(parsedBtm)
+                     ? Math.max(0, Math.round(parsedBtm))
+                     : Math.max(0, Math.round(vh - rect.bottom));
+
+                  saveInlineProp(
+                     el,
+                     'bottom',
+                     'data-fnx-fixed-prev-btm',
+                     'data-fnx-fixed-prev-btm-pri',
+                  );
+                  saveInlineProp(
+                     el,
+                     'inset-block-end',
+                     'data-fnx-fixed-prev-ibe',
+                     'data-fnx-fixed-prev-ibe-pri',
+                  );
+                  el.setAttribute('data-fnx-fixed-btm', '1');
+                  el.setAttribute('data-fnx-fixed-orig-btm', String(origBtm));
+                  const btmExpr = `${origBtm + bottomPx}px`;
+                  el.style.setProperty('bottom', btmExpr, 'important');
+                  el.style.setProperty('inset-block-end', btmExpr, 'important');
+               }
+            }
+
             function patchFixedHeaders() {
                if (fixedHdrPatching) return;
                fixedHdrLastRun = Date.now();
                fixedHdrPatching = true;
                try {
-                  const { topPx, leftPx } = measureHudOffsets();
+                  const { topPx, leftPx, bottomPx } = measureHudOffsets();
+                  patchFixedBottomBars(bottomPx);
                   if (!Number.isFinite(topPx) || topPx <= 1) {
                      resetAllFixedHeaders();
                      return;
@@ -15356,7 +15758,7 @@
             }
 
             function scheduleFixedHeaderSync(immediate) {
-               if (isInternalAny() || isMobilePlatform()) return;
+               if (isInternalAny()) return;
                ensureBodyHooks();
                if (immediate) {
                   if (fixedHdrTimer) {

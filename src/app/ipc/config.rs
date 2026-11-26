@@ -268,6 +268,15 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                     adblock::open_folder_in_explorer(&crate::config::themes_dir());
                 }
             }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let zh = is_zh_cfg(app_state);
+                let _ = proxy.send_event(UserEvent::Toast(if zh {
+                    "手机端请使用「导入 / 导出主题 .json」管理主题文件".to_string()
+                } else {
+                    "On mobile, use Import / Export Theme .json to manage themes".to_string()
+                }));
+            }
         }
         "SAVE_KEYBINDS" => {
             if let Some(kb_val) = val.get("keybinds") {
@@ -450,6 +459,15 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
         "OPEN_DATA_DIR" => {
             #[cfg(target_os = "windows")]
             adblock::open_folder_in_explorer(data_dir());
+            #[cfg(not(target_os = "windows"))]
+            {
+                let zh = is_zh_cfg(app_state);
+                let _ = proxy.send_event(UserEvent::Toast(if zh {
+                    "应用配置目录位于手机内部沙盒存储，请使用「导出全量备份」".to_string()
+                } else {
+                    "App data lives in private sandbox storage; use Export Full Backup".to_string()
+                }));
+            }
         }
         "OPEN_DOWNLOADS_DIR" => {
             #[cfg(target_os = "windows")]
@@ -457,6 +475,22 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                 let custom = app_state.lock_safe().config.downloads_dir.clone();
                 let dir = crate::config::resolved_downloads_dir(&custom);
                 adblock::open_folder_in_explorer(&dir);
+            }
+            #[cfg(target_os = "android")]
+            {
+                let _ = proxy.send_event(UserEvent::EvalScript {
+                    win_id: 1,
+                    script: "if(window.__fynexo_android__&&typeof window.__fynexo_android__.openDownloads==='function'){window.__fynexo_android__.openDownloads();}".to_string(),
+                });
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "android")))]
+            {
+                let zh = is_zh_cfg(app_state);
+                let _ = proxy.send_event(UserEvent::Toast(if zh {
+                    "请在系统文件管理器中查看下载目录".to_string()
+                } else {
+                    "Open Downloads in your system file manager".to_string()
+                }));
             }
         }
         "OPEN_DOWNLOAD_FILE" => {
@@ -486,7 +520,15 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                         }));
                     }
                 }
-                #[cfg(not(target_os = "windows"))]
+                #[cfg(target_os = "android")]
+                {
+                    let _ = fname;
+                    let _ = proxy.send_event(UserEvent::EvalScript {
+                        win_id: 1,
+                        script: "if(window.__fynexo_android__&&typeof window.__fynexo_android__.openDownloads==='function'){window.__fynexo_android__.openDownloads();}".to_string(),
+                    });
+                }
+                #[cfg(not(any(target_os = "windows", target_os = "android")))]
                 let _ = fname;
             }
         }
@@ -509,7 +551,15 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                         let _ = adblock::reveal_download_in_explorer(&dir, fname);
                     }
                 }
-                #[cfg(not(target_os = "windows"))]
+                #[cfg(target_os = "android")]
+                {
+                    let _ = fname;
+                    let _ = proxy.send_event(UserEvent::EvalScript {
+                        win_id: 1,
+                        script: "if(window.__fynexo_android__&&typeof window.__fynexo_android__.openDownloads==='function'){window.__fynexo_android__.openDownloads();}".to_string(),
+                    });
+                }
+                #[cfg(not(any(target_os = "windows", target_os = "android")))]
                 let _ = fname;
             }
         }

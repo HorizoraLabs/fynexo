@@ -1081,28 +1081,31 @@
         @media (max-width: 768px) {
             #__fynexo_newtab_app__ {
                 padding-top: calc(var(--fnx-host-top-offset, 0px) + 14px);
-                padding-bottom: calc(var(--fnx-host-bottom-offset, 54px) + max(env(safe-area-inset-bottom, 0px), 12px) + 24px);
+                padding-bottom: calc(var(--fnx-host-bottom-offset, 54px) + env(safe-area-inset-bottom, 0px) + 64px);
                 padding-left: 14px;
                 padding-right: 14px;
             }
-            .nt-shell { gap: 22px; }
-            .nt-hero { margin-top: 12px; gap: 20px; }
+            .nt-shell { gap: 20px; }
+            .nt-hero { margin-top: 10px; gap: 18px; }
             .nt-clock { font-size: 42px; }
+            .nt-search-box { min-height: 48px; padding: 7px 10px; gap: 8px; border-radius: var(--r-lg); }
+            .nt-search-input { font-size: 13.5px; }
             .nt-pill { padding: 5px 10px; }
-            .nt-engine-btn { height: 34px; padding: 0 9px; }
+            .nt-engine-btn { height: 32px; padding: 0 8px; }
             .nt-engine-opt { min-height: 38px; padding: 8px 10px; }
             .nt-mini-btn { padding: 6px 10px; font-size: 12px; }
             #addBmTitle { max-width: none !important; flex: 1 1 100%; }
             .nt-field, .nt-save-btn { height: 36px; }
             .bm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-            .bm-card { height: 42px; padding: 0 11px; }
-            .bm-del { opacity: 0.72; pointer-events: auto; }
+            .bm-card { height: 42px; padding: 0 28px 0 11px; }
+            .bm-card:hover .bm-title { padding-right: 0; }
+            .bm-del { right: 6px; opacity: 0.52; background: transparent; pointer-events: auto; }
             .hist-row { min-height: 40px; padding: 8px 10px; }
             .nt-kbd-hint, .hist-kbd { display: none; }
             .hist-host { max-width: 110px; }
             .nt-customize-fab {
                 right: 14px;
-                bottom: calc(var(--fnx-host-bottom-offset, 54px) + max(env(safe-area-inset-bottom, 0px), 12px) + 12px);
+                bottom: calc(var(--fnx-host-bottom-offset, 54px) + env(safe-area-inset-bottom, 0px) + 12px);
             }
             .nt-customize-panel {
                 right: 14px;
@@ -1110,7 +1113,7 @@
                 width: auto;
                 max-width: 340px;
                 margin-left: auto;
-                bottom: calc(var(--fnx-host-bottom-offset, 54px) + max(env(safe-area-inset-bottom, 0px), 12px) + 52px);
+                bottom: calc(var(--fnx-host-bottom-offset, 54px) + env(safe-area-inset-bottom, 0px) + 52px);
                 max-height: 62dvh;
                 overflow-y: auto;
             }

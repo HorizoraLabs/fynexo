@@ -819,6 +819,21 @@
                     color: var(--fnx-secondary);
                     flex-shrink: 0;
                 }
+                .fnx-pop-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    height: 20px;
+                    padding: 0 7px;
+                    border-radius: var(--r-pill);
+                    background: var(--fnx-surface);
+                    border: 1px solid var(--fnx-border);
+                    color: var(--fnx-secondary);
+                    font-size: 11px;
+                    font-weight: 500;
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                }
                 .fnx-pop-dot {
                     width: 5px;
                     height: 5px;
@@ -1831,39 +1846,46 @@
                         top: calc(10px + env(safe-area-inset-top, 0px));
                         left: 10px;
                         right: 10px;
+                        height: 40px;
                     }
                     #__fynexo_find_input__ {
                         flex: 1;
+                        min-width: 0;
                         width: auto;
                         min-height: 32px;
                         font-size: 13px;
                     }
                     #__fynexo_reader__ {
                         top: 0;
-                        padding: calc(18px + env(safe-area-inset-top, 0px)) 16px calc(68px + max(env(safe-area-inset-bottom, 0px), 12px));
+                        bottom: 0;
+                        padding: 0;
+                    }
+                    .fnx-rd-toolbar {
+                        padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+                        gap: 8px;
+                    }
+                    .fnx-rd-meta {
+                        display: none;
+                    }
+                    .fnx-rd-controls {
+                        width: 100%;
+                        justify-content: space-between;
+                        gap: 6px;
+                    }
+                    #__fynexo_reader_width__ {
+                        display: none;
+                    }
+                    .fnx-rd-seg:has(#__fynexo_reader_width__) {
+                        display: none;
+                    }
+                    #__fynexo_reader_article__ {
+                        padding: 20px 16px calc(48px + env(safe-area-inset-bottom, 0px));
                     }
                     #__fynexo_hud_toast__ {
                         left: 14px;
                         right: 14px;
-                        bottom: calc(64px + max(env(safe-area-inset-bottom, 0px), 12px));
+                        bottom: calc(64px + env(safe-area-inset-bottom, 0px));
                         justify-content: center;
-                    }
-                    #__fynexo_side_panel__ {
-                        width: 100vw;
-                        max-width: 100vw;
-                        border-left: none;
-                    }
-                    #__fynexo_history_root__ {
-                        align-items: stretch;
-                        justify-content: flex-end;
-                        padding: 0;
-                    }
-                    #__fynexo_history_card__ {
-                        width: 100%;
-                        max-height: 82dvh;
-                        border-radius: 16px 16px 0 0;
-                        border-bottom: none;
-                        padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
                     }
                 }
 
@@ -1887,7 +1909,7 @@
                 #__fynexo_shell__.fnx-is-mobile #__fynexo_side_panel__ {
                     width: 100vw;
                     max-width: 100vw;
-                    height: calc(100dvh - var(--fnx-host-top-offset, 0px) - calc(var(--fnx-host-bottom-offset, 0px) + max(env(safe-area-inset-bottom, 0px), 12px)));
+                    height: calc(100dvh - var(--fnx-host-top-offset, 0px) - calc(var(--fnx-host-bottom-offset, 0px) + env(safe-area-inset-bottom, 0px)));
                     border-left: none;
                 }
                 .fnx-sp-header {
@@ -1901,13 +1923,27 @@
                     flex-shrink: 0;
                 }
                 .fnx-sp-tabs {
-                    grid-template-columns: repeat(2, auto);
+                    grid-template-columns: repeat(3, auto);
+                    min-width: 0;
                 }
                 .fnx-sp-tab {
                     display: inline-flex;
                     align-items: center;
                     gap: 5px;
                     padding: 0 9px;
+                    white-space: nowrap;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-sp-tabs {
+                    overflow-x: auto;
+                    scrollbar-width: none;
+                    max-width: calc(100% - 36px);
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-sp-tabs::-webkit-scrollbar {
+                    display: none;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-sp-tab {
+                    padding: 0 7px;
+                    font-size: 11px;
                 }
                 .fnx-sp-tab svg,
                 .fnx-sp-close svg {
@@ -2035,6 +2071,122 @@
                     border-color: var(--fnx-accent);
                 }
 
+                /* Built-in Developer Drawer */
+                #__fynexo_dev_drawer__ {
+                    position: fixed;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    height: 340px;
+                    max-height: 82vh;
+                    z-index: 2147483646;
+                    background: var(--fnx-bg);
+                    color: var(--fnx-fg);
+                    border-top: 1px solid var(--fnx-border-hover);
+                    box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.45);
+                    display: none;
+                    flex-direction: column;
+                    overflow: hidden;
+                    font: 12px/1.4 system-ui, sans-serif;
+                    pointer-events: auto;
+                }
+                .fnx-dev-resize {
+                    height: 14px;
+                    cursor: ns-resize;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                    touch-action: none;
+                    background: var(--fnx-panel);
+                }
+                .fnx-dev-resize-pill {
+                    width: 40px;
+                    height: 3.5px;
+                    border-radius: var(--r-pill);
+                    background: var(--fnx-border-hover);
+                    opacity: 0.78;
+                    pointer-events: none;
+                }
+                .fnx-dev-head {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 6px;
+                    padding: 0 10px 6px;
+                    border-bottom: 1px solid var(--fnx-border);
+                    flex-wrap: wrap;
+                    flex-shrink: 0;
+                    background: var(--fnx-panel);
+                }
+                .fnx-dev-top-row {
+                    display: contents;
+                }
+                .fnx-dev-tabs {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    flex-wrap: wrap;
+                    min-width: 0;
+                    flex: 1 1 auto;
+                    order: 1;
+                }
+                .fnx-dev-tools {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    flex-wrap: wrap;
+                    min-width: 0;
+                    order: 2;
+                }
+                .fnx-dev-close {
+                    flex-shrink: 0;
+                    order: 3;
+                    border: 1px solid var(--fnx-border);
+                    background: var(--fnx-surface);
+                    color: var(--fnx-secondary);
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-dev-resize {
+                    height: 20px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-dev-head {
+                    flex-direction: column;
+                    align-items: stretch;
+                    flex-wrap: nowrap;
+                    gap: 6px;
+                    padding: 0 10px 8px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-dev-top-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    width: 100%;
+                    min-width: 0;
+                    flex-wrap: nowrap;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-dev-tabs,
+                #__fynexo_shell__.fnx-is-mobile .fnx-dev-tools {
+                    flex-wrap: nowrap;
+                    overflow-x: auto;
+                    overscroll-behavior-x: contain;
+                    -webkit-overflow-scrolling: touch;
+                    scrollbar-width: none;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-dev-tabs::-webkit-scrollbar,
+                #__fynexo_shell__.fnx-is-mobile .fnx-dev-tools::-webkit-scrollbar {
+                    display: none;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-dev-tabs > *,
+                #__fynexo_shell__.fnx-is-mobile .fnx-dev-tools > * {
+                    flex-shrink: 0;
+                    white-space: nowrap;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-dev-close {
+                    width: 32px;
+                    height: 32px;
+                    color: var(--fnx-fg);
+                }
+
                 /* History Drawer Modal (Linear / Raycast Style) */
                 #__fynexo_history_root__ {
                     position: fixed;
@@ -2056,6 +2208,34 @@
                     display: flex;
                     flex-direction: column;
                     overflow: hidden;
+                }
+                #__fynexo_shell__.fnx-is-mobile #__fynexo_history_root__ {
+                    flex-direction: column;
+                    align-items: stretch;
+                    justify-content: flex-end;
+                    padding: 0;
+                }
+                #__fynexo_shell__.fnx-is-mobile #__fynexo_history_card__ {
+                    width: 100%;
+                    max-height: 82dvh;
+                    border-radius: 16px 16px 0 0;
+                    border-bottom: none;
+                    padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+                }
+                @media (max-width: 768px) {
+                    #__fynexo_history_root__ {
+                        flex-direction: column;
+                        align-items: stretch;
+                        justify-content: flex-end;
+                        padding: 0;
+                    }
+                    #__fynexo_history_card__ {
+                        width: 100%;
+                        max-height: 82dvh;
+                        border-radius: 16px 16px 0 0;
+                        border-bottom: none;
+                        padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+                    }
                 }
                 .fnx-hist-search-wrap {
                     display: flex;

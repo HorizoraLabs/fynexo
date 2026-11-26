@@ -239,6 +239,32 @@ impl TabPool {
         Some(tv)
     }
 
+    /// Android `wry` owns a single `RustWebView` per `WryActivity` (creating another replaces
+    /// `setContentView`, `set_visible` is a no-op, and `MainPipe` is `bounded(8)`). Rebind the
+    /// single live WebView to `new_tab_id` instead of spawning or blanking secondary instances.
+    #[cfg(target_os = "android")]
+    pub fn rebind_single_webview(&mut self, new_tab_id: usize) -> Option<&wry::WebView> {
+        let tv = self
+            .live_webviews
+            .remove(&new_tab_id)
+            .or_else(|| {
+                let first_key = self.live_webviews.keys().next().copied()?;
+                self.live_webviews.remove(&first_key)
+            })
+            .or_else(|| self.idle_webview.take())?;
+        tv.bound_tab_id.store(new_tab_id, Ordering::Release);
+        self.live_webviews.clear();
+        self.lru_order.clear();
+        self.last_active_at.clear();
+        self.runtime_hashes.clear();
+        self.pending_reveal = None;
+        self.live_webviews.insert(new_tab_id, tv);
+        self.lru_order.push_back(new_tab_id);
+        self.last_active_at.insert(new_tab_id, Instant::now());
+        self.visible_tab_id = Some(new_tab_id);
+        self.get_webview(new_tab_id)
+    }
+
     pub fn pause_media(&self, id: usize) {
         if let Some(tv) = self.live_webviews.get(&id) {
             let _ = tv.webview.evaluate_script(PAUSE_MEDIA_JS);
@@ -354,6 +380,13 @@ impl TabPool {
         active_id: usize,
         max_cached_normal: usize,
     ) -> usize {
+        #[cfg(target_os = "android")]
+        {
+            let _ = (tabs, active_id, max_cached_normal);
+            0
+        }
+        #[cfg(not(target_os = "android"))]
+        {
         let visible_id = self.visible_tab_id;
         let pending_id = self.pending_reveal_id();
         let is_bg = |tid: usize| tabs.iter().any(|t| t.id == tid && t.background_play);
@@ -388,6 +421,7 @@ impl TabPool {
             }
         }
         evicted
+        }
     }
 
     /// Puts idle background tabs that exceed `max_idle` to sleep to reclaim RAM automatically.
@@ -397,6 +431,13 @@ impl TabPool {
         active_id: usize,
         max_idle: Duration,
     ) -> usize {
+        #[cfg(target_os = "android")]
+        {
+            let _ = (tabs, active_id, max_idle);
+            0
+        }
+        #[cfg(not(target_os = "android"))]
+        {
         if max_idle.is_zero() {
             return 0;
         }
@@ -434,6 +475,7 @@ impl TabPool {
             }
         }
         slept
+        }
     }
 
     /// Keeps only the most recent `hot_limit` tabs at `MemoryUsageLevel::Normal` (hot frame buffer)
@@ -486,6 +528,12 @@ impl TabPool {
     }
 
     pub fn prune_closed_tabs(&mut self, tabs: &[TabItem]) {
+        #[cfg(target_os = "android")]
+        {
+            let _ = tabs;
+        }
+        #[cfg(not(target_os = "android"))]
+        {
         let dead_ids: Vec<usize> = self
             .live_webviews
             .keys()
@@ -506,9 +554,17 @@ impl TabPool {
                 self.recycle_or_drop(tv);
             }
         }
+        }
     }
 
     pub fn reset_all(&mut self) {
+        #[cfg(target_os = "android")]
+        {
+            self.pending_reveal = None;
+            self.runtime_hashes.clear();
+        }
+        #[cfg(not(target_os = "android"))]
+        {
         self.visible_tab_id = None;
         self.pending_reveal = None;
         self.lru_order.clear();
@@ -517,6 +573,7 @@ impl TabPool {
         let drained: Vec<TabWebView> = self.live_webviews.drain().map(|(_, tv)| tv).collect();
         for tv in drained {
             self.recycle_or_drop(tv);
+        }
         }
     }
 

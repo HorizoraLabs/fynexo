@@ -420,6 +420,15 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
         "OPEN_CHROME_EXT_DIR" => {
             #[cfg(target_os = "windows")]
             adblock::open_folder_in_explorer(&crate::chrome_ext::chrome_extensions_dir());
+            #[cfg(not(target_os = "windows"))]
+            {
+                let zh = is_zh_cfg(app_state);
+                let _ = proxy.send_event(UserEvent::Toast(if zh {
+                    "Chrome 扩展目录仅支持 Windows 桌面端".to_string()
+                } else {
+                    "Chrome extensions directory is Windows desktop-only".to_string()
+                }));
+            }
         }
         _ => return false,
     }

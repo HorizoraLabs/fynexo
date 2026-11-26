@@ -134,17 +134,59 @@ pub fn get_process_tree_memory() -> MemorySnapshot {
     get_process_tree_memory_with_roots(&[])
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub fn get_current_process_memory_mb() -> (f64, f64) {
+    let Ok(status) = std::fs::read_to_string("/proc/self/status") else {
+        return (0.0, 0.0);
+    };
+    let mut rss_kb = 0.0f64;
+    let mut vm_kb = 0.0f64;
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("VmRSS:") {
+            rss_kb = rest
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+        } else if let Some(rest) = line.strip_prefix("VmSize:") {
+            vm_kb = rest
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+        }
+    }
+    (rss_kb / 1024.0, vm_kb / 1024.0)
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub fn get_process_tree_memory_with_roots(_extra_roots: &[u32]) -> MemorySnapshot {
+    let (host_mb, commit_mb) = get_current_process_memory_mb();
+    MemorySnapshot {
+        host_mb,
+        webview_mb: 0.0,
+        total_mb: host_mb,
+        commit_mb,
+        process_count: 1,
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub fn get_process_tree_memory() -> MemorySnapshot {
+    get_process_tree_memory_with_roots(&[])
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "android", target_os = "linux")))]
 pub fn get_current_process_memory_mb() -> (f64, f64) {
     (0.0, 0.0)
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "android", target_os = "linux")))]
 pub fn get_process_tree_memory_with_roots(_extra_roots: &[u32]) -> MemorySnapshot {
     MemorySnapshot::default()
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "android", target_os = "linux")))]
 pub fn get_process_tree_memory() -> MemorySnapshot {
     MemorySnapshot::default()
 }
