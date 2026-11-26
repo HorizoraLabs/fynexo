@@ -30,7 +30,9 @@
             bangs: DEFAULT_BANGS
         }, boot.config || {});
         function isZh() {
-            return String(config.language || 'zh').toLowerCase() !== 'en';
+            return typeof FynexoI18n !== 'undefined'
+                ? FynexoI18n.isZhLocale(config.language)
+                : String(config.language || 'zh').toLowerCase().startsWith('zh');
         }
         let styles = boot.styles || {};
         let activeTheme = boot.active_theme || {};
@@ -383,49 +385,44 @@
 
         function applySurface() {
             const useCustom = !!(styles.colors && styles.colors.use_custom_colors);
-            const src = useCustom ? styles.colors : (activeTheme || {});
-            const isDefaultDark = !useCustom && (!config.theme || config.theme === 'dark');
-            const accent = src.accent || '#7A88F7';
+            const src = useCustom ? (styles.colors || {}) : (activeTheme || {});
+            const d = (typeof DEFAULT_STYLES !== 'undefined' && DEFAULT_STYLES.colors) || {};
             const root = document.documentElement;
 
-            if (isDefaultDark) {
-                root.removeAttribute('data-theme-kind');
-                root.style.setProperty('--nt-bg', '#0B0C10');
-                root.style.setProperty('--nt-surface', '#171A24');
-                root.style.setProperty('--nt-elevated', '#1F2330');
-                root.style.setProperty('--nt-hover', '#1B1F2C');
-                root.style.setProperty('--nt-hairline', 'rgba(243, 244, 248, 0.08)');
-                root.style.setProperty('--nt-hairline-hover', 'rgba(243, 244, 248, 0.16)');
-                root.style.setProperty('--nt-top-highlight', 'rgba(243, 244, 248, 0.16)');
-                root.style.setProperty('--nt-fg', '#F3F4F8');
-                root.style.setProperty('--nt-dim', '#A6ADBE');
-                root.style.setProperty('--nt-faint', '#6E768A');
-                root.style.setProperty('--nt-accent', src.accent || '#7C86FF');
-                root.style.setProperty('--nt-accent-soft', `color-mix(in srgb, ${src.accent || '#7C86FF'} 16%, transparent)`);
+            const bg = src.bg || d.bg;
+            const light = isLightHex(bg);
+            if (light) {
+                root.setAttribute('data-theme-kind', 'light');
             } else {
-                const bg = src.bg || '#0B0B0E';
-                const light = isLightHex(bg);
-                if (light) {
-                    root.setAttribute('data-theme-kind', 'light');
-                } else {
-                    root.removeAttribute('data-theme-kind');
-                }
-                const fg = src.fg || '#F4F4F5';
-                const surface = src.surface || src.panel || '#141418';
-                const elevated = src.elevated || src.hover || '#1B1B21';
-                root.style.setProperty('--nt-bg', bg);
-                root.style.setProperty('--nt-surface', surface);
-                root.style.setProperty('--nt-elevated', elevated);
-                root.style.setProperty('--nt-hover', src.hover || elevated);
-                root.style.setProperty('--nt-hairline', `color-mix(in srgb, ${fg} ${light ? '9%' : '7%'}, transparent)`);
-                root.style.setProperty('--nt-hairline-hover', `color-mix(in srgb, ${fg} ${light ? '18%' : '14%'}, transparent)`);
-                root.style.setProperty('--nt-top-highlight', light ? 'rgba(255, 255, 255, 0.9)' : `color-mix(in srgb, ${fg} 15%, transparent)`);
-                root.style.setProperty('--nt-fg', fg);
-                root.style.setProperty('--nt-dim', src.secondary || '#71717A');
-                root.style.setProperty('--nt-faint', src.muted || '#52525B');
-                root.style.setProperty('--nt-accent', accent);
-                root.style.setProperty('--nt-accent-soft', src.accent_bg || src.accentBg || `color-mix(in srgb, ${accent} 16%, transparent)`);
+                root.removeAttribute('data-theme-kind');
             }
+            const fg = src.fg || d.fg;
+            const panel = src.panel || d.panel;
+            const elevated = src.elevated || d.elevated;
+            const hover = src.hover || d.hover || elevated;
+            const accent = src.accent || d.accent;
+            const onAccent = (() => {
+                const m = String(accent || '').trim().match(/^#([0-9a-f]{6})$/i);
+                if (!m) return '#ffffff';
+                const n = parseInt(m[1], 16);
+                const lin = (c) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+                const lum = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+                return lum > 0.185 ? '#0b0e17' : '#ffffff';
+            })();
+
+            root.style.setProperty('--nt-bg', bg);
+            root.style.setProperty('--nt-surface', panel);
+            root.style.setProperty('--nt-elevated', elevated);
+            root.style.setProperty('--nt-hover', hover);
+            root.style.setProperty('--nt-hairline', `color-mix(in srgb, ${fg} ${light ? '9%' : '8%'}, transparent)`);
+            root.style.setProperty('--nt-hairline-hover', `color-mix(in srgb, ${fg} ${light ? '18%' : '16%'}, transparent)`);
+            root.style.setProperty('--nt-top-highlight', light ? 'rgba(255, 255, 255, 0.9)' : `color-mix(in srgb, ${fg} 15%, transparent)`);
+            root.style.setProperty('--nt-fg', fg);
+            root.style.setProperty('--nt-dim', src.secondary || d.secondary);
+            root.style.setProperty('--nt-faint', src.muted || d.muted);
+            root.style.setProperty('--nt-accent', accent);
+            root.style.setProperty('--nt-on-accent', onAccent);
+            root.style.setProperty('--nt-accent-soft', `color-mix(in srgb, ${accent} ${light ? '14%' : '18%'}, transparent)`);
 
             const nt = (styles && styles.newtab) || {};
             const bannerEl = document.getElementById('ntCustomBanner');
@@ -570,12 +567,63 @@
             updateClock();
         }
 
+        let activeBmFolder = '';
+
         function renderBookmarks() {
             const grid = document.getElementById('bmGrid');
             grid.textContent = '';
-            const frag = document.createDocumentFragment();
 
-            if (bookmarks.length === 0) {
+            // Collect unique folders across bookmarks
+            const folderSet = [];
+            for (let i = 0; i < bookmarks.length; i++) {
+                const f = String((bookmarks[i] && bookmarks[i].folder) || '').trim();
+                if (f && folderSet.indexOf(f) === -1) folderSet.push(f);
+            }
+            if (activeBmFolder && folderSet.indexOf(activeBmFolder) === -1) {
+                activeBmFolder = '';
+            }
+
+            let folderBar = document.getElementById('bmFolderBar');
+            if (folderSet.length > 0) {
+                if (!folderBar && grid.parentNode) {
+                    folderBar = document.createElement('div');
+                    folderBar.id = 'bmFolderBar';
+                    folderBar.style.cssText = 'display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; align-items: center;';
+                    grid.parentNode.insertBefore(folderBar, grid);
+                }
+                if (folderBar) {
+                    folderBar.style.display = 'flex';
+                    folderBar.textContent = '';
+                    const makeChip = (label, val) => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        const isActive = activeBmFolder === val;
+                        btn.textContent = label;
+                        btn.style.cssText = 'height: 26px; padding: 0 10px; border-radius: 999px; font-size: 11.5px; font-weight: 500; cursor: pointer; border: 1px solid ' +
+                            (isActive ? 'var(--nt-accent)' : 'var(--nt-hairline)') +
+                            '; background: ' +
+                            (isActive ? 'var(--nt-accent-soft)' : 'var(--nt-surface)') +
+                            '; color: ' +
+                            (isActive ? 'var(--nt-fg)' : 'var(--nt-dim)') + ';';
+                        btn.onclick = () => {
+                            activeBmFolder = val;
+                            renderBookmarks();
+                        };
+                        return btn;
+                    };
+                    folderBar.appendChild(makeChip(isZh() ? '全部' : 'All', ''));
+                    folderSet.forEach(f => folderBar.appendChild(makeChip(f, f)));
+                }
+            } else if (folderBar) {
+                folderBar.style.display = 'none';
+            }
+
+            const frag = document.createDocumentFragment();
+            const visibleBookmarks = activeBmFolder
+                ? bookmarks.filter(bm => String((bm && bm.folder) || '').trim() === activeBmFolder)
+                : bookmarks;
+
+            if (visibleBookmarks.length === 0) {
                 const emptyBtn = document.createElement('button');
                 emptyBtn.type = 'button';
                 emptyBtn.className = 'bm-card bm-card--empty';
@@ -589,7 +637,7 @@
                 return;
             }
 
-            bookmarks.forEach(bm => {
+            visibleBookmarks.forEach(bm => {
                 const card = document.createElement('div');
                 card.className = 'bm-card';
                 card.title = bm.url || '';
@@ -656,9 +704,35 @@
             return stripped || formatHost(rawUrl);
         }
 
+        function isNoisyRecentPage(rawUrl, cleanTitle) {
+            const u = String(rawUrl || '').toLowerCase();
+            const t = String(cleanTitle || '').toLowerCase();
+            if (
+                t.startsWith('page not found') ||
+                t.startsWith('404') ||
+                t.startsWith('redirecting') ||
+                t.startsWith('sign in to') ||
+                t === 'sign in - google accounts'
+            ) {
+                return true;
+            }
+            if (
+                u.includes('/sessions/two-factor') ||
+                u.includes('/social/google/initiate') ||
+                u.includes('accounts.google.com/v3/signin') ||
+                u.includes('accounts.google.com/o/oauth2') ||
+                u.includes('/i/flow/login') ||
+                u.includes('/i/jf/onboarding')
+            ) {
+                return true;
+            }
+            return false;
+        }
+
         function dedupeHistoryItems(items) {
             const seenUrls = new Set();
             const seenTitles = new Set();
+            const hostCounts = Object.create(null);
             const out = [];
             for (let i = 0; i < items.length; i++) {
                 const item = items[i];
@@ -666,10 +740,14 @@
                 const urlKey = canonicalHistoryUrl(item.url);
                 if (!urlKey || seenUrls.has(urlKey)) continue;
                 const cleanTitle = cleanHistoryTitle(item.title, item.url);
-                const titleKey = cleanTitle ? `${formatHost(item.url).toLowerCase()}\0${cleanTitle}` : '';
+                if (isNoisyRecentPage(item.url, cleanTitle)) continue;
+                const hostKey = formatHost(item.url).toLowerCase();
+                if (hostKey && (hostCounts[hostKey] || 0) >= 2) continue;
+                const titleKey = cleanTitle ? `${hostKey}\0${cleanTitle}` : '';
                 if (titleKey && seenTitles.has(titleKey)) continue;
                 seenUrls.add(urlKey);
                 if (titleKey) seenTitles.add(titleKey);
+                if (hostKey) hostCounts[hostKey] = (hostCounts[hostKey] || 0) + 1;
                 out.push(item);
             }
             return out;
@@ -689,7 +767,7 @@
                 return;
             }
 
-            recentTopItems = dedupeHistoryItems(historyItems).slice(0, 8);
+            recentTopItems = dedupeHistoryItems(historyItems).slice(0, 6);
             if (recentTopItems.length === 0) {
                 sec.style.display = 'none';
                 return;
@@ -1130,6 +1208,12 @@
             document.documentElement.classList.remove('nt-alt-held');
             closeEngineMenu();
         });
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) document.documentElement.classList.remove('nt-alt-held');
+        });
+        document.addEventListener('mousedown', (e) => {
+            if (!e.altKey) document.documentElement.classList.remove('nt-alt-held');
+        });
 
         document.addEventListener('click', (e) => {
             if (!e.target.closest || !e.target.closest('.nt-search-wrap')) {
@@ -1200,6 +1284,7 @@
             const zh = isZh();
             const nt = (styles && styles.newtab) || {};
             document.documentElement.classList.toggle('zero-fx', !!config.enforce_perf);
+            document.documentElement.classList.toggle('reduce-motion', !!config.reduce_animations);
             const btnLbl = document.getElementById('ntCustomizeBtnLabel');
             if (btnLbl) btnLbl.textContent = zh ? '定制起始页' : 'Customize';
             const tEl = document.getElementById('ntCustTitle');

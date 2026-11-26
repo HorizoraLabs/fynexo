@@ -3,6 +3,7 @@ pub mod app;
 pub mod chrome_ext;
 pub mod config;
 pub mod hud;
+pub mod i18n;
 pub mod pages;
 pub mod tabs;
 pub mod util;

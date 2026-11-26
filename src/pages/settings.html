@@ -20,8 +20,11 @@ __FNX_SETTINGS_CSS__
                     </div>
                 </div>
 
-                <div style="padding: 0 4px;">
-                    <input type="text" id="inputSettingsSearch" class="text-input" placeholder="Search settings..." style="width: 100%; height: 30px; font-size: 12px;">
+                <div class="sidebar-search-wrap">
+                    <svg class="sidebar-search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7.2" cy="7.2" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10.6 10.6L13.8 13.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    <input type="text" id="inputSettingsSearch" class="text-input sidebar-search-input" placeholder="Search settings..." autocomplete="off" spellcheck="false" aria-label="Search settings">
+                    <kbd class="sidebar-search-kbd" id="settingsSearchKbd">/</kbd>
+                    <button type="button" class="sidebar-search-clear" id="btnClearSettingsSearch" aria-label="Clear search" style="display: none;">×</button>
                 </div>
 
                 <nav class="nav-list" id="sidebarNav" aria-label="Settings sections">
@@ -86,6 +89,18 @@ __FNX_SETTINGS_CSS__
 
         <main class="workspace">
             <div class="workspace-inner">
+                <div class="search-status-bar" id="settingsSearchBanner" style="display: none;">
+                    <div class="search-status-left">
+                        <span class="search-status-dot"></span>
+                        <span id="settingsSearchSummary"></span>
+                    </div>
+                    <button type="button" class="action-btn compact" id="btnBannerClearSearch">Clear (Esc)</button>
+                </div>
+                <div class="search-empty-card" id="settingsSearchEmpty" style="display: none;">
+                    <div class="set-label" id="settingsSearchEmptyTitle">No matching settings found</div>
+                    <div class="set-hint" id="settingsSearchEmptyHint">Try another keyword (supports Chinese, English, and aliases like UA, RAM, cookie, bang).</div>
+                    <div class="preset-chips" id="settingsSearchQuickChips" style="justify-content: center; margin-top: 6px;"></div>
+                </div>
                 <!-- 1. Appearance -->
                 <section class="sec-block active" id="sec-appearance">
                     <div class="sec-header">
@@ -143,6 +158,7 @@ __FNX_SETTINGS_CSS__
                         </div>
                     </div>
 
+                    <div class="set-group-title" id="grpGenStartup">Startup &amp; Display</div>
                     <div class="set-row">
                         <div class="set-meta">
                             <div class="set-label">Interface language</div>
@@ -175,7 +191,7 @@ __FNX_SETTINGS_CSS__
                     <div class="set-row align-top">
                         <div class="set-meta">
                             <div class="set-label">User-Agent</div>
-                            <div class="set-hint">Switch between System, Desktop, Mobile, or custom UA header live.</div>
+                            <div class="set-hint">Switch between System (recommended for daily use), Desktop, Mobile, or custom UA with synced Client Hints.</div>
                         </div>
                         <div class="set-ctrl-col">
                             <div class="seg-group" id="uaModeGroup">
@@ -185,6 +201,7 @@ __FNX_SETTINGS_CSS__
                                 <button type="button" class="seg-btn" data-ua="custom">Custom</button>
                             </div>
                             <input type="text" id="inputCustomUa" class="text-input mono" placeholder="Mozilla/5.0 ..." style="display: none;">
+                            <div id="uaModeWarn" class="set-hint" style="display: none; margin-top: 6px; padding: 6px 9px; border-radius: var(--r-sm); border: 1px solid var(--fnx-border-hover); background: var(--fnx-surface); color: var(--fnx-secondary); line-height: 1.45;"></div>
                         </div>
                     </div>
 
@@ -213,6 +230,7 @@ __FNX_SETTINGS_CSS__
                         </div>
                     </div>
 
+                    <div class="set-group-title" id="grpGenSystem">Downloads, Translation &amp; System</div>
                     <div class="set-row desktop-only-sec">
                         <div class="set-meta">
                             <div class="set-label">Downloads folder</div>
@@ -221,6 +239,41 @@ __FNX_SETTINGS_CSS__
                         <div class="set-ctrl" style="max-width: 380px; width: 100%;">
                             <input type="text" id="inputDownloadsDir" class="text-input mono" spellcheck="false" placeholder="Default system Downloads folder" style="flex: 1;">
                             <button type="button" class="action-btn compact" id="btnResetDownloadsDir">Default</button>
+                        </div>
+                    </div>
+
+                    <div class="set-row desktop-only-sec">
+                        <div class="set-meta">
+                            <div class="set-label">Ask where to save each file</div>
+                            <div class="set-hint">Show the system Save As dialog before starting each download.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnAskDownloadToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Ask where to save each file"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label">Page translation service</div>
+                            <div class="set-hint">Provider used by the one-click Translate Page action in the browser menu.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <select id="selTranslateProvider" class="select-input" style="width: 174px;" aria-label="Page translation service">
+                                <option value="google">Google Translate</option>
+                                <option value="bing">Bing Translator</option>
+                                <option value="youdao">Youdao Translate</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="set-row desktop-only-sec">
+                        <div class="set-meta">
+                            <div class="set-label">Default browser &amp; version</div>
+                            <div class="set-hint" id="hintDefaultBrowser">Register Fynexo in Windows Default Apps (per-user, no admin required) to open links from other apps.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <span class="ext-mem-tag" id="appVersionBadge">v0.1.0</span>
+                            <button type="button" class="action-btn compact" id="btnSetDefaultBrowser">Set as Default Browser</button>
                         </div>
                     </div>
 
@@ -241,6 +294,21 @@ __FNX_SETTINGS_CSS__
                         </div>
                         <div class="set-ctrl">
                             <button type="button" id="btnAllowPageEvalToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Allow console JS eval"></button>
+                        </div>
+                    </div>
+                    <div class="set-block desktop-only-sec" style="border-top: 1px solid var(--fnx-hairline); margin-top: 8px; padding-top: 12px;">
+                        <div class="set-block-head">
+                            <div>
+                                <div class="set-label" id="lblProfiles">Browser profiles</div>
+                                <div class="set-hint" id="hintProfiles">Separate cookies, history, extensions, and bookmarks for Work, Personal, or Testing.</div>
+                            </div>
+                        </div>
+                        <div class="rc-table">
+                            <div class="rc-rows" id="profilesTable"></div>
+                            <div class="rc-add-row">
+                                <input type="text" id="inputProfileName" class="text-input" placeholder="Profile name (e.g. Work)..." maxlength="32">
+                                <button type="button" class="action-btn compact" id="btnCreateProfile">+ New profile</button>
+                            </div>
                         </div>
                     </div>
                     <div class="set-block" style="border-top: 1px solid var(--fnx-hairline); margin-top: 8px; padding-top: 12px;">
@@ -471,15 +539,17 @@ __FNX_SETTINGS_CSS__
                         </div>
                     </div>
 
-                    <div class="set-row align-top">
-                        <div class="set-meta">
-                            <div class="set-label" id="lblActiveModeStrat">Mode Activation Strategy</div>
-                            <div class="set-hint" id="hintActiveModeStrat">Auto switches modes automatically when entering matching sites; or lock onto a single mode globally.</div>
+                    <div class="set-block">
+                        <div class="set-block-head">
+                            <div>
+                                <div class="set-label" id="lblActiveModeStrat">Mode Activation Strategy</div>
+                                <div class="set-hint" id="hintActiveModeStrat">Auto switches modes automatically when entering matching sites; or lock onto a single mode globally.</div>
+                            </div>
                         </div>
-                        <div class="set-ctrl" id="activeModeSelectGroup" style="max-width: 440px; flex-wrap: wrap; justify-content: flex-end;"></div>
+                        <div class="mode-strategy-bar" id="activeModeSelectGroup"></div>
                     </div>
 
-                    <div id="modeProfilesContainer" style="display: flex; flex-direction: column; gap: 14px; margin-top: 12px;"></div>
+                    <div id="modeProfilesContainer" class="mode-cards-stack"></div>
                 </section>
 
                 <!-- 3. Search & !Bangs (Raycast Inline Compact Tables) -->
@@ -543,11 +613,13 @@ __FNX_SETTINGS_CSS__
                     </div>
 
                     <div class="set-block">
+                        <div class="preset-chips" id="shortcutsFolderBar" style="margin-bottom: 10px; display: none;"></div>
                         <div class="rc-table">
                             <div class="rc-rows" id="shortcutsTable"></div>
                             <div class="rc-add-row">
-                                <input type="text" id="inputScTitle" class="text-input" placeholder="Name (e.g. Hacker News)" style="max-width: 185px;">
+                                <input type="text" id="inputScTitle" class="text-input" placeholder="Name (e.g. Hacker News)" style="max-width: 170px;">
                                 <input type="text" id="inputScUrl" class="text-input mono" placeholder="https://news.ycombinator.com">
+                                <input type="text" id="inputScFolder" class="text-input" placeholder="Folder (optional)" style="max-width: 135px;">
                                 <button type="button" class="action-btn compact" id="btnAddShortcut">+ Add shortcut</button>
                             </div>
                         </div>
@@ -656,6 +728,19 @@ __FNX_SETTINGS_CSS__
                             <button type="button" class="action-btn danger" id="btnClearSiteData">Clear cache &amp; cookies</button>
                             <button type="button" class="action-btn desktop-only-inline" id="btnOpenDataDir">Profile folder</button>
                             <button type="button" class="action-btn desktop-only-inline" id="btnOpenDownloadsDir">Downloads</button>
+                        </div>
+                    </div>
+
+                    <div class="set-block" style="border-top: 1px solid var(--fnx-hairline); margin-top: 10px; padding-top: 14px;">
+                        <div class="set-block-head">
+                            <div>
+                                <div class="set-label" id="lblSitePermissions">Site permissions</div>
+                                <div class="set-hint" id="hintSitePermissions">Manage per-site Camera, Microphone, Location, Notifications, and Clipboard overrides.</div>
+                            </div>
+                            <button type="button" class="action-btn compact" id="btnClearAllPerms">Reset all</button>
+                        </div>
+                        <div class="rc-table">
+                            <div class="rc-rows" id="sitePermissionsTable"></div>
                         </div>
                     </div>
 
@@ -1042,15 +1127,11 @@ __FNX_SETTINGS_CSS__
                                 <div class="set-label">Toolbar buttons visibility</div>
                                 <div class="set-hint"><code>topbar.show_copy_btn</code> · <code>show_star_btn</code> · <code>show_shield_btn</code> · <code>show_downloads_btn</code></div>
                             </div>
-                            <div class="set-ctrl">
-                                <span class="switch-status">Copy</span>
-                                <button type="button" id="qsBtnCopyToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Copy URL button"></button>
-                                <span class="switch-status" style="margin-left: 6px;">Star</span>
-                                <button type="button" id="qsBtnStarToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Bookmark button"></button>
-                                <span class="switch-status" style="margin-left: 6px;">Shield</span>
-                                <button type="button" id="qsBtnShieldToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Shield button"></button>
-                                <span class="switch-status" style="margin-left: 6px;">Downloads</span>
-                                <button type="button" id="qsBtnDlToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Downloads button"></button>
+                            <div class="set-ctrl" style="gap: 12px;">
+                                <span class="switch-pair"><span class="switch-status">Copy</span><button type="button" id="qsBtnCopyToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Copy URL button"></button></span>
+                                <span class="switch-pair"><span class="switch-status">Star</span><button type="button" id="qsBtnStarToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Bookmark button"></button></span>
+                                <span class="switch-pair"><span class="switch-status">Shield</span><button type="button" id="qsBtnShieldToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Shield button"></button></span>
+                                <span class="switch-pair"><span class="switch-status">Downloads</span><button type="button" id="qsBtnDlToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Show Downloads button"></button></span>
                             </div>
                         </div>
 

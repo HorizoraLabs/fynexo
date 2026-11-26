@@ -79,7 +79,7 @@ pub fn join_split_template(prefix: &str, middle: &str, suffix: &str) -> String {
 /// True when the configured UI language should render Chinese instead of English.
 #[inline]
 pub fn is_zh_lang(lang: &str) -> bool {
-    !lang.trim().eq_ignore_ascii_case("en")
+    crate::i18n::is_zh_locale(lang)
 }
 
 /// Select localized Chinese or English text based on `zh`.

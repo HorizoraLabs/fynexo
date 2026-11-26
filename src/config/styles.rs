@@ -29,22 +29,23 @@ pub struct ColorStyles {
 
 impl Default for ColorStyles {
     fn default() -> Self {
+        let c = super::themes::ThemeColors::default();
         Self {
             use_custom_colors: false,
-            bg: "#0b0c10".to_string(),
-            panel: "#12141c".to_string(),
-            surface: "#171a24".to_string(),
-            elevated: "#1f2330".to_string(),
-            border: "#262b3a".to_string(),
-            border_hover: "#384056".to_string(),
-            fg: "#f3f4f8".to_string(),
-            secondary: "#a6adbe".to_string(),
-            muted: "#6e768a".to_string(),
-            accent: "#7c86ff".to_string(),
-            accent_bg: "#1e2246".to_string(),
-            hover: "#1b1f2c".to_string(),
-            tab_active: "#1d212e".to_string(),
-            tab_inactive: "transparent".to_string(),
+            bg: c.bg,
+            panel: c.panel,
+            surface: c.surface,
+            elevated: c.elevated,
+            border: c.border,
+            border_hover: c.border_hover,
+            fg: c.fg,
+            secondary: c.secondary,
+            muted: c.muted,
+            accent: c.accent,
+            accent_bg: c.accent_bg,
+            hover: c.hover,
+            tab_active: c.tab_active,
+            tab_inactive: c.tab_inactive,
         }
     }
 }
@@ -392,8 +393,12 @@ impl ComponentStyles {
                         migrated = true;
                     }
                     if !styles.colors.use_custom_colors
-                        && styles.colors.bg.eq_ignore_ascii_case("#19191c")
-                        && styles.colors.panel.eq_ignore_ascii_case("#29292e")
+                        && ((styles.colors.bg.eq_ignore_ascii_case("#19191c")
+                            && styles.colors.panel.eq_ignore_ascii_case("#29292e"))
+                            || (styles.colors.bg.eq_ignore_ascii_case("#0b0c10")
+                                && styles.colors.panel.eq_ignore_ascii_case("#12141c"))
+                            || (styles.colors.bg.eq_ignore_ascii_case("#0d0f14")
+                                && styles.colors.panel.eq_ignore_ascii_case("#141720")))
                     {
                         styles.colors = ColorStyles::default();
                         migrated = true;

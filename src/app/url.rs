@@ -1,14 +1,18 @@
 #[inline]
 pub fn to_webview_url(url: &str) -> String {
     let trimmed = url.trim();
-    let internal_route = if trimmed.eq_ignore_ascii_case("fynexo://newtab")
-        || trimmed.starts_with("fynexo://newtab")
-        || trimmed.eq_ignore_ascii_case("http://fynexo.localhost/newtab")
+    let (base, frag) = match trimmed.find('#') {
+        Some(idx) => (&trimmed[..idx], &trimmed[idx..]),
+        None => (trimmed, ""),
+    };
+    let internal_route = if base.eq_ignore_ascii_case("fynexo://newtab")
+        || base.starts_with("fynexo://newtab")
+        || base.eq_ignore_ascii_case("http://fynexo.localhost/newtab")
     {
         Some("newtab")
-    } else if trimmed.eq_ignore_ascii_case("fynexo://settings")
-        || trimmed.starts_with("fynexo://settings")
-        || trimmed.eq_ignore_ascii_case("http://fynexo.localhost/settings")
+    } else if base.eq_ignore_ascii_case("fynexo://settings")
+        || base.starts_with("fynexo://settings")
+        || base.eq_ignore_ascii_case("http://fynexo.localhost/settings")
     {
         Some("settings")
     } else {
@@ -18,11 +22,11 @@ pub fn to_webview_url(url: &str) -> String {
     if let Some(route) = internal_route {
         #[cfg(any(target_os = "windows", target_os = "android"))]
         {
-            return format!("http://fynexo.localhost/{}", route);
+            return format!("http://fynexo.localhost/{}{}", route, frag);
         }
         #[cfg(not(any(target_os = "windows", target_os = "android")))]
         {
-            return format!("fynexo://localhost/{}", route);
+            return format!("fynexo://localhost/{}{}", route, frag);
         }
     }
     trimmed.to_string()
@@ -67,6 +71,9 @@ mod tests {
             assert_ne!(physical, logical);
             assert_eq!(normalize_logical_url(&physical), logical);
         }
+        let with_hash = to_webview_url("fynexo://settings#sec-privacy");
+        assert!(with_hash.ends_with("/settings#sec-privacy"));
+        assert_eq!(normalize_logical_url(&with_hash), "fynexo://settings");
     }
 
     #[test]

@@ -7,7 +7,7 @@
     --r-sm: 6px;
     --r-md: 8px;
     --r-lg: 12px;
-    --r-xl: 14px;
+    --r-xl: 16px;
     --r-pill: 999px;
 
     /* Typography Scale */
@@ -31,31 +31,32 @@
     --dur-fast: 120ms;
     --dur: 180ms;
 
-    /* Obsidian Titanium & Luminous Iris Studio Palette */
-    --fnx-bg: #0B0C10;
-    --fnx-panel: #12141C;
-    --fnx-surface: #171A24;
-    --fnx-elevated: #1F2330;
-    --fnx-border: #262B3A;
-    --fnx-border-hover: #384056;
-    --fnx-fg: #F3F4F8;
-    --fnx-secondary: #A6ADBE;
-    --fnx-muted: #6E768A;
-    --fnx-faint: #4E566A;
-    --fnx-accent: #7C86FF;
-    --fnx-accent-bg: #1E2246;
-    --fnx-hover: #1B1F2C;
-    --fnx-tab-active: #1D212E;
-    --fnx-divider: rgba(243, 244, 248, 0.06);
-    --fnx-hairline: rgba(243, 244, 248, 0.09);
-    --fnx-hairline-hover: rgba(243, 244, 248, 0.16);
-    --fnx-btn-bg: rgba(243, 244, 248, 0.05);
-    --fnx-btn-bg-hover: rgba(243, 244, 248, 0.10);
-    --fnx-btn-top: rgba(243, 244, 248, 0.15);
+    /* Obsidian Recessed Studio Palette */
+    --fnx-bg: #0c0e13;
+    --fnx-panel: #1c212d;
+    --fnx-surface: #151923;
+    --fnx-elevated: #272d3d;
+    --fnx-border: #2c3345;
+    --fnx-border-hover: #404a63;
+    --fnx-fg: #f3f5f9;
+    --fnx-secondary: #b2bacd;
+    --fnx-muted: #838ca3;
+    --fnx-faint: #646d84;
+    --fnx-accent: #818cf8;
+    --fnx-accent-bg: #20254b;
+    --fnx-on-accent: #0b0e17;
+    --fnx-hover: #222838;
+    --fnx-tab-active: #242a3a;
+    --fnx-divider: rgba(243, 245, 249, 0.06);
+    --fnx-hairline: rgba(243, 245, 249, 0.09);
+    --fnx-hairline-hover: rgba(243, 245, 249, 0.16);
+    --fnx-btn-bg: rgba(243, 245, 249, 0.05);
+    --fnx-btn-bg-hover: rgba(243, 245, 249, 0.10);
+    --fnx-btn-top: rgba(243, 245, 249, 0.15);
 
     /* Semantic Aliases for /NewTab */
     --nt-bg: var(--fnx-bg);
-    --nt-surface: var(--fnx-surface);
+    --nt-surface: var(--fnx-panel);
     --nt-elevated: var(--fnx-elevated);
     --nt-hover: var(--fnx-hover);
     --nt-hairline: var(--fnx-hairline);
@@ -65,6 +66,7 @@
     --nt-dim: var(--fnx-secondary);
     --nt-faint: var(--fnx-muted);
     --nt-accent: var(--fnx-accent);
+    --nt-on-accent: var(--fnx-on-accent);
     --nt-accent-soft: color-mix(in srgb, var(--fnx-accent) 16%, transparent);
 }
 

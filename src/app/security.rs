@@ -157,7 +157,60 @@ fn authorize_external_webstore_install(origin: &str, message: &serde_json::Value
     origin_id.is_some() && origin_id == input_id
 }
 
-/// Commands the HUD overlay may trigger while hosted on external websites.
+/// Valid HUD action identifiers that a content tab may forward to the HUD shell.
+pub fn is_allowed_hud_action(action: &str) -> bool {
+    matches!(
+        action,
+        "open_omnibox"
+            | "open_command_palette"
+            | "open_history"
+            | "toggle_downloads"
+            | "toggle_side_panel"
+            | "toggle_bookmark"
+            | "copy_url"
+            | "toggle_preferences"
+            | "toggle_force_dark"
+            | "fullscreen_peek"
+            | "dismiss_overlays"
+    )
+}
+
+/// Minimal IPC command allowlist for external websites hosted in a dedicated
+/// Windows Dual-WebView content tab (`source_tab_id > 0`).
+/// High-impact chrome/OS commands (downloads opening, global preference patching,
+/// workspace saving, window chrome buttons, extension management) belong exclusively
+/// to the internal HUD WebView (`source_tab_id == 0`, `http://fynexo.localhost/hud`).
+fn is_content_tab_allowed_command(cmd: &str) -> bool {
+    matches!(
+        cmd,
+        "BOOT_SYNC"
+            | "TAB_PAINT_READY"
+            | "NAVIGATE"
+            | "NEW_TAB"
+            | "NEW_WINDOW"
+            | "SWITCH_TAB"
+            | "CLOSE_TAB"
+            | "REOPEN_CLOSED_TAB"
+            | "TOGGLE_PIN_TAB"
+            | "TOGGLE_MUTE_TAB"
+            | "UPDATE_TAB_TITLE"
+            | "UPDATE_TAB_MEDIA_STATE"
+            | "SAVE_SCROLL"
+            | "TOGGLE_FULLSCREEN"
+            | "SET_ZOOM"
+            | "GO_BACK"
+            | "GO_FORWARD"
+            | "SYNC_NAV_STATE"
+            | "RELOAD"
+            | "OPEN_DEVTOOLS"
+            | "HUD_ACTION"
+            | "CONTENT_POINTER_DOWN"
+            | "CONTENT_PAGE_META"
+    )
+}
+
+/// Commands the HUD overlay may trigger while hosted on external websites in
+/// legacy single-WebView (`Embedded`) mode.
 /// Rule-writing, config import/export, theme deletion, data wiping, and internal
 /// directory opening are deliberately excluded and require `is_internal_origin`.
 fn is_hud_allowed_command(cmd: &str) -> bool {
@@ -213,8 +266,27 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
     )
 }
 
-/// Decide whether an IPC message may be processed.
+/// Decide whether an IPC message may be processed (embedded/single-WebView policy).
 pub fn authorize_ipc(origin: &str, message: &serde_json::Value) -> bool {
+    authorize_ipc_with_policy(origin, false, message)
+}
+
+/// Decide whether an IPC message may be processed, enforcing strict content-tab
+/// isolation on Windows Dual-WebView (`source_tab_id > 0`).
+pub fn authorize_ipc_for_source(
+    origin: &str,
+    source_tab_id: usize,
+    message: &serde_json::Value,
+) -> bool {
+    let restrict_content_tab = cfg!(target_os = "windows") && source_tab_id > 0;
+    authorize_ipc_with_policy(origin, restrict_content_tab, message)
+}
+
+fn authorize_ipc_with_policy(
+    origin: &str,
+    restrict_content_tab: bool,
+    message: &serde_json::Value,
+) -> bool {
     let Some(cmd) = message.get("type").and_then(|v| v.as_str()) else {
         return false;
     };
@@ -232,7 +304,21 @@ pub fn authorize_ipc(origin: &str, message: &serde_json::Value) -> bool {
     if cmd == "INSTALL_CHROME_EXT_STORE" {
         return authorize_external_webstore_install(origin, message);
     }
-    is_hud_allowed_command(cmd)
+    if cmd == "HUD_ACTION" {
+        let action = message
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if !is_allowed_hud_action(action) {
+            return false;
+        }
+    }
+    if restrict_content_tab {
+        is_content_tab_allowed_command(cmd)
+    } else {
+        is_hud_allowed_command(cmd)
+    }
 }
 
 fn has_control_chars(s: &str) -> bool {
@@ -346,6 +432,29 @@ pub fn resolve_internal_route(host: &str, path: &str) -> Option<&'static str> {
     }
 }
 
+/// Resolve an internal bundled font asset requested over the `fynexo` custom protocol.
+pub fn resolve_internal_font_route(host: &str, path: &str) -> Option<&'static str> {
+    let host = host.trim().to_ascii_lowercase();
+    let trimmed_path = path.trim_matches('/');
+    if trimmed_path.is_empty() || trimmed_path.split('/').any(|seg| seg == "..") {
+        return None;
+    }
+    let clean = trimmed_path.to_ascii_lowercase();
+    let font_rel = if host.is_empty() || host == "localhost" || host.ends_with(".localhost") {
+        clean.strip_prefix("fonts/")?
+    } else if host == "fonts" {
+        clean.as_str()
+    } else {
+        return None;
+    };
+
+    match font_rel {
+        "inter-latin.woff2" => Some("inter-latin.woff2"),
+        "jetbrains-mono-latin.woff2" => Some("jetbrains-mono-latin.woff2"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,6 +510,51 @@ mod tests {
             &json!({"type": "OPEN_DOWNLOAD_FILE", "filename": "notes.pdf", "__t": ipc_token()})
         ));
         assert!(!authorize_ipc(evil, &json!({"type": "UNKNOWN_CMD", "__t": ipc_token()})));
+    }
+
+    #[test]
+    fn windows_content_tab_policy_blocks_chrome_and_os_commands() {
+        let evil = "https://evil.example/";
+        let tok = ipc_token();
+        for blocked in [
+            "OPEN_DOWNLOAD_FILE",
+            "OPEN_DOWNLOADS_DIR",
+            "REVEAL_DOWNLOAD_FILE",
+            "PATCH_HUD_PREFS",
+            "SAVE_WORKSPACE",
+            "WINDOW_CLOSE",
+            "WINDOW_MINIMIZE",
+            "CLOSE_ALL_TABS",
+            "OPEN_CHROME_EXT_POPUP",
+            "TOGGLE_CHROME_EXT",
+            "SYNC_HUD_LAYOUT",
+            "CONTENT_ACTION",
+        ] {
+            assert!(
+                !authorize_ipc_with_policy(evil, true, &json!({"type": blocked, "__t": tok})),
+                "{blocked} should be blocked from external content tabs"
+            );
+        }
+        assert!(authorize_ipc_with_policy(
+            evil,
+            true,
+            &json!({"type": "CONTENT_PAGE_META", "__t": tok})
+        ));
+        assert!(authorize_ipc_with_policy(
+            evil,
+            true,
+            &json!({"type": "HUD_ACTION", "action": "open_omnibox", "__t": tok})
+        ));
+        assert!(!authorize_ipc_with_policy(
+            evil,
+            true,
+            &json!({"type": "HUD_ACTION", "action": "arbitrary_action", "__t": tok})
+        ));
+        assert!(authorize_ipc_for_source(
+            "http://fynexo.localhost/hud",
+            0,
+            &json!({"type": "OPEN_DOWNLOAD_FILE", "filename": "a.pdf"})
+        ));
     }
 
     #[test]
@@ -504,5 +658,26 @@ mod tests {
         assert_eq!(resolve_internal_route("fynexo.localhost", "/settingsfoo"), None);
         assert_eq!(resolve_internal_route("fynexo.localhost", "/hud"), Some("hud"));
         assert!(!is_safe_navigation_target("fynexo://hud"));
+
+        assert_eq!(
+            resolve_internal_font_route("fynexo.localhost", "/fonts/inter-latin.woff2"),
+            Some("inter-latin.woff2")
+        );
+        assert_eq!(
+            resolve_internal_font_route("localhost", "/fonts/jetbrains-mono-latin.woff2"),
+            Some("jetbrains-mono-latin.woff2")
+        );
+        assert_eq!(
+            resolve_internal_font_route("fonts", "/inter-latin.woff2"),
+            Some("inter-latin.woff2")
+        );
+        assert_eq!(
+            resolve_internal_font_route("fynexo.localhost", "/fonts/../inter-latin.woff2"),
+            None
+        );
+        assert_eq!(
+            resolve_internal_font_route("fynexo.localhost", "/fonts/unknown.woff2"),
+            None
+        );
     }
 }

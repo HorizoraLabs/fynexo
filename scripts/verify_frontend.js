@@ -51,7 +51,7 @@ for (const file of allSrcFiles) {
       if (/\beval\s*\(/.test(line)) {
         const ctx = lines.slice(Math.max(0, idx - 24), idx + 3).join('\n');
         const isAuditedDevRepl =
-          norm === 'src/hud/runtime.js' &&
+          (norm === 'src/hud/runtime.js' || norm === 'src/hud/content_agent.js') &&
           line.includes('window.eval(code)') &&
           ctx.includes('config.allow_page_eval');
         if (!isAuditedDevRepl) {
@@ -62,7 +62,7 @@ for (const file of allSrcFiles) {
       if (/\bnew\s+Function\s*\(/.test(line)) {
         const ctx = lines.slice(Math.max(0, idx - 6), idx + 4).join('\n');
         const isAuditedScriptForge =
-          norm === 'src/hud/runtime.js' &&
+          (norm === 'src/hud/runtime.js' || norm === 'src/hud/content_agent.js') &&
           ctx.includes('createScriptForgeSandbox');
         if (!isAuditedScriptForge) {
           dynamicEvalHits.push(`${norm}:${idx + 1} (unaudited new Function) -> ${line.trim()}`);
@@ -102,6 +102,22 @@ for (const cssFile of [path.join('src', 'hud', 'tokens.css')]) {
   }
 }
 
+const themeDriftViolations = [];
+const leakedDefaultHexRegex = /#(?:0c0e13|0d0f14|1c212d|151923)\b/i;
+for (const jsFile of jsTargets) {
+  const norm = jsFile.replace(/\\/g, '/');
+  const txt = fs.readFileSync(jsFile, 'utf8');
+  if ((norm === 'src/pages/settings.js' || norm === 'src/pages/newtab.js') && /\bisDefaultDark\b/.test(txt)) {
+    themeDriftViolations.push(`${norm}: forbidden isDefaultDark hardcoded branch`);
+  }
+  const lines = txt.split(/\r?\n/);
+  lines.forEach((line, idx) => {
+    if (leakedDefaultHexRegex.test(line)) {
+      themeDriftViolations.push(`${norm}:${idx + 1}: hardcoded default Obsidian hex (${line.trim()})`);
+    }
+  });
+}
+
 console.log('SYNTAX_CHECKED_JS=' + jsTargets.length);
 console.log('SCANNED_FILES=' + allSrcFiles.length);
 console.log('EMOJI_COUNT=' + emojiHits.length);
@@ -114,7 +130,9 @@ console.log('UNAUDITED_DYNAMIC_CODE=' + dynamicEvalHits.length);
 dynamicEvalHits.forEach((h) => console.error('UNAUDITED_EVAL:', h));
 console.log('TOKEN_VIOLATIONS=' + cssTokenViolations.length);
 cssTokenViolations.forEach((v) => console.error('TOKEN_VIOLATION:', v));
+console.log('THEME_DRIFT_VIOLATIONS=' + themeDriftViolations.length);
+themeDriftViolations.forEach((v) => console.error('THEME_DRIFT:', v));
 
-if (emojiHits.length || innerHtmlHits.length || dupIdHits.length || dynamicEvalHits.length || cssTokenViolations.length) {
+if (emojiHits.length || innerHtmlHits.length || dupIdHits.length || dynamicEvalHits.length || cssTokenViolations.length || themeDriftViolations.length) {
   process.exit(1);
 }

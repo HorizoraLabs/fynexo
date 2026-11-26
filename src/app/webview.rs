@@ -8,6 +8,7 @@ use wry::{PageLoadEvent, WebContext, WebViewBuilder};
 use wry::WebViewBuilderExtWindows;
 
 use crate::adblock;
+#[cfg(not(target_os = "windows"))]
 use crate::config::{resolved_downloads_dir, unique_download_path_in};
 use crate::hud;
 use crate::pages;
@@ -18,6 +19,30 @@ use super::events::{HudInsetLogical, HudRegionRectLogical, UserEvent};
 use super::ipc::handle_ipc_message;
 use super::state::AppState;
 use super::url::{normalize_logical_url, to_webview_url};
+
+const FONT_INTER_LATIN: &[u8] = include_bytes!("../../assets/fonts/inter-latin.woff2");
+const FONT_JETBRAINS_MONO_LATIN: &[u8] =
+    include_bytes!("../../assets/fonts/jetbrains-mono-latin.woff2");
+
+fn maybe_font_response(
+    host: &str,
+    path: &str,
+) -> Option<wry::http::Response<std::borrow::Cow<'static, [u8]>>> {
+    let name = super::security::resolve_internal_font_route(host, path)?;
+    let bytes: &'static [u8] = match name {
+        "inter-latin.woff2" => FONT_INTER_LATIN,
+        "jetbrains-mono-latin.woff2" => FONT_JETBRAINS_MONO_LATIN,
+        _ => return None,
+    };
+    Some(
+        wry::http::Response::builder()
+            .header("Content-Type", "font/woff2")
+            .header("Cache-Control", "public, max-age=31536000, immutable")
+            .header("Access-Control-Allow-Origin", "*")
+            .body(std::borrow::Cow::Borrowed(bytes))
+            .unwrap_or_else(|_| wry::http::Response::new(std::borrow::Cow::Borrowed(&b""[..]))),
+    )
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ContentBounds {
@@ -39,6 +64,7 @@ pub struct HudRegionRect {
 pub struct TabWebView {
     pub webview: wry::WebView,
     pub bound_tab_id: Arc<AtomicUsize>,
+    pub page_host: Arc<std::sync::RwLock<String>>,
 }
 
 pub struct TabLaunch<'a> {
@@ -47,6 +73,88 @@ pub struct TabLaunch<'a> {
     pub url: &'a str,
     pub visible: bool,
     pub init_bounds: ContentBounds,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NewWindowAction {
+    Deny,
+    AllowPopup,
+    OpenInTab,
+}
+
+/// Decides how to handle a `window.open` / `target="_blank"` request:
+/// - `about:blank` / empty URL popups (used by Google GIS, X/Twitter, Firebase, Clerk, Auth0, etc.
+///   which open a blank popup synchronously and then set `popup.location`) are allowed natively.
+/// - Ad/popunder URLs and dangerous schemes (`javascript:`, `file:`, `data:`) are strictly denied.
+/// - Explicit popup windows (with `size` or `position` features) or OAuth/SSO/login/checkout flows
+///   are allowed as native popups so `window.opener`, cookies, and `postMessage` callbacks work.
+/// - Standard `<a target="_blank">` links open cleanly as internal Fynexo tabs.
+pub fn classify_new_window_request(url: &str, has_popup_features: bool) -> NewWindowAction {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("about:blank") {
+        return NewWindowAction::AllowPopup;
+    }
+    if adblock::should_block_url(trimmed) {
+        return NewWindowAction::Deny;
+    }
+    let is_safe_http = super::security::is_safe_external_http_url(trimmed);
+    let is_safe_ext = super::security::is_safe_chrome_extension_url(trimmed);
+    if !is_safe_http && !is_safe_ext {
+        return NewWindowAction::Deny;
+    }
+    if has_popup_features {
+        return NewWindowAction::AllowPopup;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    let host = adblock::extract_host(&lower).unwrap_or("");
+    let is_auth_host = host.starts_with("auth.")
+        || host.starts_with("login.")
+        || host.starts_with("signin.")
+        || host.starts_with("sso.")
+        || host.starts_with("oauth.")
+        || host.starts_with("accounts.")
+        || host.starts_with("account.")
+        || host.starts_with("passport.")
+        || host.starts_with("id.")
+        || host.ends_with(".auth0.com")
+        || host.ends_with(".clerk.accounts.dev")
+        || host.ends_with(".firebaseapp.com")
+        || matches!(
+            host,
+            "accounts.google.com"
+                | "login.microsoftonline.com"
+                | "login.live.com"
+                | "appleid.apple.com"
+                | "open.weixin.qq.com"
+                | "auth.alipay.com"
+                | "checkout.stripe.com"
+        );
+    let is_auth_or_checkout = is_auth_host
+        || lower.contains("github.com/login")
+        || lower.contains("github.com/session")
+        || lower.contains("paypal.com/checkout")
+        || lower.contains("discord.com/oauth")
+        || lower.contains("x.com/i/oauth")
+        || lower.contains("twitter.com/i/oauth")
+        || lower.contains("api.twitter.com/oauth")
+        || lower.contains("steamcommunity.com/openid")
+        || lower.contains("/oauth")
+        || lower.contains("/authorize")
+        || lower.contains("/sso/")
+        || lower.contains("/signin")
+        || lower.contains("/sign-in")
+        || lower.contains("/login")
+        || lower.contains("/auth/")
+        || lower.contains("/__/auth/")
+        || lower.contains("/connect/")
+        || lower.contains("/saml")
+        || lower.contains("/oidc")
+        || lower.contains("/idp/");
+    if is_auth_or_checkout {
+        NewWindowAction::AllowPopup
+    } else {
+        NewWindowAction::OpenInTab
+    }
 }
 
 fn parse_px_f64(raw: &str, default_val: f64) -> f64 {
@@ -355,8 +463,8 @@ pub fn build_tab_webview(
         .with_incognito(incognito)
         .with_back_forward_navigation_gestures(true);
 
-    if let Some(ua) = resolved_ua {
-        builder = builder.with_user_agent(&ua);
+    if let Some(ref ua) = resolved_ua {
+        builder = builder.with_user_agent(ua);
     }
 
     #[cfg(target_os = "windows")]
@@ -367,44 +475,57 @@ pub fn build_tab_webview(
             .with_browser_extensions_enabled(boot_chrome_ext);
     }
 
-    // Intercept New Window Requests (target="_blank", window.open) -> Block Ad Popups or Convert to Internal Tabs
+    // Intercept New Window Requests (target="_blank", window.open):
+    // - Block ad popups & dangerous schemes
+    // - Allow OAuth/SSO/sized popups natively to preserve `window.opener`
+    // - Convert normal target="_blank" links into internal Fynexo tabs
     let proxy_for_new_window = event_proxy.clone();
     let tabs_for_new_window = Arc::clone(tab_manager);
-    builder = builder.with_new_window_req_handler(move |url, _features| {
-        if adblock::should_block_url(&url) {
-            adblock::record_block();
-            return wry::NewWindowResponse::Deny;
-        }
+    builder = builder.with_new_window_req_handler(move |url, features| {
         #[cfg(target_os = "windows")]
         if adblock::launch_external_scheme_windows(&url) {
             return wry::NewWindowResponse::Deny;
         }
-        // Allow external http(s) URLs and validated chrome-extension:// pages; deny fynexo://, file://, javascript:, data:, etc.
-        if !super::security::is_safe_external_http_url(&url)
-            && !super::security::is_safe_chrome_extension_url(&url)
-        {
-            return wry::NewWindowResponse::Deny;
+        let has_popup_features = features.size.is_some() || features.position.is_some();
+        match classify_new_window_request(&url, has_popup_features) {
+            NewWindowAction::Deny => {
+                if adblock::should_block_url(&url) {
+                    adblock::record_block();
+                }
+                wry::NewWindowResponse::Deny
+            }
+            NewWindowAction::AllowPopup => wry::NewWindowResponse::Allow,
+            NewWindowAction::OpenInTab => {
+                let logical = normalize_logical_url(&url);
+                let (new_id, nav_url) = tabs_for_new_window.lock_safe().new_tab(&logical);
+                let _ = proxy_for_new_window.send_event(UserEvent::SwitchTab {
+                    win_id,
+                    id: new_id,
+                    url: nav_url,
+                });
+                let _ = proxy_for_new_window.send_event(UserEvent::SyncTabs(win_id));
+                wry::NewWindowResponse::Deny
+            }
         }
-        let logical = normalize_logical_url(&url);
-        let (new_id, nav_url) = tabs_for_new_window.lock_safe().new_tab(&logical);
-        let _ = proxy_for_new_window.send_event(UserEvent::SwitchTab {
-            win_id,
-            id: new_id,
-            url: nav_url,
-        });
-        let _ = proxy_for_new_window.send_event(UserEvent::SyncTabs(win_id));
-        wry::NewWindowResponse::Deny
     });
+
+    let page_host: Arc<std::sync::RwLock<String>> = Arc::new(std::sync::RwLock::new(
+        adblock::extract_host(target_url)
+            .map(|h| h.to_ascii_lowercase())
+            .unwrap_or_default(),
+    ));
 
     // Main-Frame Navigation Guard: Block Ad Redirects, Data-URI Phishing & Route External Schemes Safely
     #[allow(unused_variables)]
     let proxy_for_nav = event_proxy.clone();
+    let page_host_for_nav = Arc::clone(&page_host);
     builder = builder.with_navigation_handler(move |url| {
         let lower = url.to_ascii_lowercase();
         let is_standard = lower.starts_with("http://")
             || lower.starts_with("https://")
             || lower.starts_with("fynexo://")
             || super::security::is_safe_chrome_extension_url(&url)
+            || super::os_integration::is_safe_local_document_file_url(&url)
             || lower.starts_with("about:")
             || lower.starts_with("blob:")
             || lower.starts_with("javascript:");
@@ -418,63 +539,96 @@ pub fn build_tab_webview(
             return false;
         }
 
-        if adblock::should_block_url(&url) {
+        let nav_host = adblock::extract_host(&url)
+            .map(|h| h.to_ascii_lowercase())
+            .unwrap_or_default();
+        if adblock::should_block_url_for_page(&url, Some(&nav_host)) {
             adblock::record_block();
             return false;
+        }
+
+        if lower.starts_with("http://")
+            || lower.starts_with("https://")
+            || lower.starts_with("fynexo://")
+        {
+            if let Ok(mut guard) = page_host_for_nav.write() {
+                *guard = nav_host;
+            }
         }
 
         true
     });
 
-    // Native File Download Handlers (Desktop WebView2 / WebKit)
-    let proxy_for_dl_start = event_proxy.clone();
-    let state_for_dl = Arc::clone(app_state);
-    builder = builder.with_download_started_handler(move |_url, dest_path| {
-        let suggested = dest_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("download.bin");
-        let custom_dir = state_for_dl.lock_safe().config.downloads_dir.clone();
-        let base_dir = resolved_downloads_dir(&custom_dir);
-        let final_path = unique_download_path_in(&base_dir, suggested);
-        let display_name = final_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("file")
-            .to_string();
-        *dest_path = final_path;
-        let _ = proxy_for_dl_start.send_event(UserEvent::DownloadUpdate {
-            name: display_name,
-            status: "downloading".to_string(),
+    // Native File Download Handlers (macOS/Linux WebKit; Windows uses rich ICoreWebView2_4 below)
+    #[cfg(not(target_os = "windows"))]
+    {
+        let proxy_for_dl_start = event_proxy.clone();
+        let state_for_dl = Arc::clone(app_state);
+        builder = builder.with_download_started_handler(move |_url, dest_path| {
+            let suggested = dest_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("download.bin");
+            let custom_dir = state_for_dl.lock_safe().config.downloads_dir.clone();
+            let base_dir = resolved_downloads_dir(&custom_dir);
+            let final_path = unique_download_path_in(&base_dir, suggested);
+            let display_name = final_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("file")
+                .to_string();
+            let saved_str = final_path.to_string_lossy().to_string();
+            *dest_path = final_path;
+            let _ = proxy_for_dl_start.send_event(UserEvent::DownloadUpdate {
+                id: 0,
+                name: display_name,
+                status: "downloading".to_string(),
+                bytes_received: 0,
+                total_bytes: 0,
+                speed_bps: 0,
+                saved_path: Some(saved_str),
+            });
+            true
         });
-        true
-    });
 
-    let proxy_for_dl_done = event_proxy.clone();
-    builder = builder.with_download_completed_handler(move |_url, path_opt, success| {
-        let name = path_opt
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .and_then(|s| s.to_str())
-            .unwrap_or("file")
-            .to_string();
-        let _ = proxy_for_dl_done.send_event(UserEvent::DownloadUpdate {
-            name,
-            status: if success {
-                "completed".to_string()
-            } else {
-                "failed".to_string()
-            },
+        let proxy_for_dl_done = event_proxy.clone();
+        builder = builder.with_download_completed_handler(move |_url, path_opt, success| {
+            let name = path_opt
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str())
+                .unwrap_or("file")
+                .to_string();
+            let saved_path = path_opt.map(|p| p.to_string_lossy().to_string());
+            let _ = proxy_for_dl_done.send_event(UserEvent::DownloadUpdate {
+                id: 0,
+                name,
+                status: if success {
+                    "completed".to_string()
+                } else {
+                    "failed".to_string()
+                },
+                bytes_received: 0,
+                total_bytes: 0,
+                speed_bps: 0,
+                saved_path,
+            });
         });
-    });
+    }
 
     // Restore per-tab reading scroll depth & reveal pending tabs after page load finishes
     let tab_id_for_load = Arc::clone(&bound_tab_id);
     let proxy_for_load = event_proxy.clone();
+    let page_host_for_load = Arc::clone(&page_host);
     builder = builder.with_on_page_load_handler(move |event, page_url| {
         let norm = normalize_logical_url(&page_url);
         if matches!(norm.as_str(), "about:blank" | "") {
             return;
+        }
+        if let Ok(mut guard) = page_host_for_load.write() {
+            *guard = adblock::extract_host(&norm)
+                .map(|h| h.to_ascii_lowercase())
+                .unwrap_or_default();
         }
         let tid = tab_id_for_load.load(Ordering::Acquire);
         if tid == 0 {
@@ -498,13 +652,15 @@ pub fn build_tab_webview(
         }
     });
 
-    // Custom URI Scheme: fynexo://newtab & fynexo://settings
+    // Custom URI Scheme: fynexo://newtab, fynexo://settings, & bundled /fonts/*.woff2
     let state_for_proto = Arc::clone(app_state);
     builder = builder.with_custom_protocol("fynexo".to_string(), move |_id, req| {
-        let route = super::security::resolve_internal_route(
-            req.uri().host().unwrap_or(""),
-            req.uri().path(),
-        );
+        let host = req.uri().host().unwrap_or("");
+        let path = req.uri().path();
+        if let Some(font_resp) = maybe_font_response(host, path) {
+            return font_resp;
+        }
+        let route = super::security::resolve_internal_route(host, path);
         let is_settings = route == Some("settings");
         let is_newtab = route == Some("newtab");
 
@@ -614,14 +770,20 @@ pub fn build_tab_webview(
 
     #[cfg(target_os = "windows")]
     {
-        adblock::attach_windows_adblock(&webview, &adblock_cfg);
+        adblock::attach_windows_adblock(&webview, &adblock_cfg, Arc::clone(&page_host));
+        if resolved_ua.is_some() {
+            adblock::apply_windows_user_agent(&webview, resolved_ua.as_deref());
+        }
         adblock::attach_windows_resilience(
             &webview,
             incognito,
             win_id,
             tab_id_for_win,
-            proxy_for_win,
+            proxy_for_win.clone(),
         );
+        super::downloads::attach_windows_downloads(&webview, Arc::clone(app_state), proxy_for_win.clone());
+        super::downloads::attach_windows_permissions(&webview, Arc::clone(app_state));
+        super::downloads::attach_windows_fullscreen(&webview, win_id, proxy_for_win);
     }
 
     if (default_zoom - 1.0).abs() > 0.01 {
@@ -631,6 +793,7 @@ pub fn build_tab_webview(
     Ok(TabWebView {
         webview,
         bound_tab_id,
+        page_host,
     })
 }
 
@@ -667,8 +830,8 @@ pub fn build_extension_popup_webview(
         .with_visible(true)
         .with_incognito(incognito);
 
-    if let Some(ua) = resolved_ua {
-        builder = builder.with_user_agent(&ua);
+    if let Some(ref ua) = resolved_ua {
+        builder = builder.with_user_agent(ua);
     }
 
     #[cfg(target_os = "windows")]
@@ -744,13 +907,12 @@ pub fn build_hud_webview(
     event_proxy: &EventLoopProxy<UserEvent>,
 ) -> Result<(wry::WebView, Vec<HudRegionRectLogical>), Box<dyn Error>> {
     let initial_tabs = tab_manager.lock_safe().get_state();
-    let (incognito, resolved_ua, boot_hw_accel, boot_chrome_ext, allow_devtools, hud_script) = {
+    let (incognito, boot_hw_accel, boot_chrome_ext, allow_devtools, hud_script) = {
         let mut st = app_state.lock_safe();
         let _ = st.reload_if_changed();
         let script = hud::generate_hud_script_for_role(&st, Some(&initial_tabs), hud::HudRole::HudShell);
         (
             st.config.incognito || incognito_window,
-            st.config.resolved_user_agent(),
             st.boot_hw_accel,
             st.boot_chrome_ext_enabled,
             cfg!(debug_assertions) || st.config.allow_page_eval,
@@ -763,10 +925,6 @@ pub fn build_hud_webview(
         .with_background_color((0, 0, 0, 0))
         .with_visible(true)
         .with_incognito(incognito);
-
-    if let Some(ua) = resolved_ua {
-        builder = builder.with_user_agent(&ua);
-    }
 
     let args = windows_browser_args(boot_hw_accel);
     builder = builder
@@ -786,10 +944,12 @@ pub fn build_hud_webview(
     builder = builder.with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny);
 
     builder = builder.with_custom_protocol("fynexo".to_string(), move |_id, req| {
-        let route = super::security::resolve_internal_route(
-            req.uri().host().unwrap_or(""),
-            req.uri().path(),
-        );
+        let host = req.uri().host().unwrap_or("");
+        let path = req.uri().path();
+        if let Some(font_resp) = maybe_font_response(host, path) {
+            return font_resp;
+        }
+        let route = super::security::resolve_internal_route(host, path);
         if route == Some("hud") {
             wry::http::Response::builder()
                 .header("Content-Type", "text/html; charset=utf-8")
@@ -831,6 +991,7 @@ pub fn build_hud_webview(
     let wv = builder
         .with_bounds(physical_bounds(win_size.width, win_size.height))
         .build_as_child(window)?;
+    adblock::capture_default_windows_ua(&wv);
     enable_clip_siblings(&wv);
     sync_webview_bounds(&wv, win_size.width, win_size.height);
     bring_hud_to_top(&wv);
@@ -1138,5 +1299,41 @@ mod tests {
         );
         assert_eq!(out[3], HudRegionRect { x: 0, y: 0, w: 1920, h: 1080, r: 0 });
         assert_eq!(out[4], HudRegionRect { x: 500, y: 150, w: 920, h: 525, r: 15 });
+    }
+
+    #[test]
+    fn classify_new_window_request_preserves_oauth_and_sized_popups() {
+        assert_eq!(
+            classify_new_window_request("about:blank", true),
+            NewWindowAction::AllowPopup
+        );
+        assert_eq!(
+            classify_new_window_request("", false),
+            NewWindowAction::AllowPopup
+        );
+        assert_eq!(
+            classify_new_window_request("javascript:alert(1)", true),
+            NewWindowAction::Deny
+        );
+        assert_eq!(
+            classify_new_window_request("file:///C:/Windows/win.ini", false),
+            NewWindowAction::Deny
+        );
+        assert_eq!(
+            classify_new_window_request("https://accounts.google.com/o/oauth2/v2/auth", false),
+            NewWindowAction::AllowPopup
+        );
+        assert_eq!(
+            classify_new_window_request("https://example.com/api/auth/github", false),
+            NewWindowAction::AllowPopup
+        );
+        assert_eq!(
+            classify_new_window_request("https://example.com/share-dialog", true),
+            NewWindowAction::AllowPopup
+        );
+        assert_eq!(
+            classify_new_window_request("https://example.com/article", false),
+            NewWindowAction::OpenInTab
+        );
     }
 }

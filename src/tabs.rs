@@ -305,6 +305,18 @@ impl TabManager {
         }
     }
 
+    pub fn find_tab_by_logical_url(&self, logical_url: &str) -> Option<usize> {
+        if let Some(active) = self.tabs.iter().find(|t| t.id == self.active_id) {
+            if crate::app::url::normalize_logical_url(&active.url) == logical_url {
+                return Some(active.id);
+            }
+        }
+        self.tabs
+            .iter()
+            .find(|t| crate::app::url::normalize_logical_url(&t.url) == logical_url)
+            .map(|t| t.id)
+    }
+
     fn push_closed(&mut self, item: &TabItem) {
         if self.incognito {
             return;
@@ -824,5 +836,18 @@ mod tests {
         let (bg_id, _) = m.new_tab_with_focus("https://www.youtube.com/watch?v=abc", false);
         let tab = m.tabs.iter().find(|t| t.id == bg_id).unwrap();
         assert_eq!(tab.title, "youtube.com");
+    }
+
+    #[test]
+    fn find_tab_by_logical_url_reuses_existing_settings_tab() {
+        let mut m = mgr_with(&["https://a.com"]);
+        assert_eq!(m.find_tab_by_logical_url("fynexo://settings"), None);
+
+        let (settings_id, _) = m.new_tab("fynexo://settings");
+        assert_eq!(m.find_tab_by_logical_url("fynexo://settings"), Some(settings_id));
+
+        let (other_id, _) = m.new_tab("https://b.com");
+        assert_eq!(m.active_id, other_id);
+        assert_eq!(m.find_tab_by_logical_url("fynexo://settings"), Some(settings_id));
     }
 }

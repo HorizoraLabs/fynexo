@@ -6,10 +6,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const DESKTOP_CHROME_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
 pub const MOBILE_CHROME_UA: &str = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36";
 
+static ROOT_DATA_DIR_CACHE: OnceLock<PathBuf> = OnceLock::new();
 static DATA_DIR_CACHE: OnceLock<PathBuf> = OnceLock::new();
 
-pub fn data_dir() -> &'static Path {
-    DATA_DIR_CACHE.get_or_init(|| {
+/// Root Fynexo application data directory (shared across profiles, holds `profiles.json`).
+pub fn root_data_dir() -> &'static Path {
+    ROOT_DATA_DIR_CACHE.get_or_init(|| {
         #[cfg(test)]
         crate::util::isolate_data_dir();
         if let Some(override_dir) = std::env::var_os("FYNEXO_DATA_DIR") {
@@ -52,7 +54,25 @@ pub fn data_dir() -> &'static Path {
                 .unwrap_or_else(|| PathBuf::from("."));
             let dir = base.join("Fynexo");
             let _ = fs::create_dir_all(&dir);
+            dir
+        }
+    })
+}
 
+pub fn data_dir() -> &'static Path {
+    DATA_DIR_CACHE.get_or_init(|| {
+        let root = root_data_dir().to_path_buf();
+        let prof = super::profiles::active_profile_id();
+        let dir = if prof == "default" {
+            root
+        } else {
+            let sub = root.join("profiles").join(prof);
+            let _ = fs::create_dir_all(&sub);
+            sub
+        };
+
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        if prof == "default" {
             for name in [
                 "config.json",
                 "styles.json",
@@ -70,8 +90,8 @@ pub fn data_dir() -> &'static Path {
                     }
                 }
             }
-            dir
         }
+        dir
     })
 }
 
@@ -108,7 +128,7 @@ pub fn resolved_downloads_dir(custom: &str) -> PathBuf {
     let trimmed = custom.trim();
     if !trimmed.is_empty() {
         let p = PathBuf::from(trimmed);
-        if (p.is_dir() || fs::create_dir_all(&p).is_ok()) && p.is_absolute() {
+        if p.is_absolute() && (p.is_dir() || fs::create_dir_all(&p).is_ok()) {
             return p;
         }
     }
@@ -391,7 +411,11 @@ mod tests {
         assert!(!name.contains(['<', '>', ':', '?', '\\', '/']));
         assert!(unique_download_path("").file_name().is_some());
         assert_eq!(resolved_downloads_dir(""), downloads_dir());
-        assert_eq!(resolved_downloads_dir("relative/path"), downloads_dir());
+        assert_eq!(
+            resolved_downloads_dir("fynexo_rel_never_create/sub"),
+            downloads_dir()
+        );
+        assert!(!Path::new("fynexo_rel_never_create").exists());
         let custom_root = std::env::temp_dir().join("fynexo_dl_test");
         let chosen = resolved_downloads_dir(&custom_root.to_string_lossy());
         assert_eq!(chosen, custom_root);

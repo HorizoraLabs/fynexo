@@ -12,6 +12,8 @@ use super::base::{
 pub struct BookmarkItem {
     pub title: String,
     pub url: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub folder: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -27,26 +29,32 @@ pub fn default_shortcuts() -> Vec<BookmarkItem> {
         BookmarkItem {
             title: "Google".to_string(),
             url: "https://www.google.com".to_string(),
+            folder: String::new(),
         },
         BookmarkItem {
             title: "GitHub".to_string(),
             url: "https://github.com".to_string(),
+            folder: String::new(),
         },
         BookmarkItem {
             title: "YouTube".to_string(),
             url: "https://www.youtube.com".to_string(),
+            folder: String::new(),
         },
         BookmarkItem {
             title: "Bilibili".to_string(),
             url: "https://www.bilibili.com".to_string(),
+            folder: String::new(),
         },
         BookmarkItem {
             title: "Wikipedia".to_string(),
             url: "https://www.wikipedia.org".to_string(),
+            folder: String::new(),
         },
         BookmarkItem {
             title: "DuckDuckGo".to_string(),
             url: "https://duckduckgo.com".to_string(),
+            folder: String::new(),
         },
     ]
 }
@@ -76,59 +84,165 @@ fn decode_basic_html_entities(s: &str) -> String {
         .replace("&apos;", "'")
 }
 
-/// Parses Netscape Bookmark HTML (`<!DOCTYPE NETSCAPE-Bookmark-file-1>` exported by Chrome/Edge/Firefox).
+fn sanitize_folder_name(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.len() <= 80 {
+        trimmed.to_string()
+    } else {
+        trimmed.chars().take(80).collect()
+    }
+}
+
+fn is_generic_root_folder(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "bookmarks"
+            | "bookmarks bar"
+            | "bookmarks menu"
+            | "other bookmarks"
+            | "favorites"
+            | "favorites bar"
+            | "other favorites"
+            | "书签栏"
+            | "其他书签"
+            | "收藏夹栏"
+    )
+}
+
+/// Parses Netscape Bookmark HTML (`<!DOCTYPE NETSCAPE-Bookmark-file-1>` exported by Chrome/Edge/Firefox),
+/// preserving nested `<H3>` / `<DL>` folder hierarchies.
 fn parse_netscape_bookmarks_html(raw: &str) -> Vec<BookmarkItem> {
     let mut items = Vec::new();
     let lower = raw.to_ascii_lowercase();
+    let mut folder_stack: Vec<String> = Vec::new();
+    let mut pending_folder: Option<String> = None;
     let mut pos = 0;
-    while let Some(rel) = lower[pos..].find("<a ") {
-        let tag_start = pos + rel;
-        let Some(gt_rel) = raw[tag_start..].find('>') else {
+
+    while pos < lower.len() {
+        let slice = &lower[pos..];
+        let next_a = slice.find("<a ");
+        let next_h3 = slice.find("<h3");
+        let next_dl = slice.find("<dl");
+        let next_dl_end = slice.find("</dl");
+
+        let next_token = [
+            next_a.map(|i| (i, 0u8)),
+            next_h3.map(|i| (i, 1u8)),
+            next_dl.map(|i| (i, 2u8)),
+            next_dl_end.map(|i| (i, 3u8)),
+        ]
+        .into_iter()
+        .flatten()
+        .min_by_key(|(i, _)| *i);
+
+        let Some((rel, kind)) = next_token else {
             break;
         };
-        let tag_end = tag_start + gt_rel;
-        let attrs = &raw[tag_start..tag_end];
-        let attrs_lower = &lower[tag_start..tag_end];
-        let mut href_val = None;
-        if let Some(h_rel) = attrs_lower.find("href=") {
-            let after = &attrs[h_rel + 5..];
-            let trimmed = after.trim_start();
-            if let Some(q) = trimmed.chars().next().filter(|c| *c == '"' || *c == '\'') {
-                if let Some(end_q) = trimmed[1..].find(q) {
-                    href_val = Some(decode_basic_html_entities(&trimmed[1..1 + end_q]));
+        let tag_start = pos + rel;
+
+        match kind {
+            1 => {
+                // <H3 ...>Folder Name</H3>
+                let Some(gt_rel) = raw[tag_start..].find('>') else {
+                    break;
+                };
+                let after_tag = tag_start + gt_rel + 1;
+                if let Some(close_rel) = lower[after_tag..].find("</h3>") {
+                    let fname = sanitize_folder_name(&decode_basic_html_entities(
+                        &raw[after_tag..after_tag + close_rel],
+                    ));
+                    if !fname.is_empty()
+                        && !(folder_stack.iter().all(|s| s.is_empty())
+                            && is_generic_root_folder(&fname))
+                    {
+                        pending_folder = Some(fname);
+                    } else {
+                        pending_folder = None;
+                    }
+                    pos = after_tag + close_rel + 5;
+                } else {
+                    pos = after_tag;
                 }
-            } else {
-                let end_ws = trimmed
-                    .find(|c: char| c.is_ascii_whitespace())
-                    .unwrap_or(trimmed.len());
-                href_val = Some(decode_basic_html_entities(&trimmed[..end_ws]));
+            }
+            2 => {
+                // <DL ...>
+                folder_stack.push(pending_folder.take().unwrap_or_default());
+                pos = match raw[tag_start..].find('>') {
+                    Some(gt_rel) => tag_start + gt_rel + 1,
+                    None => break,
+                };
+            }
+            3 => {
+                // </DL>
+                folder_stack.pop();
+                pending_folder = None;
+                pos = match raw[tag_start..].find('>') {
+                    Some(gt_rel) => tag_start + gt_rel + 1,
+                    None => break,
+                };
+            }
+            _ => {
+                // <A HREF="...">Title</A>
+                let Some(gt_rel) = raw[tag_start..].find('>') else {
+                    break;
+                };
+                let tag_end = tag_start + gt_rel;
+                let attrs = &raw[tag_start..tag_end];
+                let attrs_lower = &lower[tag_start..tag_end];
+                let mut href_val = None;
+                if let Some(h_rel) = attrs_lower.find("href=") {
+                    let after = &attrs[h_rel + 5..];
+                    let trimmed = after.trim_start();
+                    if let Some(q) = trimmed.chars().next().filter(|c| *c == '"' || *c == '\'') {
+                        if let Some(end_q) = trimmed[1..].find(q) {
+                            href_val = Some(decode_basic_html_entities(&trimmed[1..1 + end_q]));
+                        }
+                    } else {
+                        let end_ws = trimmed
+                            .find(|c: char| c.is_ascii_whitespace())
+                            .unwrap_or(trimmed.len());
+                        href_val = Some(decode_basic_html_entities(&trimmed[..end_ws]));
+                    }
+                }
+
+                let after_tag = tag_end + 1;
+                let close_rel = lower[after_tag..].find("</a>");
+                let title_raw = match close_rel {
+                    Some(c_rel) => &raw[after_tag..after_tag + c_rel],
+                    None => "",
+                };
+                let title = decode_basic_html_entities(title_raw).trim().to_string();
+
+                let folder = folder_stack
+                    .iter()
+                    .filter(|s| !s.is_empty())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" / ");
+
+                if let Some(u) = href_val {
+                    let u_trim = u.trim();
+                    if u_trim.starts_with("http://")
+                        || u_trim.starts_with("https://")
+                        || u_trim.starts_with("fynexo://")
+                    {
+                        items.push(BookmarkItem {
+                            title,
+                            url: u_trim.to_string(),
+                            folder: sanitize_folder_name(&folder),
+                        });
+                    }
+                }
+                pos = match close_rel {
+                    Some(c_rel) => after_tag + c_rel + 4,
+                    None => after_tag,
+                };
             }
         }
-
-        let after_tag = tag_end + 1;
-        let close_rel = lower[after_tag..].find("</a>");
-        let title_raw = match close_rel {
-            Some(c_rel) => &raw[after_tag..after_tag + c_rel],
-            None => "",
-        };
-        let title = decode_basic_html_entities(title_raw).trim().to_string();
-
-        if let Some(u) = href_val {
-            let u_trim = u.trim();
-            if u_trim.starts_with("http://")
-                || u_trim.starts_with("https://")
-                || u_trim.starts_with("fynexo://")
-            {
-                items.push(BookmarkItem {
-                    title,
-                    url: u_trim.to_string(),
-                });
-            }
-        }
-        pos = match close_rel {
-            Some(c_rel) => after_tag + c_rel + 4,
-            None => after_tag,
-        };
     }
     items
 }
@@ -188,6 +302,7 @@ pub fn parse_shortcuts_flexible(raw: &str) -> Result<Vec<BookmarkItem>, String> 
             cleaned.push(BookmarkItem {
                 title,
                 url: full_url,
+                folder: sanitize_folder_name(&item.folder),
             });
         }
     }
@@ -321,6 +436,10 @@ impl UserData {
     }
 
     pub fn toggle_bookmark(&mut self, title: &str, url: &str) -> bool {
+        self.toggle_bookmark_in_folder(title, url, "")
+    }
+
+    pub fn toggle_bookmark_in_folder(&mut self, title: &str, url: &str, folder: &str) -> bool {
         let trimmed_url = url.trim();
         if trimmed_url.is_empty()
             || trimmed_url.starts_with("fynexo://")
@@ -349,6 +468,7 @@ impl UserData {
                 BookmarkItem {
                     title: clean_title.to_string(),
                     url: trimmed_url.to_string(),
+                    folder: sanitize_folder_name(folder),
                 },
             );
             self.save_shortcuts();
@@ -357,6 +477,10 @@ impl UserData {
     }
 
     pub fn add_bookmark(&mut self, title: &str, url: &str) -> bool {
+        self.add_bookmark_in_folder(title, url, "")
+    }
+
+    pub fn add_bookmark_in_folder(&mut self, title: &str, url: &str, folder: &str) -> bool {
         let trimmed_url = url.trim();
         if trimmed_url.is_empty() {
             return false;
@@ -389,10 +513,28 @@ impl UserData {
             BookmarkItem {
                 title: clean_title,
                 url: full_url,
+                folder: sanitize_folder_name(folder),
             },
         );
         self.save_shortcuts();
         true
+    }
+
+    pub fn set_bookmark_folder(&mut self, url: &str, folder: &str) -> bool {
+        let key = normalize_url_key(url);
+        let clean = sanitize_folder_name(folder);
+        if let Some(bm) = self
+            .bookmarks
+            .iter_mut()
+            .find(|b| normalize_url_key(&b.url).eq_ignore_ascii_case(key))
+        {
+            if bm.folder != clean {
+                bm.folder = clean;
+                self.save_shortcuts();
+                return true;
+            }
+        }
+        false
     }
 
     pub fn remove_bookmark(&mut self, url: &str) -> bool {
@@ -532,14 +674,28 @@ mod tests {
         let html = r#"<!DOCTYPE NETSCAPE-Bookmark-file-1>
 <META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
 <DL><p>
-    <DT><A HREF="https://github.com/rust-lang/rust?a=1&amp;b=2" ADD_DATE="1700000000">Rust &amp; Friends</A>
-    <DT><A HREF="javascript:alert(1)">Bad XSS</A>
-    <DT><A HREF="https://docs.rs/">docs.rs</A>
+    <DT><H3>Bookmarks bar</H3>
+    <DL><p>
+        <DT><A HREF="https://github.com/rust-lang/rust?a=1&amp;b=2" ADD_DATE="1700000000">Rust &amp; Friends</A>
+        <DT><H3>Dev</H3>
+        <DL><p>
+            <DT><A HREF="https://docs.rs/">docs.rs</A>
+            <DT><H3>Cloud</H3>
+            <DL><p>
+                <DT><A HREF="https://dash.cloudflare.com/">Cloudflare</A>
+            </DL><p>
+        </DL><p>
+        <DT><A HREF="javascript:alert(1)">Bad XSS</A>
+    </DL><p>
 </DL><p>"#;
         let parsed = parse_shortcuts_flexible(html).expect("parse html bookmarks");
-        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed.len(), 3);
         assert_eq!(parsed[0].title, "Rust & Friends");
         assert_eq!(parsed[0].url, "https://github.com/rust-lang/rust?a=1&b=2");
+        assert_eq!(parsed[0].folder, "");
         assert_eq!(parsed[1].url, "https://docs.rs/");
+        assert_eq!(parsed[1].folder, "Dev");
+        assert_eq!(parsed[2].url, "https://dash.cloudflare.com/");
+        assert_eq!(parsed[2].folder, "Dev / Cloud");
     }
 }

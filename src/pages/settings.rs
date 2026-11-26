@@ -5,17 +5,19 @@ use serde::Serialize;
 use crate::config::RuntimePayload;
 
 const PAGE_TEMPLATE: &str = include_str!("settings.html");
+const FONTS_CSS: &str = include_str!("../hud/fonts.css");
 const TOKENS_CSS: &str = include_str!("../hud/tokens.css");
 const PAGE_CSS: &str = include_str!("settings.css");
 const PAGE_JS: &str = include_str!("settings.js");
 
 fn assemble_template() -> String {
     let shared_prelude = format!(
-        "{}\n{}",
+        "{}\n{}\n{}",
         crate::hud::defaults::defaults_script(),
+        include_str!("../hud/i18n.js"),
         include_str!("../hud/icons.js")
     );
-    let combined_css = format!("{}\n{}", TOKENS_CSS, PAGE_CSS);
+    let combined_css = format!("{}\n{}\n{}", FONTS_CSS, TOKENS_CSS, PAGE_CSS);
     PAGE_TEMPLATE
         .replacen("__FNX_SETTINGS_CSS__", &combined_css, 1)
         .replacen("__FNX_SETTINGS_JS__", PAGE_JS, 1)

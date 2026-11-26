@@ -299,7 +299,10 @@ fn matches_domain_set(lower_host: &str, set: &HashSet<String>) -> bool {
 }
 
 /// Hierarchical domain lookup checking whitelist first, then static + custom blocklists.
-pub fn is_blocked_host(host: &str) -> bool {
+/// When `page_host` is `Some(host)`, whitelist evaluation is scoped strictly to that tab's
+/// host rather than the process-wide `active_page_host`, eliminating cross-tab/cross-window
+/// whitelist races.
+pub fn is_blocked_host_for_page(host: &str, page_host: Option<&str>) -> bool {
     if host.is_empty() || host.starts_with("fynexo.") || host == "localhost" {
         return false;
     }
@@ -314,8 +317,9 @@ pub fn is_blocked_host(host: &str) -> bool {
     let custom_matched = if HAS_DYNAMIC_RULES.load(Ordering::Relaxed) {
         let snapshot = DYNAMIC_ADBLOCK.read().ok().map(|guard| Arc::clone(&*guard));
         if let Some(snap) = snapshot {
+            let effective_page_host = page_host.unwrap_or(&snap.active_page_host);
             if !snap.whitelisted.is_empty()
-                && (matches_domain_set(&snap.active_page_host, &snap.whitelisted)
+                && (matches_domain_set(effective_page_host, &snap.whitelisted)
                     || matches_domain_set(lower, &snap.whitelisted))
             {
                 return false;
@@ -350,15 +354,25 @@ pub fn is_blocked_host(host: &str) -> bool {
     false
 }
 
+/// Hierarchical domain lookup using the global active page host fallback.
+pub fn is_blocked_host(host: &str) -> bool {
+    is_blocked_host_for_page(host, None)
+}
+
 #[inline]
-pub fn should_block_url(url: &str) -> bool {
+pub fn should_block_url_for_page(url: &str, page_host: Option<&str>) -> bool {
     if !is_enabled() {
         return false;
     }
     match extract_host(url) {
-        Some(host) => is_blocked_host(host),
+        Some(host) => is_blocked_host_for_page(host, page_host),
         None => false,
     }
+}
+
+#[inline]
+pub fn should_block_url(url: &str) -> bool {
+    should_block_url_for_page(url, None)
 }
 
 #[cfg(target_os = "windows")]
@@ -387,7 +401,11 @@ pub fn sync_windows_custom_filters(webview: &wry::WebView, cfg: &AdblockConfig) 
 }
 
 #[cfg(target_os = "windows")]
-pub fn attach_windows_adblock(webview: &wry::WebView, cfg: &AdblockConfig) {
+pub fn attach_windows_adblock(
+    webview: &wry::WebView,
+    cfg: &AdblockConfig,
+    page_host: Arc<RwLock<String>>,
+) {
     use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL;
     use webview2_com::{take_pwstr, WebResourceRequestedEventHandler};
     use windows::core::{w, HSTRING, PWSTR};
@@ -416,7 +434,7 @@ pub fn attach_windows_adblock(webview: &wry::WebView, cfg: &AdblockConfig) {
     unsafe {
         let mut token: i64 = 0;
         let _ = core_wv.add_WebResourceRequested(
-            &WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
+            &WebResourceRequestedEventHandler::create(Box::new(move |sender, args| {
                 if !is_enabled() {
                     return Ok(());
                 }
@@ -428,7 +446,24 @@ pub fn attach_windows_adblock(webview: &wry::WebView, cfg: &AdblockConfig) {
                 req.Uri(&mut uri_pwstr)?;
                 let uri = take_pwstr(uri_pwstr);
 
-                if should_block_url(&uri) {
+                let mut tab_host = page_host
+                    .read()
+                    .ok()
+                    .map(|g| g.clone())
+                    .unwrap_or_default();
+                if tab_host.is_empty() {
+                    if let Some(wv_ref) = sender.as_ref() {
+                        let mut src_pwstr = PWSTR::null();
+                        if wv_ref.Source(&mut src_pwstr).is_ok() {
+                            let src = take_pwstr(src_pwstr);
+                            if let Some(h) = extract_host(&src) {
+                                tab_host = h.to_ascii_lowercase();
+                            }
+                        }
+                    }
+                }
+
+                if should_block_url_for_page(&uri, Some(&tab_host)) {
                     record_block();
                     if let Ok(resp) = env.CreateWebResourceResponse(
                         None,
@@ -446,42 +481,152 @@ pub fn attach_windows_adblock(webview: &wry::WebView, cfg: &AdblockConfig) {
     }
 }
 
+/// Builds the Chrome DevTools Protocol `Emulation.setUserAgentOverride` JSON payload so
+/// Chromium Client Hints (`Sec-CH-UA*`, `navigator.userAgentData`, `navigator.platform`)
+/// stay consistent with the configured User-Agent string (or resets them when `None`).
+pub fn cdp_user_agent_override_params(custom_ua: Option<&str>) -> String {
+    let Some(raw) = custom_ua.map(str::trim).filter(|s| !s.is_empty()) else {
+        return r#"{"userAgent":""}"#.to_string();
+    };
+    let lower = raw.to_ascii_lowercase();
+    let is_android = lower.contains("android");
+    let is_ios = lower.contains("iphone") || lower.contains("ipad") || lower.contains("ipod");
+    let is_mobile = is_android || is_ios || lower.contains("mobile");
+    let is_macos = !is_ios && (lower.contains("mac os x") || lower.contains("macintosh"));
+    let is_linux = !is_android && lower.contains("linux");
+
+    let chrome_full = raw
+        .split_whitespace()
+        .find_map(|tok| tok.strip_prefix("Chrome/").or_else(|| tok.strip_prefix("CriOS/")))
+        .filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.'))
+        .unwrap_or("134.0.0.0");
+    let chrome_major = chrome_full.split('.').next().unwrap_or("134");
+
+    let (ch_platform, ch_platform_ver, nav_platform, arch, bitness, model) = if is_android {
+        let ver = raw
+            .split("Android ")
+            .nth(1)
+            .and_then(|rest| rest.split([';', ')']).next())
+            .map(str::trim)
+            .filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.'))
+            .map(|v| {
+                if v.contains('.') {
+                    v.to_string()
+                } else {
+                    format!("{v}.0.0")
+                }
+            })
+            .unwrap_or_else(|| "14.0.0".to_string());
+        let dev_model = if lower.contains("pixel 8") {
+            "Pixel 8"
+        } else {
+            ""
+        };
+        ("Android", ver, "Linux armv8l", "", "", dev_model)
+    } else if is_ios {
+        ("iOS", "17.0.0".to_string(), "iPhone", "", "", "")
+    } else if is_macos {
+        ("macOS", "14.5.0".to_string(), "MacIntel", "arm", "64", "")
+    } else if is_linux {
+        ("Linux", "6.8.0".to_string(), "Linux x86_64", "x86", "64", "")
+    } else {
+        ("Windows", "15.0.0".to_string(), "Win32", "x86", "64", "")
+    };
+
+    serde_json::json!({
+        "userAgent": raw,
+        "platform": nav_platform,
+        "userAgentMetadata": {
+            "brands": [
+                { "brand": "Not:A-Brand", "version": "24" },
+                { "brand": "Chromium", "version": chrome_major },
+                { "brand": "Google Chrome", "version": chrome_major }
+            ],
+            "fullVersionList": [
+                { "brand": "Not:A-Brand", "version": "24.0.0.0" },
+                { "brand": "Chromium", "version": chrome_full },
+                { "brand": "Google Chrome", "version": chrome_full }
+            ],
+            "fullVersion": chrome_full,
+            "platform": ch_platform,
+            "platformVersion": ch_platform_ver,
+            "architecture": arch,
+            "model": model,
+            "mobile": is_mobile,
+            "bitness": bitness,
+            "wow64": false
+        }
+    })
+    .to_string()
+}
+
 #[cfg(target_os = "windows")]
-pub fn apply_windows_user_agent(webview: &wry::WebView, custom_ua: Option<&str>) {
+static DEFAULT_WINDOWS_UA: LazyLock<RwLock<Option<String>>> = LazyLock::new(|| RwLock::new(None));
+
+#[cfg(target_os = "windows")]
+pub fn capture_default_windows_ua(webview: &wry::WebView) {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings2;
-    use windows::core::{Interface, HSTRING};
+    use windows::core::Interface;
     use wry::WebViewExtWindows;
 
-    static DEFAULT_UA: LazyLock<RwLock<Option<String>>> = LazyLock::new(|| RwLock::new(None));
+    if DEFAULT_WINDOWS_UA.read().ok().and_then(|g| g.clone()).is_some() {
+        return;
+    }
+    let core_wv = webview.webview();
+    unsafe {
+        if let Ok(settings) = core_wv.Settings() {
+            if let Ok(settings2) = settings.cast::<ICoreWebView2Settings2>() {
+                let mut pw = windows::core::PWSTR::null();
+                if settings2.UserAgent(&mut pw).is_ok() {
+                    let orig = webview2_com::take_pwstr(pw);
+                    if !orig.is_empty()
+                        && orig != crate::config::DESKTOP_CHROME_UA
+                        && orig != crate::config::MOBILE_CHROME_UA
+                    {
+                        if let Ok(mut g) = DEFAULT_WINDOWS_UA.write() {
+                            *g = Some(orig);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn apply_windows_user_agent(webview: &wry::WebView, custom_ua: Option<&str>) {
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings2;
+    use windows::core::{w, Interface, HSTRING};
+    use wry::WebViewExtWindows;
+
+    capture_default_windows_ua(webview);
 
     let core_wv = webview.webview();
     unsafe {
         if let Ok(settings) = core_wv.Settings() {
             if let Ok(settings2) = settings.cast::<ICoreWebView2Settings2>() {
-                // Capture system default User-Agent once before overriding
-                if DEFAULT_UA.read().ok().and_then(|g| g.clone()).is_none() {
-                    let mut pw = windows::core::PWSTR::null();
-                    if settings2.UserAgent(&mut pw).is_ok() {
-                        let orig = webview2_com::take_pwstr(pw);
-                        if !orig.is_empty() {
-                            if let Ok(mut g) = DEFAULT_UA.write() {
-                                *g = Some(orig);
-                            }
-                        }
-                    }
-                }
-
                 let target_ua = match custom_ua {
-                    Some(ua) if !ua.trim().is_empty() => Some(ua.to_string()),
-                    _ => DEFAULT_UA.read().ok().and_then(|g| g.clone()),
+                    Some(ua) if !ua.trim().is_empty() => ua.to_string(),
+                    _ => DEFAULT_WINDOWS_UA
+                        .read()
+                        .ok()
+                        .and_then(|g| g.clone())
+                        .unwrap_or_default(),
                 };
-
-                if let Some(ua) = target_ua {
-                    let h = HSTRING::from(ua);
-                    let _ = settings2.SetUserAgent(&h);
-                }
+                let h = HSTRING::from(target_ua);
+                let _ = settings2.SetUserAgent(&h);
             }
         }
+
+        // Synchronize Chromium Client Hints (Sec-CH-UA*, navigator.userAgentData, navigator.platform)
+        let cdp_params = HSTRING::from(cdp_user_agent_override_params(custom_ua));
+        let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(|_, _| Ok(())));
+        let _ = core_wv.CallDevToolsProtocolMethod(
+            w!("Emulation.setUserAgentOverride"),
+            &cdp_params,
+            &handler,
+        );
     }
 }
 
@@ -498,6 +643,18 @@ pub fn apply_windows_autofill(webview: &wry::WebView, enabled: bool) {
                 let _ = settings4.SetIsPasswordAutosaveEnabled(enabled);
                 let _ = settings4.SetIsGeneralAutofillEnabled(enabled);
             }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn apply_windows_devtools(webview: &wry::WebView, enabled: bool) {
+    use wry::WebViewExtWindows;
+
+    let core_wv = webview.webview();
+    unsafe {
+        if let Ok(settings) = core_wv.Settings() {
+            let _ = settings.SetAreDevToolsEnabled(enabled);
         }
     }
 }
@@ -651,28 +808,20 @@ pub fn is_dangerous_download_filename(raw_name: &str) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-pub fn open_download_file(downloads_root: &std::path::Path, raw_name: &str) -> bool {
+pub fn open_download_path(full: &std::path::Path) -> bool {
     use windows::core::{w, HSTRING};
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-    let clean = raw_name.trim();
-    if clean.is_empty()
-        || clean.contains('/')
-        || clean.contains('\\')
-        || clean.contains("..")
-    {
-        return false;
-    }
-    let Some(file_only) = std::path::Path::new(clean).file_name() else {
-        return false;
-    };
-    let full = downloads_root.join(file_only);
     if !full.is_file() {
         return false;
     }
-    if is_dangerous_download_filename(clean) {
+    let fname = full
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    if is_dangerous_download_filename(fname) {
         let select_arg = HSTRING::from(format!("/select,\"{}\"", full.display()));
         unsafe {
             let res = ShellExecuteW(
@@ -701,26 +850,14 @@ pub fn open_download_file(downloads_root: &std::path::Path, raw_name: &str) -> b
 }
 
 #[cfg(target_os = "windows")]
-pub fn reveal_download_in_explorer(downloads_root: &std::path::Path, raw_name: &str) -> bool {
+pub fn reveal_download_path(full: &std::path::Path, fallback_root: &std::path::Path) -> bool {
     use windows::core::{w, HSTRING};
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-    let clean = raw_name.trim();
-    if clean.is_empty()
-        || clean.contains('/')
-        || clean.contains('\\')
-        || clean.contains("..")
-    {
-        return false;
-    }
-    let Some(file_only) = std::path::Path::new(clean).file_name() else {
-        return false;
-    };
-    let full = downloads_root.join(file_only);
     if !full.is_file() {
-        open_folder_in_explorer(downloads_root);
+        open_folder_in_explorer(fallback_root);
         return false;
     }
     let select_arg = HSTRING::from(format!("/select,\"{}\"", full.display()));
@@ -735,6 +872,38 @@ pub fn reveal_download_in_explorer(downloads_root: &std::path::Path, raw_name: &
         );
         (res.0 as isize) > 32
     }
+}
+
+#[cfg(target_os = "windows")]
+pub fn open_download_file(downloads_root: &std::path::Path, raw_name: &str) -> bool {
+    let clean = raw_name.trim();
+    if clean.is_empty()
+        || clean.contains('/')
+        || clean.contains('\\')
+        || clean.contains("..")
+    {
+        return false;
+    }
+    let Some(file_only) = std::path::Path::new(clean).file_name() else {
+        return false;
+    };
+    open_download_path(&downloads_root.join(file_only))
+}
+
+#[cfg(target_os = "windows")]
+pub fn reveal_download_in_explorer(downloads_root: &std::path::Path, raw_name: &str) -> bool {
+    let clean = raw_name.trim();
+    if clean.is_empty()
+        || clean.contains('/')
+        || clean.contains('\\')
+        || clean.contains("..")
+    {
+        return false;
+    }
+    let Some(file_only) = std::path::Path::new(clean).file_name() else {
+        return false;
+    };
+    reveal_download_path(&downloads_root.join(file_only), downloads_root)
 }
 
 #[cfg(test)]
@@ -796,5 +965,56 @@ mod tests {
         ] {
             assert!(!is_dangerous_download_filename(safe), "expected safe: {safe}");
         }
+    }
+
+    #[test]
+    fn per_tab_whitelist_does_not_leak_across_tabs() {
+        let cfg = AdblockConfig {
+            custom_blocked_domains: vec!["tracker.custom.example".into()],
+            whitelisted_domains: vec!["friendly.example".into()],
+        };
+        sync_dynamic_lists(&cfg);
+        set_active_page_url("https://friendly.example/article");
+
+        // Tab on the whitelisted host bypasses adblock
+        assert!(!is_blocked_host_for_page(
+            "ads.doubleclick.net",
+            Some("friendly.example")
+        ));
+        // Concurrent tab on a different host MUST still block ads even while global active_page_host is whitelisted
+        assert!(is_blocked_host_for_page(
+            "ads.doubleclick.net",
+            Some("other.example")
+        ));
+        assert!(is_blocked_host_for_page(
+            "sub.tracker.custom.example",
+            Some("other.example")
+        ));
+    }
+
+    #[test]
+    fn cdp_user_agent_override_syncs_client_hints_metadata() {
+        let reset: serde_json::Value =
+            serde_json::from_str(&cdp_user_agent_override_params(None)).unwrap();
+        assert_eq!(reset["userAgent"], "");
+        assert!(reset.get("userAgentMetadata").is_none());
+
+        let mob: serde_json::Value = serde_json::from_str(&cdp_user_agent_override_params(Some(
+            crate::config::MOBILE_CHROME_UA,
+        )))
+        .unwrap();
+        assert_eq!(mob["platform"], "Linux armv8l");
+        assert_eq!(mob["userAgentMetadata"]["mobile"], true);
+        assert_eq!(mob["userAgentMetadata"]["platform"], "Android");
+        assert_eq!(mob["userAgentMetadata"]["platformVersion"], "14.0.0");
+        assert_eq!(mob["userAgentMetadata"]["model"], "Pixel 8");
+
+        let desk: serde_json::Value = serde_json::from_str(&cdp_user_agent_override_params(Some(
+            crate::config::DESKTOP_CHROME_UA,
+        )))
+        .unwrap();
+        assert_eq!(desk["platform"], "Win32");
+        assert_eq!(desk["userAgentMetadata"]["mobile"], false);
+        assert_eq!(desk["userAgentMetadata"]["platform"], "Windows");
     }
 }

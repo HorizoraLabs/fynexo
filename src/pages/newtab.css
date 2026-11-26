@@ -15,6 +15,12 @@
             backdrop-filter: none !important;
             -webkit-backdrop-filter: none !important;
         }
+        html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+        }
 
         html, body {
             width: 100%;
@@ -28,7 +34,9 @@
         }
 
         html:not(.has-wallpaper) body {
-            background-image: radial-gradient(ellipse 68% 38% at 50% 0%, color-mix(in srgb, var(--nt-accent) 7%, transparent), transparent 72%);
+            background-image:
+                radial-gradient(ellipse 64% 42% at 50% -4%, color-mix(in srgb, var(--nt-accent) 13%, transparent), transparent 72%),
+                radial-gradient(ellipse 46% 32% at 50% 24%, color-mix(in srgb, var(--nt-fg) 3.5%, transparent), transparent 76%);
             background-repeat: no-repeat;
         }
 
@@ -116,7 +124,7 @@
             gap: 6px;
             height: 25px;
             padding: 0 9px;
-            border-radius: 7px;
+            border-radius: var(--r-md);
             background: transparent;
             border: 1px solid transparent;
             color: var(--nt-dim);
@@ -141,7 +149,7 @@
         html.has-wallpaper .bm-card,
         html.has-wallpaper .hist-list {
             background: color-mix(in srgb, var(--nt-surface) 74%, transparent);
-            border-color: rgba(255, 255, 255, 0.14);
+            border-color: color-mix(in srgb, var(--nt-fg) 14%, transparent);
             backdrop-filter: blur(14px) saturate(135%);
             -webkit-backdrop-filter: blur(14px) saturate(135%);
         }
@@ -173,33 +181,37 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 28px;
-            margin-top: clamp(20px, 5.5vh, 56px);
+            gap: 24px;
+            margin-top: clamp(18px, 5vh, 52px);
         }
 
         .nt-clock-wrap {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             text-align: center;
             user-select: none;
         }
 
         .nt-clock {
-            font-size: clamp(50px, 6.4vw, 66px);
-            font-weight: 650;
-            letter-spacing: -0.05em;
-            line-height: 1;
+            font-size: clamp(54px, 6.8vw, 72px);
+            font-weight: 300;
+            letter-spacing: -0.04em;
+            line-height: 0.96;
             color: var(--nt-fg);
+            background: linear-gradient(180deg, var(--nt-fg) 22%, color-mix(in srgb, var(--nt-fg) 72%, var(--nt-dim)) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
             font-variant-numeric: tabular-nums;
         }
 
         .nt-date-sub {
-            font-size: 13px;
-            font-weight: 500;
+            font-size: 12.5px;
+            font-weight: 450;
             color: var(--nt-dim);
-            letter-spacing: 0.01em;
+            letter-spacing: 0.03em;
         }
 
         .nt-custom-banner {
@@ -230,32 +242,34 @@
         .nt-search-box {
             position: relative;
             width: 100%;
-            min-height: 54px;
+            min-height: 56px;
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 8px 10px 8px 10px;
-            background: color-mix(in srgb, var(--nt-elevated) 72%, var(--nt-surface));
+            gap: 11px;
+            padding: 9px 12px;
+            background: color-mix(in srgb, var(--nt-elevated) 78%, var(--nt-surface));
             border: 1px solid var(--nt-hairline-hover);
             border-top-color: var(--nt-top-highlight);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.30), 0 1px 0 color-mix(in srgb, var(--nt-fg) 4%, transparent) inset;
             border-radius: var(--r-xl);
             transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
         }
         .nt-search-box:hover {
-            border-color: var(--nt-hairline-hover);
+            background: color-mix(in srgb, var(--nt-elevated) 92%, var(--nt-surface));
+            border-color: color-mix(in srgb, var(--nt-fg) 22%, transparent);
             border-top-color: var(--nt-top-highlight);
         }
         .nt-search-box:focus-within {
             background: var(--nt-elevated);
-            border-color: color-mix(in srgb, var(--nt-accent) 55%, var(--nt-hairline));
-            border-top-color: color-mix(in srgb, var(--nt-accent) 72%, var(--nt-top-highlight));
+            border-color: color-mix(in srgb, var(--nt-accent) 62%, var(--nt-hairline));
+            border-top-color: color-mix(in srgb, var(--nt-accent) 78%, var(--nt-top-highlight));
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.36), 0 0 0 3px color-mix(in srgb, var(--nt-accent) 20%, transparent);
         }
 
         .nt-engine-btn {
             height: 32px;
             padding: 0 9px;
-            border-radius: 8px;
+            border-radius: var(--r-md);
             border: 1px solid var(--nt-hairline);
             background: color-mix(in srgb, var(--nt-fg) 4%, transparent);
             color: var(--nt-fg);
@@ -311,7 +325,7 @@
             background: var(--nt-surface);
             border: 1px solid var(--nt-hairline-hover);
             border-top-color: var(--nt-top-highlight);
-            border-radius: 10px;
+            border-radius: var(--r-lg);
             padding: 4px;
             display: none;
             flex-direction: column;
@@ -324,7 +338,7 @@
         .nt-engine-opt {
             width: 100%;
             border: none;
-            border-radius: 7px;
+            border-radius: var(--r-md);
             background: transparent;
             color: var(--nt-fg);
             padding: 6px 8px;
@@ -349,7 +363,7 @@
         .nt-engine-opt .nt-emblem-img {
             width: 14px;
             height: 14px;
-            border-radius: 4px;
+            border-radius: var(--r-xs);
         }
         .nt-engine-opt-name {
             flex: 1;
@@ -389,7 +403,7 @@
             border: none;
             background: transparent;
             color: var(--nt-dim);
-            border-radius: 6px;
+            border-radius: var(--r-sm);
             display: none;
             align-items: center;
             justify-content: center;
@@ -398,17 +412,17 @@
         }
         .nt-clear-btn:hover {
             color: var(--nt-fg);
-            background: rgba(255, 255, 255, 0.06);
+            background: color-mix(in srgb, var(--nt-fg) 6%, transparent);
         }
 
         .nt-kbd-hint {
-            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-family: var(--font-mono);
             font-size: 11px;
             font-weight: 500;
             color: var(--nt-faint);
             width: 28px;
             height: 28px;
-            border-radius: 7px;
+            border-radius: var(--r-md);
             border: 1px solid var(--nt-hairline);
             background: transparent;
             display: inline-flex;
@@ -422,7 +436,7 @@
             width: 28px;
             height: 28px;
             border: 1px solid var(--nt-hairline);
-            border-radius: 7px;
+            border-radius: var(--r-md);
             background: color-mix(in srgb, var(--nt-fg) 6%, transparent);
             color: var(--nt-dim);
             display: none;
@@ -435,7 +449,7 @@
         .nt-go-btn:hover {
             background: var(--nt-accent);
             border-color: var(--nt-accent);
-            color: #ffffff;
+            color: var(--nt-on-accent);
         }
 
         .nt-search-box:focus-within .nt-kbd-hint,
@@ -452,13 +466,13 @@
             align-items: center;
             justify-content: center;
             flex-wrap: wrap;
-            gap: 6px;
-            margin-top: 10px;
+            gap: 7px;
+            margin-top: 12px;
         }
         .nt-tips-card {
             margin-top: 12px;
             padding: 9px 12px;
-            border-radius: 10px;
+            border-radius: var(--r-lg);
             border: 1px solid var(--nt-hairline);
             background: var(--nt-surface);
             display: flex;
@@ -482,10 +496,10 @@
             gap: 5px;
         }
         .nt-tips-kbd {
-            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-family: var(--font-mono);
             font-size: 10.5px;
             padding: 1px 5px;
-            border-radius: 4px;
+            border-radius: var(--r-xs);
             border: 1px solid var(--nt-hairline-hover);
             color: var(--nt-fg);
             background: color-mix(in srgb, var(--nt-fg) 4%, transparent);
@@ -494,7 +508,7 @@
             border: 1px solid var(--nt-hairline-hover);
             background: transparent;
             color: var(--nt-dim);
-            border-radius: 7px;
+            border-radius: var(--r-md);
             padding: 4px 10px;
             font-size: 11px;
             font-weight: 500;
@@ -507,12 +521,12 @@
         }
         .nt-bang-chip {
             border: 1px solid var(--nt-hairline);
-            background: color-mix(in srgb, var(--nt-surface) 84%, transparent);
+            background: color-mix(in srgb, var(--nt-surface) 78%, transparent);
             color: var(--nt-dim);
             font-size: 11.5px;
             font-weight: 450;
             padding: 4px 11px;
-            border-radius: 999px;
+            border-radius: var(--r-pill);
             display: inline-flex;
             align-items: center;
             gap: 6px;
@@ -520,11 +534,11 @@
             transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
         }
         .nt-bang-trig {
-            font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
-            font-size: 11px;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
             font-weight: 600;
             color: var(--nt-accent);
-            letter-spacing: -0.02em;
+            letter-spacing: 0.01em;
         }
         .nt-bang-name {
             color: var(--nt-dim);
@@ -548,7 +562,7 @@
             background: var(--nt-surface);
             border: 1px solid var(--nt-hairline-hover);
             border-top-color: var(--nt-top-highlight);
-            border-radius: 11px;
+            border-radius: var(--r-lg);
             padding: 5px;
             display: none;
             flex-direction: column;
@@ -559,7 +573,7 @@
         .nt-suggest-item {
             width: 100%;
             border: none;
-            border-radius: 7px;
+            border-radius: var(--r-md);
             background: transparent;
             color: var(--nt-fg);
             padding: 7px 9px;
@@ -605,12 +619,12 @@
         }
 
         .nt-suggest-tag {
-            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-family: var(--font-mono);
             font-size: 10px;
             font-weight: 500;
             padding: 2px 6px;
-            border-radius: 5px;
-            background: rgba(255, 255, 255, 0.03);
+            border-radius: var(--r-sm);
+            background: color-mix(in srgb, var(--nt-fg) 3%, transparent);
             border: 1px solid var(--nt-hairline);
             color: var(--nt-dim);
             flex-shrink: 0;
@@ -646,7 +660,7 @@
             color: var(--nt-faint);
             background: transparent;
             border: 1px solid transparent;
-            border-radius: 6px;
+            border-radius: var(--r-sm);
             cursor: pointer;
             transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
         }
@@ -664,7 +678,7 @@
             background: var(--nt-surface);
             border: 1px solid var(--nt-hairline);
             border-top-color: var(--nt-top-highlight);
-            border-radius: 10px;
+            border-radius: var(--r-lg);
             flex-wrap: wrap;
         }
         .nt-add-bar.open {
@@ -678,7 +692,7 @@
             padding: 0 10px;
             background: var(--nt-bg);
             border: 1px solid var(--nt-hairline);
-            border-radius: 7px;
+            border-radius: var(--r-md);
             color: var(--nt-fg);
             font-size: 12px;
             outline: none;
@@ -690,10 +704,10 @@
         .nt-save-btn {
             height: 30px;
             padding: 0 12px;
-            border-radius: 7px;
+            border-radius: var(--r-md);
             border: 1px solid var(--nt-accent);
             background: var(--nt-accent);
-            color: #ffffff;
+            color: var(--nt-on-accent);
             font-size: 11.5px;
             font-weight: 500;
             cursor: pointer;
@@ -711,21 +725,22 @@
             position: relative;
             display: flex;
             align-items: center;
-            gap: 10px;
-            height: 42px;
-            padding: 0 12px;
-            background: var(--nt-surface);
+            gap: 11px;
+            height: 46px;
+            padding: 0 14px;
+            background: color-mix(in srgb, var(--nt-surface) 86%, transparent);
             border: 1px solid var(--nt-hairline);
-            border-top-color: rgba(243, 244, 248, 0.10);
-            border-radius: var(--r-md);
+            border-top-color: var(--nt-top-highlight);
+            border-radius: var(--r-lg);
             cursor: pointer;
             text-align: left;
             min-width: 0;
-            transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+            transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
         }
         .bm-card:hover {
             border-color: var(--nt-hairline-hover);
             background: var(--nt-elevated);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
             transform: translateY(-1px);
         }
 
@@ -748,7 +763,7 @@
             position: relative;
             width: 16px;
             height: 16px;
-            border-radius: 4px;
+            border-radius: var(--r-xs);
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -759,7 +774,7 @@
         .nt-emblem-fallback {
             width: 16px;
             height: 16px;
-            border-radius: 4px;
+            border-radius: var(--r-xs);
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -769,7 +784,7 @@
             transition: opacity 0.12s ease;
         }
         .nt-emblem-fallback--mono {
-            background: rgba(255, 255, 255, 0.05);
+            background: color-mix(in srgb, var(--nt-fg) 5%, transparent);
             border: 1px solid var(--nt-hairline);
         }
 
@@ -814,7 +829,7 @@
             height: 20px;
             padding: 0;
             border: none;
-            border-radius: 5px;
+            border-radius: var(--r-sm);
             background: var(--nt-elevated);
             color: var(--nt-dim);
             display: flex;
@@ -838,7 +853,7 @@
         }
         .bm-del:hover {
             opacity: 1 !important;
-            background: rgba(255, 255, 255, 0.10);
+            background: color-mix(in srgb, var(--nt-fg) 10%, transparent);
             color: var(--nt-fg);
         }
 
@@ -847,10 +862,11 @@
             display: flex;
             flex-direction: column;
             gap: 2px;
-            background: color-mix(in srgb, var(--nt-surface) 45%, transparent);
+            background: color-mix(in srgb, var(--nt-surface) 56%, transparent);
             border: 1px solid var(--nt-hairline);
-            border-radius: var(--r-lg);
-            padding: 4px;
+            border-top-color: color-mix(in srgb, var(--nt-top-highlight) 70%, transparent);
+            border-radius: var(--r-xl);
+            padding: 5px;
         }
 
         .hist-row {
@@ -862,7 +878,7 @@
             margin: 0;
             padding: 0 10px;
             border: none;
-            border-radius: 8px;
+            border-radius: var(--r-md);
             background: transparent;
             color: var(--nt-fg);
             text-align: left;
@@ -914,21 +930,21 @@
         }
 
         .hist-time {
-            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-family: var(--font-mono);
             font-size: 11px;
             color: var(--nt-faint);
             font-variant-numeric: tabular-nums;
         }
 
         .hist-kbd {
-            font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+            font-family: var(--font-mono);
             font-size: 10.5px;
             font-weight: 500;
             color: var(--nt-dim);
             min-width: 36px;
             height: 20px;
             padding: 0 6px;
-            border-radius: 5px;
+            border-radius: var(--r-sm);
             border: 1px solid var(--nt-hairline);
             background: color-mix(in srgb, var(--nt-fg) 4%, transparent);
             display: inline-flex;
@@ -953,7 +969,7 @@
             z-index: 45;
             height: 32px;
             padding: 0 12px;
-            border-radius: 999px;
+            border-radius: var(--r-pill);
             border: 1px solid var(--nt-hairline-hover);
             background: color-mix(in srgb, var(--nt-surface) 82%, transparent);
             backdrop-filter: blur(12px);
@@ -981,7 +997,7 @@
             z-index: 50;
             width: 312px;
             padding: 12px 14px;
-            border-radius: 14px;
+            border-radius: var(--r-xl);
             border: 1px solid var(--nt-hairline-hover);
             border-top-color: var(--nt-top-highlight);
             background: color-mix(in srgb, var(--nt-surface) 92%, transparent);
@@ -1033,7 +1049,7 @@
             border: 1px solid var(--nt-hairline);
             background: color-mix(in srgb, var(--nt-fg) 4%, transparent);
             color: var(--nt-dim);
-            border-radius: 6px;
+            border-radius: var(--r-sm);
             padding: 3px 8px;
             font-size: 11px;
             font-weight: 500;

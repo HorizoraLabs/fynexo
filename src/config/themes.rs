@@ -32,19 +32,19 @@ pub struct ThemeColors {
 impl Default for ThemeColors {
     fn default() -> Self {
         Self {
-            bg: "#0b0c10".to_string(),
-            panel: "#12141c".to_string(),
-            surface: "#171a24".to_string(),
-            elevated: "#1f2330".to_string(),
-            border: "#262b3a".to_string(),
-            border_hover: "#384056".to_string(),
-            fg: "#f3f4f8".to_string(),
-            secondary: "#a6adbe".to_string(),
-            muted: "#6e768a".to_string(),
-            accent: "#7c86ff".to_string(),
-            accent_bg: "#1e2246".to_string(),
-            hover: "#1b1f2c".to_string(),
-            tab_active: "#1d212e".to_string(),
+            bg: "#0c0e13".to_string(),
+            panel: "#1c212d".to_string(),
+            surface: "#151923".to_string(),
+            elevated: "#272d3d".to_string(),
+            border: "#2c3345".to_string(),
+            border_hover: "#404a63".to_string(),
+            fg: "#f3f5f9".to_string(),
+            secondary: "#b2bacd".to_string(),
+            muted: "#838ca3".to_string(),
+            accent: "#818cf8".to_string(),
+            accent_bg: "#20254b".to_string(),
+            hover: "#222838".to_string(),
+            tab_active: "#242a3a".to_string(),
             tab_inactive: "transparent".to_string(),
         }
     }
@@ -70,7 +70,7 @@ impl Default for ThemePreset {
             id: "dark".to_string(),
             name: "Obsidian".to_string(),
             author: "Fynexo".to_string(),
-            description: "Obsidian titanium deck & luminous iris accents".to_string(),
+            description: "Graphite studio deck & luminous iris".to_string(),
             builtin: true,
             colors: ThemeColors::default(),
         }
@@ -79,14 +79,7 @@ impl Default for ThemePreset {
 
 pub fn builtin_theme_presets() -> Vec<ThemePreset> {
     vec![
-        ThemePreset {
-            id: "dark".to_string(),
-            name: "Obsidian".to_string(),
-            author: "Fynexo".to_string(),
-            description: "Layered warm-charcoal studio deck".to_string(),
-            builtin: true,
-            colors: ThemeColors::default(),
-        },
+        ThemePreset::default(),
         ThemePreset {
             id: "light".to_string(),
             name: "Alabaster".to_string(),
@@ -102,7 +95,7 @@ pub fn builtin_theme_presets() -> Vec<ThemePreset> {
                 border_hover: "#b8bac4".to_string(),
                 fg: "#18181b".to_string(),
                 secondary: "#4a4a54".to_string(),
-                muted: "#767682".to_string(),
+                muted: "#666673".to_string(),
                 accent: "#4f46e5".to_string(),
                 accent_bg: "#e5e7ff".to_string(),
                 hover: "#eaeaf0".to_string(),
@@ -125,7 +118,7 @@ pub fn builtin_theme_presets() -> Vec<ThemePreset> {
                 border_hover: "#42424d".to_string(),
                 fg: "#ededf0".to_string(),
                 secondary: "#b8b8c2".to_string(),
-                muted: "#82828d".to_string(),
+                muted: "#898996".to_string(),
                 accent: "#38bdf8".to_string(),
                 accent_bg: "#142a38".to_string(),
                 hover: "#25252b".to_string(),
@@ -148,7 +141,7 @@ pub fn builtin_theme_presets() -> Vec<ThemePreset> {
                 border_hover: "#4c566a".to_string(),
                 fg: "#eceff4".to_string(),
                 secondary: "#c8d0e0".to_string(),
-                muted: "#8c96aa".to_string(),
+                muted: "#96a0b4".to_string(),
                 accent: "#88c0d0".to_string(),
                 accent_bg: "#263642".to_string(),
                 hover: "#343b49".to_string(),
@@ -383,10 +376,29 @@ pub fn load_all_themes() -> Vec<ThemePreset> {
                         }
                     }
                     if preset.id == "dark"
-                        && preset.colors.bg.eq_ignore_ascii_case("#19191c")
-                        && preset.colors.panel.eq_ignore_ascii_case("#29292e")
+                        && ((preset.colors.bg.eq_ignore_ascii_case("#19191c")
+                            && preset.colors.panel.eq_ignore_ascii_case("#29292e"))
+                            || (preset.colors.bg.eq_ignore_ascii_case("#0b0c10")
+                                && preset.colors.panel.eq_ignore_ascii_case("#12141c"))
+                            || (preset.colors.bg.eq_ignore_ascii_case("#0d0f14")
+                                && preset.colors.panel.eq_ignore_ascii_case("#141720")))
                     {
                         preset = ThemePreset::default();
+                        let _ = save_theme_preset(&preset);
+                    } else if preset.builtin && preset.id == "light"
+                        && preset.colors.muted.eq_ignore_ascii_case("#767682")
+                    {
+                        preset.colors.muted = "#666673".to_string();
+                        let _ = save_theme_preset(&preset);
+                    } else if preset.builtin && preset.id == "oled"
+                        && preset.colors.muted.eq_ignore_ascii_case("#82828d")
+                    {
+                        preset.colors.muted = "#898996".to_string();
+                        let _ = save_theme_preset(&preset);
+                    } else if preset.builtin && preset.id == "nord"
+                        && preset.colors.muted.eq_ignore_ascii_case("#8c96aa")
+                    {
+                        preset.colors.muted = "#96a0b4".to_string();
                         let _ = save_theme_preset(&preset);
                     }
                     if !list.iter().any(|existing| existing.id == preset.id) {
@@ -493,6 +505,29 @@ pub fn themes_stamp() -> (usize, Option<SystemTime>) {
 mod tests {
     use super::*;
 
+    fn hex_relative_luminance(hex: &str) -> f64 {
+        let s = hex.trim().trim_start_matches('#');
+        assert_eq!(s.len(), 6, "expected #rrggbb color, got {hex}");
+        let r = u8::from_str_radix(&s[0..2], 16).expect("red channel") as f64 / 255.0;
+        let g = u8::from_str_radix(&s[2..4], 16).expect("green channel") as f64 / 255.0;
+        let b = u8::from_str_radix(&s[4..6], 16).expect("blue channel") as f64 / 255.0;
+        let lin = |c: f64| {
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    }
+
+    fn contrast_ratio(a: &str, b: &str) -> f64 {
+        let la = hex_relative_luminance(a);
+        let lb = hex_relative_luminance(b);
+        let (hi, lo) = if la >= lb { (la, lb) } else { (lb, la) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
     #[test]
     fn theme_ids_are_safe_filenames() {
         assert_eq!(sanitize_theme_id("Catppuccin Mocha"), "catppuccin-mocha");
@@ -510,5 +545,100 @@ mod tests {
         assert!(!delete_theme_preset("oled"));
         let presets = load_all_themes();
         assert!(presets.iter().any(|t| t.id == "dark"));
+    }
+
+    #[test]
+    fn builtin_themes_follow_depth_model() {
+        let presets = builtin_theme_presets();
+        assert_eq!(presets.len(), 5);
+        for p in &presets {
+            let c = &p.colors;
+            let l_bg = hex_relative_luminance(&c.bg);
+            let l_surf = hex_relative_luminance(&c.surface);
+            let l_panel = hex_relative_luminance(&c.panel);
+            let l_elev = hex_relative_luminance(&c.elevated);
+            assert!(
+                l_bg < l_surf && l_surf < l_panel && l_panel < l_elev,
+                "theme {} breaks recessed depth model: bg={l_bg:.4} surf={l_surf:.4} panel={l_panel:.4} elev={l_elev:.4}",
+                p.id
+            );
+            let ratio = contrast_ratio(&c.panel, &c.bg);
+            assert!(
+                ratio >= 1.15,
+                "theme {} panel/bg contrast too weak: {ratio:.3}",
+                p.id
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_themes_muted_text_meets_aa() {
+        for p in builtin_theme_presets() {
+            let c = &p.colors;
+            for (name, bg_hex) in [("bg", &c.bg), ("surface", &c.surface), ("panel", &c.panel)] {
+                let ratio = contrast_ratio(&c.muted, bg_hex);
+                assert!(
+                    ratio >= 4.5,
+                    "theme {} muted/{name} contrast {ratio:.2} < 4.5 ({} on {bg_hex})",
+                    p.id,
+                    c.muted
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn default_theme_matches_builtin_dark_preset() {
+        let def_colors = ThemeColors::default();
+        let def_preset = ThemePreset::default();
+        let presets = builtin_theme_presets();
+        let dark = &presets[0];
+        let def_styles = crate::config::ColorStyles::default();
+
+        assert_eq!(dark.id, "dark");
+        assert_eq!(def_preset.description, dark.description);
+        assert_eq!(def_colors.bg, dark.colors.bg);
+        assert_eq!(def_colors.panel, dark.colors.panel);
+        assert_eq!(def_colors.surface, dark.colors.surface);
+        assert_eq!(def_colors.elevated, dark.colors.elevated);
+        assert_eq!(def_colors.border, dark.colors.border);
+        assert_eq!(def_colors.border_hover, dark.colors.border_hover);
+        assert_eq!(def_colors.fg, dark.colors.fg);
+        assert_eq!(def_colors.secondary, dark.colors.secondary);
+        assert_eq!(def_colors.muted, dark.colors.muted);
+        assert_eq!(def_colors.accent, dark.colors.accent);
+        assert_eq!(def_colors.accent_bg, dark.colors.accent_bg);
+        assert_eq!(def_colors.hover, dark.colors.hover);
+        assert_eq!(def_colors.tab_active, dark.colors.tab_active);
+        assert_eq!(def_colors.tab_inactive, dark.colors.tab_inactive);
+
+        assert_eq!(def_styles.bg, def_colors.bg);
+        assert_eq!(def_styles.panel, def_colors.panel);
+        assert_eq!(def_styles.surface, def_colors.surface);
+        assert_eq!(def_styles.elevated, def_colors.elevated);
+        assert_eq!(def_styles.muted, def_colors.muted);
+    }
+
+    #[test]
+    fn legacy_dark_preset_migrates_on_load() {
+        crate::util::isolate_data_dir();
+        let legacy = serde_json::json!({
+            "id": "dark",
+            "name": "Obsidian",
+            "builtin": true,
+            "colors": {
+                "bg": "#0d0f14",
+                "panel": "#141720",
+                "surface": "#1b1f2b",
+                "elevated": "#242938"
+            }
+        });
+        let path = themes_dir().join("dark.json");
+        fs::write(&path, serde_json::to_string_pretty(&legacy).unwrap()).unwrap();
+        let loaded = load_all_themes();
+        let dark = loaded.into_iter().find(|t| t.id == "dark").expect("dark preset");
+        assert_eq!(dark.colors.bg, "#0c0e13");
+        assert_eq!(dark.colors.panel, "#1c212d");
+        assert_eq!(dark.colors.surface, "#151923");
     }
 }

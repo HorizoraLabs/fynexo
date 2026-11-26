@@ -25,15 +25,24 @@ pub fn generate_hud_script_for_role(
     tabs: Option<&crate::tabs::TabState>,
     role: HudRole,
 ) -> String {
-    let initial_json = state
-        .hud_json_with_tabs(tabs)
-        .unwrap_or_else(|_| "{}".to_string());
+    let initial_json = match role {
+        HudRole::ContentTab => state
+            .content_json_with_tabs(tabs)
+            .unwrap_or_else(|_| "{}".to_string()),
+        HudRole::HudShell | HudRole::Embedded => state
+            .hud_json_with_tabs(tabs)
+            .unwrap_or_else(|_| "{}".to_string()),
+    };
     build_script_for_role(&initial_json, role)
 }
 
 fn baked_role_parts(slot: &OnceLock<(String, String)>, role: HudRole) -> &(String, String) {
     slot.get_or_init(|| {
-        let (raw_prefix, raw_suffix) = runtime::baked_template_parts();
+        let (raw_prefix, raw_suffix) = match role {
+            HudRole::Embedded => runtime::baked_template_parts(),
+            HudRole::HudShell => runtime::baked_hud_shell_parts(),
+            HudRole::ContentTab => runtime::baked_content_agent_parts(),
+        };
         let ipc = crate::app::security::ipc_token();
         let bridge = crate::app::security::bridge_token();
         let inject = |part: &str| {
@@ -73,8 +82,10 @@ mod tests {
             for ph in [
                 "__FNX_MOBILE_HOST__",
                 "__FNX_ICONS__",
+                "__FNX_I18N__",
                 "__FNX_DEFAULTS__",
                 "__FNX_BASE_CSS__",
+                "__FNX_CONTENT_CSS__",
                 "__FNX_SCRIPTFORGE__",
                 "__FNX_EXTENSIONS__",
                 "__FNX_INITIAL_JSON__",
@@ -88,6 +99,18 @@ mod tests {
             assert!(script.contains(crate::app::security::bridge_token()));
             assert!(script.contains(expected));
         }
+        let content_script = build_script_for_role("{}", HudRole::ContentTab);
+        let embedded_script = build_script_for_role("{}", HudRole::Embedded);
+        assert!(
+            content_script.len() < 150_000 && content_script.len() * 4 < embedded_script.len(),
+            "ContentTab agent unexpectedly bloated: {} bytes (embedded: {} bytes)",
+            content_script.len(),
+            embedded_script.len()
+        );
+        assert!(!content_script.contains("#__fynexo_topbar__"));
+        assert!(!content_script.contains("#__fynexo_omnibox_modal__"));
+        assert!(content_script.contains("__fynexo_content_action__"));
+        assert!(content_script.contains("TAB_PAINT_READY"));
         assert!(hud_shell_html().contains("data-fynexo-hud-shell=\"1\""));
     }
 

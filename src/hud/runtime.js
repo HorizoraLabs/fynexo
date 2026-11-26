@@ -107,6 +107,8 @@
 
    __FNX_ICONS__;
 
+   __FNX_I18N__;
+
    __FNX_DEFAULTS__;
 
    function mergeStyles(raw) {
@@ -223,7 +225,9 @@
    let pageManualFeatureOverrides = Object.create(null);
    let userFpsHudOverride = null;
    function isZh() {
-      return String(config.language || 'zh').toLowerCase() !== 'en';
+      return typeof FynexoI18n !== 'undefined'
+         ? FynexoI18n.isZhLocale(config.language)
+         : String(config.language || 'zh').toLowerCase().startsWith('zh');
    }
    let styles = mergeStyles(bootPayload.styles);
    let activeTheme = Object.assign(
@@ -261,6 +265,15 @@
       ? bootPayload.chrome_extensions
       : [];
    let chromeExtEngineActive = !!bootPayload.chrome_ext_engine_active;
+   let sitePermissions =
+      bootPayload.site_permissions && typeof bootPayload.site_permissions === 'object'
+         ? bootPayload.site_permissions
+         : {};
+   let browserProfiles = Array.isArray(bootPayload.profiles)
+      ? bootPayload.profiles
+      : [];
+   let activeProfileId = String(bootPayload.active_profile_id || 'default');
+   let activeHudBmFolder = '';
    let syncDownloadsUIRef = null;
    let syncChromeExtsUIRef = null;
    let syncChromeStoreBannerRef = null;
@@ -1220,26 +1233,41 @@
       } catch (_) {}
    }
 
+   function contrastOnAccent(hex) {
+      const m = String(hex || '').trim().match(/^#([0-9a-f]{6})$/i);
+      if (!m) return '#ffffff';
+      const n = parseInt(m[1], 16);
+      const lin = (c) => {
+         const v = c / 255;
+         return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      };
+      const lum = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+      return lum > 0.185 ? '#0b0e17' : '#ffffff';
+   }
+
    function resolvePalette() {
       const src =
          styles.colors && styles.colors.use_custom_colors
             ? styles.colors
-            : activeTheme;
+            : (activeTheme || {});
+      const d = (typeof DEFAULT_STYLES !== 'undefined' && DEFAULT_STYLES.colors) || {};
+      const accent = src.accent || d.accent;
       return {
-         bg: src.bg || '#0b0c10',
-         panel: src.panel || '#12141c',
-         surface: src.surface || src.panel || '#171a24',
-         elevated: src.elevated || '#1f2330',
-         border: src.border || '#262b3a',
-         borderHover: src.border_hover || src.borderHover || '#384056',
-         fg: src.fg || '#f3f4f8',
-         secondary: src.secondary || '#a6adbe',
-         muted: src.muted || '#6e768a',
-         accent: src.accent || '#7c86ff',
-         accentBg: src.accent_bg || src.accentBg || '#1e2246',
-         hover: src.hover || '#1b1f2c',
-         tabActive: src.tab_active || src.tabActive || '#1d212e',
-         tabInactive: src.tab_inactive || src.tabInactive || 'transparent',
+         bg: src.bg || d.bg,
+         panel: src.panel || d.panel,
+         surface: src.surface || d.surface || src.panel || d.panel,
+         elevated: src.elevated || d.elevated,
+         border: src.border || d.border,
+         borderHover: src.border_hover || src.borderHover || d.border_hover,
+         fg: src.fg || d.fg,
+         secondary: src.secondary || d.secondary,
+         muted: src.muted || d.muted,
+         accent: accent,
+         onAccent: contrastOnAccent(accent),
+         accentBg: src.accent_bg || src.accentBg || d.accent_bg,
+         hover: src.hover || d.hover,
+         tabActive: src.tab_active || src.tabActive || d.tab_active,
+         tabInactive: src.tab_inactive || src.tabInactive || d.tab_inactive || 'transparent',
       };
    }
 
@@ -1255,6 +1283,7 @@
 
    function isMobilePlatform() {
       if (__FNX_MOBILE_HOST) return true;
+      if (IS_HUD_SHELL) return false;
       if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) {
          return true;
       }
@@ -1888,8 +1917,16 @@
       const shellRoot = shadowRoot.getElementById('__fynexo_shell__');
       if (shellRoot) {
          shellRoot.classList.toggle('zero-fx', !!config.enforce_perf);
+         shellRoot.classList.toggle('reduce-motion', !!config.reduce_animations);
          shellRoot.classList.toggle('fnx-role-hud', IS_HUD_SHELL);
          shellRoot.classList.toggle('fnx-role-content', IS_CONTENT_TAB);
+      }
+      const topbarEl = shadowRoot.getElementById('__fynexo_topbar__');
+      if (topbarEl) {
+         topbarEl.classList.toggle(
+            'fnx-mode-active',
+            Boolean(!isInternalAny() && activeModeMatch && activeModeMatch.profile),
+         );
       }
       const p = resolvePalette();
 
@@ -1933,6 +1970,7 @@
                 --fnx-secondary: ${p.secondary};
                 --fnx-muted: ${p.muted};
                 --fnx-accent: ${p.accent};
+                --fnx-on-accent: ${p.onAccent};
                 --fnx-accent-bg: ${p.accentBg};
                 --fnx-hover: ${p.hover};
                 --fnx-tab-active: ${p.tabActive};
@@ -1944,8 +1982,13 @@
 
             #__fynexo_topbar__ {
                 background: ${tb.background || 'var(--fnx-panel)'};
-                border-bottom: ${tb.border_bottom && tb.border_bottom !== '1px solid var(--fnx-border)' ? tb.border_bottom : '1px solid color-mix(in srgb, var(--fnx-fg) 10%, var(--fnx-panel))'};
+                border-bottom: ${tb.border_bottom && tb.border_bottom !== '1px solid var(--fnx-border)' ? tb.border_bottom : '1px solid color-mix(in srgb, var(--fnx-fg) 11%, var(--fnx-panel))'};
+                transition: border-color 0.18s ease, box-shadow 0.18s ease;
                 ${tb.custom_css || ''}
+            }
+            #__fynexo_topbar__.fnx-mode-active {
+                border-bottom-color: color-mix(in srgb, var(--fnx-accent) 48%, var(--fnx-border));
+                box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--fnx-accent) 24%, transparent);
             }
 
             #__fynexo_tab_row__ {
@@ -2142,17 +2185,36 @@
                 width: 100%;
                 max-width: ${isDeck ? 'clamp(320px, 46vw, 560px)' : '38vw'};
                 border-radius: ${ab.border_radius || '8px'};
-                background: ${ab.background || 'var(--fnx-surface)'};
-                border: ${ab.border || '1px solid var(--fnx-border)'};
+                background: ${ab.background || 'color-mix(in srgb, var(--fnx-surface) 92%, var(--fnx-bg))'};
+                border: ${ab.border || '1px solid color-mix(in srgb, var(--fnx-border-hover) 68%, var(--fnx-border))'};
+                box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fnx-fg) 5%, transparent);
                 font-size: ${ab.font_size || '12.5px'};
                 box-sizing: border-box;
+                transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease, opacity 0.14s ease;
                 ${ab.custom_css || ''}
+            }
+            #__fynexo_addr_slot__:hover:not(.editing) {
+                background: color-mix(in srgb, var(--fnx-surface) 75%, var(--fnx-elevated));
+                border-color: var(--fnx-border-hover);
+                opacity: 1;
+            }
+            #__fynexo_addr_slot__.is-newtab-route:not(.editing) {
+                background: color-mix(in srgb, var(--fnx-surface) 58%, var(--fnx-panel));
+                border-color: color-mix(in srgb, var(--fnx-border) 78%, transparent);
+                opacity: 0.78;
+            }
+            #__fynexo_addr_slot__.is-newtab-route:not(.editing):hover {
+                background: var(--fnx-surface);
+                border-color: var(--fnx-border-hover);
+                opacity: 1;
             }
             #__fynexo_addr_slot__.editing {
                 width: 100%;
                 max-width: ${isDeck ? 'clamp(360px, 54vw, 640px)' : '46vw'};
                 border-color: var(--fnx-accent);
                 background: var(--fnx-bg);
+                box-shadow: 0 0 0 2px color-mix(in srgb, var(--fnx-accent) 24%, transparent);
+                opacity: 1;
             }
 
             #__fynexo_address_btn__,
@@ -2316,6 +2378,7 @@
       if (!bmList) return;
       bmList.textContent = '';
 
+      const zh = isZh();
       const frag = document.createDocumentFragment();
       const items = Array.isArray(bookmarks) ? bookmarks : [];
 
@@ -2323,57 +2386,114 @@
          const emptyHint = document.createElement('span');
          emptyHint.style.cssText =
             'font-size: 11.5px; color: var(--fnx-muted); padding: 0 6px;';
-         emptyHint.textContent =
-            'No shortcuts saved — click the star icon in the address bar to pin sites here';
+         emptyHint.textContent = zh
+            ? '暂无快捷方式 — 点击地址栏星标即可固定到这里'
+            : 'No shortcuts saved — click the star icon in the address bar to pin sites here';
          frag.appendChild(emptyHint);
-      } else {
-         items.forEach((b) => {
-            if (!b || !b.url) return;
-            const pill = document.createElement('button');
-            pill.type = 'button';
-            pill.className = 'fnx-bm-pill';
-            const label = b.title || formatHostLabel(b.url);
-            pill.title = `${label}\n${b.url} (Middle-click for new tab · Right-click to remove)`;
+         bmList.appendChild(frag);
+         return;
+      }
 
-            const iconBadge = document.createElement('span');
-            iconBadge.className = 'fnx-bm-icon';
-            renderSiteEmblem(iconBadge, b.url, label);
+      const folderMap = Object.create(null);
+      const folderOrder = [];
+      const rootItems = [];
+      for (let i = 0; i < items.length; i++) {
+         const b = items[i];
+         if (!b || !b.url) continue;
+         const f = String(b.folder || '').trim();
+         if (!f) {
+            rootItems.push(b);
+         } else {
+            if (!folderMap[f]) {
+               folderMap[f] = [];
+               folderOrder.push(f);
+            }
+            folderMap[f].push(b);
+         }
+      }
+      if (activeHudBmFolder && !folderMap[activeHudBmFolder]) {
+         activeHudBmFolder = '';
+      }
 
-            const textSpan = document.createElement('span');
-            textSpan.className = 'fnx-bm-label';
-            textSpan.textContent = label;
+      function createBookmarkPill(b) {
+         const pill = document.createElement('button');
+         pill.type = 'button';
+         pill.className = 'fnx-bm-pill';
+         const label = b.title || formatHostLabel(b.url);
+         pill.title = `${label}\n${b.url} (Middle-click for new tab · Right-click to remove)`;
 
-            pill.appendChild(iconBadge);
-            pill.appendChild(textSpan);
+         const iconBadge = document.createElement('span');
+         iconBadge.className = 'fnx-bm-icon';
+         renderSiteEmblem(iconBadge, b.url, label);
 
-            pill.onclick = (e) => {
-               flushScrollSync();
-               triggerProgress();
-               if (e.ctrlKey || e.metaKey) {
-                  sendIpc({ type: 'NEW_TAB', url: b.url, title: label });
-               } else {
-                  sendIpc({ type: 'NAVIGATE', url: b.url });
-               }
-            };
-            pill.onmousedown = (e) => {
-               if (e.button === 1) e.preventDefault();
-            };
-            pill.onauxclick = (e) => {
-               if (e.button === 1) {
-                  e.preventDefault();
-                  triggerProgress();
-                  sendIpc({ type: 'NEW_TAB', url: b.url, title: label });
-               }
-            };
-            pill.oncontextmenu = (e) => {
+         const textSpan = document.createElement('span');
+         textSpan.className = 'fnx-bm-label';
+         textSpan.textContent = label;
+
+         pill.appendChild(iconBadge);
+         pill.appendChild(textSpan);
+
+         pill.onclick = (e) => {
+            flushScrollSync();
+            triggerProgress();
+            if (e.ctrlKey || e.metaKey) {
+               sendIpc({ type: 'NEW_TAB', url: b.url, title: label });
+            } else {
+               sendIpc({ type: 'NAVIGATE', url: b.url });
+            }
+         };
+         pill.onmousedown = (e) => {
+            if (e.button === 1) e.preventDefault();
+         };
+         pill.onauxclick = (e) => {
+            if (e.button === 1) {
                e.preventDefault();
-               e.stopPropagation();
-               sendIpc({ type: 'TOGGLE_BOOKMARK', title: label, url: b.url });
-               showHudToast(`Removed "${label}" from shortcuts`);
-            };
+               triggerProgress();
+               sendIpc({ type: 'NEW_TAB', url: b.url, title: label });
+            }
+         };
+         pill.oncontextmenu = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            sendIpc({ type: 'TOGGLE_BOOKMARK', title: label, url: b.url });
+            showHudToast((zh ? '已移除快捷方式：' : 'Removed shortcut: ') + label);
+         };
+         return pill;
+      }
 
-            frag.appendChild(pill);
+      if (activeHudBmFolder && folderMap[activeHudBmFolder]) {
+         const backPill = document.createElement('button');
+         backPill.type = 'button';
+         backPill.className = 'fnx-bm-pill';
+         backPill.style.cssText =
+            'border-color: var(--fnx-accent); color: var(--fnx-accent); font-weight: 600;';
+         backPill.textContent = (zh ? '← 全部 · ' : '← All · ') + activeHudBmFolder;
+         backPill.onclick = () => {
+            activeHudBmFolder = '';
+            renderBookmarksBar();
+         };
+         frag.appendChild(backPill);
+         folderMap[activeHudBmFolder].forEach((b) => frag.appendChild(createBookmarkPill(b)));
+      } else {
+         folderOrder.forEach((fname) => {
+            const fp = document.createElement('button');
+            fp.type = 'button';
+            fp.className = 'fnx-bm-pill';
+            fp.title = fname + ' (' + folderMap[fname].length + ')';
+            const fIcon = createIcon('folder');
+            fIcon.style.cssText = 'width: 12px; height: 12px; color: var(--fnx-accent); flex-shrink: 0;';
+            const fLbl = document.createElement('span');
+            fLbl.className = 'fnx-bm-label';
+            fLbl.textContent = fname;
+            fp.appendChild(fIcon);
+            fp.appendChild(fLbl);
+            fp.onclick = () => {
+               activeHudBmFolder = fname;
+               renderBookmarksBar();
+            };
+            frag.appendChild(fp);
          });
+         rootItems.forEach((b) => frag.appendChild(createBookmarkPill(b)));
       }
 
       bmList.appendChild(frag);
@@ -2391,6 +2511,21 @@
       'ext_mouse_gestures',
    ];
 
+   function matchModeDomainPattern(hostname, hostPort, pattern) {
+      const p = String(pattern || '*')
+         .trim()
+         .toLowerCase();
+      if (!p || p === '*') return true;
+      if (p.includes(':')) {
+         const cur = String(hostPort || hostname || '').toLowerCase();
+         const normP = p.replace(/^www\./, '');
+         return cur === normP || cur.replace(/^www\./, '') === normP;
+      }
+      const clean = p.startsWith('*.') ? p.slice(2) : p.replace(/^www\./, '');
+      const h = String(hostname || '').toLowerCase();
+      return h === clean || h.endsWith('.' + clean);
+   }
+
    function resolveActiveModeProfile() {
       if (isInternalAny()) return null;
       const modePref = String(rawBaseConfig.active_mode || 'auto')
@@ -2401,7 +2536,9 @@
          : [];
       if (modePref === 'default' || modePref === 'off') return null;
       if (modePref === 'auto') {
-         const curHost = getCurrentUrlParts().hostname;
+         const urlParts = getCurrentUrlParts();
+         const curHost = urlParts.hostname;
+         const curHostPort = urlParts.port ? `${curHost}:${urlParts.port}` : curHost;
          if (!curHost) return null;
          for (let i = 0; i < profiles.length; i++) {
             const p = profiles[i];
@@ -2410,7 +2547,7 @@
                const pat = String(p.auto_domains[j] || '').trim().toLowerCase();
                if (!pat) continue;
                if (
-                  domainMatchesRule(curHost, pat) ||
+                  matchModeDomainPattern(curHost, curHostPort, pat) ||
                   (pat === 'localhost' && isLocalDevHost(curHost))
                ) {
                   return { profile: p, auto: true };
@@ -5464,6 +5601,12 @@
          chromeExtensions = payload.chrome_extensions;
       if (typeof payload.chrome_ext_engine_active === 'boolean')
          chromeExtEngineActive = payload.chrome_ext_engine_active;
+      if (payload.site_permissions && typeof payload.site_permissions === 'object')
+         sitePermissions = payload.site_permissions;
+      if (Array.isArray(payload.profiles))
+         browserProfiles = payload.profiles;
+      if (typeof payload.active_profile_id === 'string' && payload.active_profile_id)
+         activeProfileId = payload.active_profile_id;
       cacheSlimRuntime();
       syncAllStyles();
       if (typeof syncHudLocalizationRef === 'function') {
@@ -6121,6 +6264,9 @@
          navRow.id = '__fynexo_nav_row__';
 
          const handleNavBarBlankDrag = (e, zoneEl) => {
+            if ((styles.topbar.layout || 'deck').toLowerCase() === 'deck') {
+               return;
+            }
             if (
                e.button === 0 &&
                (e.target === zoneEl || isDragTarget(e.target))
@@ -6195,7 +6341,7 @@
             if (!isInternalAny()) {
                e.preventDefault();
                e.stopPropagation();
-               toggleShieldPopover(addrIcon);
+               toggleSiteInfoPopover(addrIcon);
             }
          };
 
@@ -6395,14 +6541,39 @@
          const modeTopPill = document.createElement('button');
          modeTopPill.id = '__fynexo_mode_pill__';
          modeTopPill.type = 'button';
-         modeTopPill.className = 'fnx-studio-pill';
+         modeTopPill.className = 'fnx-studio-pill fnx-popover-trigger';
          modeTopPill.style.cssText =
             'display: none; height: 24px; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 600; gap: 4px; border-color: var(--fnx-accent); background: var(--fnx-accent-bg); color: var(--fnx-fg);';
          modeTopPill.onclick = (e) => {
             if (e && e.stopPropagation) e.stopPropagation();
-            toggleMainMenu();
+            toggleModePopover(modeTopPill);
          };
          rightZone.appendChild(modeTopPill);
+
+         // 3.85 Non-Default User-Agent Indicator Pill (1-click reset to System Default)
+         const uaTopPill = document.createElement('button');
+         uaTopPill.id = '__fynexo_ua_pill__';
+         uaTopPill.type = 'button';
+         uaTopPill.className = 'fnx-studio-pill';
+         uaTopPill.style.cssText =
+            'display: none; height: 24px; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 600; gap: 4px; border-color: var(--fnx-border-hover); background: var(--fnx-elevated); color: var(--fnx-fg);';
+         uaTopPill.onclick = (e) => {
+            if (e && e.stopPropagation) e.stopPropagation();
+            config.user_agent_mode = 'default';
+            rawBaseConfig.user_agent_mode = 'default';
+            uaTopPill.style.display = 'none';
+            sendIpc({ type: 'PATCH_HUD_PREFS', user_agent_mode: 'default' });
+            showHudToast(
+               isZh()
+                  ? '已恢复系统默认 User-Agent'
+                  : 'Restored System default User-Agent',
+            );
+            if (!isInternalAny()) {
+               triggerProgress();
+               sendIpc({ type: 'RELOAD' });
+            }
+         };
+         rightZone.appendChild(uaTopPill);
 
          // 3.9 Pinned Chrome Extensions & Extensions Hub Button (Desktop)
          const pinnedExtsBar = document.createElement('div');
@@ -6479,6 +6650,8 @@
          let mediaPopoverEl = null;
          let shieldPopoverEl = null;
          let downloadsPopoverEl = null;
+         let siteInfoPopoverEl = null;
+         let modePopoverEl = null;
          let chromeExtsPopoverEl = null;
          let taskMgrPopoverEl = null;
          let studioPopoverEl = null;
@@ -6490,6 +6663,8 @@
                mainMenuEl,
                mediaPopoverEl,
                shieldPopoverEl,
+               siteInfoPopoverEl,
+               modePopoverEl,
                downloadsPopoverEl,
                chromeExtsPopoverEl,
                taskMgrPopoverEl,
@@ -6521,7 +6696,7 @@
             return btn;
          }
 
-         function positionNavPopover(btn, popoverEl) {
+         function positionNavPopover(btn, popoverEl, align) {
             if (!popoverEl) return;
             const anchor = resolvePopoverAnchor(btn);
             if (!anchor) return;
@@ -6533,12 +6708,18 @@
             popoverEl.style.display = 'flex';
             const popW = popoverEl.getBoundingClientRect().width || 240;
 
-            const rightOffset = Math.max(
-               8,
-               Math.min(vw - rect.right, vw - popW - 8),
-            );
-            popoverEl.style.right = Math.round(rightOffset) + 'px';
-            popoverEl.style.left = 'auto';
+            if (align === 'left') {
+               const leftOffset = Math.max(8, Math.min(rect.left, vw - popW - 8));
+               popoverEl.style.left = Math.round(leftOffset) + 'px';
+               popoverEl.style.right = 'auto';
+            } else {
+               const rightOffset = Math.max(
+                  8,
+                  Math.min(vw - rect.right, vw - popW - 8),
+               );
+               popoverEl.style.right = Math.round(rightOffset) + 'px';
+               popoverEl.style.left = 'auto';
+            }
 
             const openUp = rect.top > vh * 0.55;
             if (openUp) {
@@ -6766,6 +6947,9 @@
             if (typeof renderMenuModesRow === 'function') {
                renderMenuModesRow();
             }
+            if (typeof renderMenuProfilesRow === 'function') {
+               renderMenuProfilesRow();
+            }
             if (typeof modeTopPill !== 'undefined' && modeTopPill) {
                if (!internal && activeModeMatch && activeModeMatch.profile) {
                   const pr = activeModeMatch.profile;
@@ -6792,6 +6976,30 @@
                   modeTopPill.style.display = 'inline-flex';
                } else {
                   modeTopPill.style.display = 'none';
+               }
+            }
+            if (typeof uaTopPill !== 'undefined' && uaTopPill) {
+               const uaMode = String(config.user_agent_mode || 'default').toLowerCase();
+               if (uaMode !== 'default' && uaMode !== '') {
+                  const uaLabel =
+                     uaMode === 'mobile'
+                        ? (zh ? '手机 UA' : 'Mobile UA')
+                        : uaMode === 'desktop'
+                          ? (zh ? '桌面 UA' : 'Desktop UA')
+                          : (zh ? '自定义 UA' : 'Custom UA');
+                  uaTopPill.textContent = '';
+                  const uSvg = createIcon(uaMode === 'mobile' ? 'mobile' : 'globe');
+                  uSvg.style.cssText = 'width: 12px; height: 12px; flex-shrink: 0; color: var(--fnx-accent);';
+                  const uLbl = document.createElement('span');
+                  uLbl.textContent = uaLabel;
+                  uaTopPill.appendChild(uSvg);
+                  uaTopPill.appendChild(uLbl);
+                  uaTopPill.title = zh
+                     ? `当前使用 ${uaLabel}（已同步 Client Hints）— 点击一键恢复系统默认`
+                     : `Using ${uaLabel} (Client Hints synced) — click to reset to System default`;
+                  uaTopPill.style.display = 'inline-flex';
+               } else {
+                  uaTopPill.style.display = 'none';
                }
             }
             mobShieldStatus.textContent = internal
@@ -6840,23 +7048,39 @@
          };
          mainMenuEl.appendChild(darkItem);
 
-         // Contextual Mode Switcher Strip
-         const modeBox = document.createElement('div');
-         modeBox.style.cssText =
-            'display: flex; flex-direction: column; gap: 5px; padding: 6px 9px; margin-top: 2px; border-top: 1px solid var(--fnx-border);';
-         const modeHeadRow = document.createElement('div');
-         modeHeadRow.style.cssText =
-            'display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--fnx-secondary);';
+         // Compact Contextual Mode Entry (opens dedicated Mode Switcher popover; no duplicated chip grid)
+         const modeMenuRow = document.createElement('div');
+         modeMenuRow.className = 'fnx-menu-item';
+         modeMenuRow.setAttribute('role', 'menuitem');
+         modeMenuRow.tabIndex = 0;
+         const modeMenuIconSlot = document.createElement('span');
+         modeMenuIconSlot.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; flex-shrink: 0;';
+         modeMenuIconSlot.appendChild(createIcon('spark'));
          const modeTitleLbl = document.createElement('span');
+         modeTitleLbl.style.cssText = 'flex: 1; min-width: 0;';
          const modeActiveSub = document.createElement('span');
-         modeActiveSub.style.cssText = 'color: var(--fnx-accent); font-weight: 600;';
-         modeHeadRow.appendChild(modeTitleLbl);
-         modeHeadRow.appendChild(modeActiveSub);
-         const modePillsRow = document.createElement('div');
-         modePillsRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px;';
-         modeBox.appendChild(modeHeadRow);
-         modeBox.appendChild(modePillsRow);
-         mainMenuEl.appendChild(modeBox);
+         modeActiveSub.style.cssText = 'font-size: 11px; color: var(--fnx-accent); font-weight: 600; flex-shrink: 0; max-width: 115px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+         modeMenuRow.appendChild(modeMenuIconSlot);
+         modeMenuRow.appendChild(modeTitleLbl);
+         modeMenuRow.appendChild(modeActiveSub);
+         const openModeFromMenu = (ev) => {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            const anchor =
+               modeTopPill && modeTopPill.style.display !== 'none'
+                  ? modeTopPill
+                  : btnMore;
+            if (typeof toggleModePopover === 'function') {
+               toggleModePopover(anchor);
+            }
+         };
+         modeMenuRow.onclick = openModeFromMenu;
+         modeMenuRow.onkeydown = (ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') {
+               ev.preventDefault();
+               openModeFromMenu(ev);
+            }
+         };
+         mainMenuEl.appendChild(modeMenuRow);
 
          function renderMenuModesRow() {
             const zh = isZh();
@@ -6864,64 +7088,22 @@
             modeTitleLbl.textContent = zh ? '场景模式' : 'Browser mode';
             if (activeModeMatch && activeModeMatch.profile) {
                const pr = activeModeMatch.profile;
-               const nm = zh ? pr.name_zh || pr.name_en : pr.name_en || pr.name_zh;
+               const nm = String(
+                  (zh ? pr.name_zh || pr.name_en : pr.name_en || pr.name_zh) ||
+                     pr.name ||
+                     pr.id ||
+                     '',
+               );
                modeActiveSub.textContent =
-                  nm +
-                  (activeModeMatch.auto ? (zh ? ' (自动)' : ' (Auto)') : '');
+                  nm + (activeModeMatch.auto ? (zh ? ' (自动)' : ' (Auto)') : '');
             } else {
                modeActiveSub.textContent =
                   pref === 'default'
-                     ? (zh ? '日常标准' : 'Standard')
-                     : (zh ? '自动 · 标准' : 'Auto · Standard');
+                     ? (zh ? '标准' : 'Standard')
+                     : (zh ? '自动' : 'Auto');
             }
-            modePillsRow.textContent = '';
-            const items = [
-               { id: 'auto', text: zh ? '自动' : 'Auto', icon: 'spark' },
-               { id: 'default', text: zh ? '标准' : 'Std', icon: '' },
-            ];
-            const profiles = Array.isArray(rawBaseConfig.mode_profiles)
-               ? rawBaseConfig.mode_profiles
-               : [];
-            for (let i = 0; i < profiles.length; i++) {
-               const pr = profiles[i];
-               if (!pr || !pr.id) continue;
-               const nm = zh ? pr.name_zh || pr.name_en : pr.name_en || pr.name_zh;
-               items.push({
-                  id: pr.id,
-                  text: nm.slice(0, 6),
-                  full: nm,
-                  icon: resolveModeIconName(pr.icon, pr.id),
-               });
-            }
-            for (let i = 0; i < items.length; i++) {
-               const it = items[i];
-               const btn = document.createElement('button');
-               btn.type = 'button';
-               btn.className = 'fnx-pop-seg-btn';
-               const active = pref === String(it.id).toLowerCase();
-               if (active) btn.classList.add('active');
-               btn.style.cssText = 'padding: 2px 7px; height: 22px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;';
-               if (it.icon) {
-                  setBtnIconAndText(btn, it.icon, it.text);
-                  btn.style.padding = '2px 7px';
-                  btn.style.height = '22px';
-                  btn.style.fontSize = '11px';
-               } else {
-                  btn.textContent = it.text;
-               }
-               btn.title = it.full || it.text;
-               btn.onclick = (ev) => {
-                  ev.stopPropagation();
-                  rawBaseConfig.active_mode = it.id;
-                  config.active_mode = it.id;
-                  pageManualFeatureOverrides = Object.create(null);
-                  userFpsHudOverride = null;
-                  sendIpc({ type: 'PATCH_HUD_PREFS', active_mode: it.id });
-                  syncAllStyles();
-                  syncMainMenuUI();
-                  showHudToast((zh ? '模式已切换：' : 'Mode: ') + (it.full || it.text));
-               };
-               modePillsRow.appendChild(btn);
+            if (modePopoverEl && typeof renderModePopoverUI === 'function') {
+               renderModePopoverUI();
             }
          }
          renderMenuModesRow();
@@ -7088,6 +7270,68 @@
             '页内查找文字',
          );
 
+         // Print Page (Ctrl+P)
+         addMenuItem(
+            'printer',
+            'Print page...',
+            'Ctrl+P',
+            () => {
+               if (IS_HUD_SHELL) {
+                  sendIpc({
+                     type: 'CONTENT_ACTION',
+                     action: 'print_page',
+                     payload: {},
+                  });
+               } else {
+                  try { window.print(); } catch (_) {}
+               }
+            },
+            '打印当前页面...',
+         );
+
+         // One-Click Translate Page
+         addMenuItem(
+            'translate',
+            'Translate this page',
+            '',
+            () => {
+               const cur = canonicalCurrentUrl();
+               if (!cur || isInternalAny(cur) || !/^https?:\/\//i.test(cur)) {
+                  showHudToast(
+                     isZh()
+                        ? '当前页面无需翻译（仅支持外网网页）'
+                        : 'Translate is available for web pages only',
+                  );
+                  return;
+               }
+               const provider = String(config.translate_provider || 'google').toLowerCase();
+               const targetLang = isZh() ? 'zh-CN' : 'en';
+               const enc = encodeURIComponent(cur);
+               let transUrl =
+                  'https://translate.google.com/translate?sl=auto&tl=' +
+                  targetLang +
+                  '&u=' +
+                  enc;
+               if (provider === 'bing') {
+                  const bingLang = isZh() ? 'zh-Hans' : 'en';
+                  transUrl =
+                     'https://www.bing.com/translator?from=auto&to=' +
+                     bingLang +
+                     '&url=' +
+                     enc;
+               } else if (provider === 'youdao') {
+                  transUrl =
+                     'https://fanyi.youdao.com/web2/#/index?url=' + enc;
+               }
+               sendIpc({
+                  type: 'NEW_TAB',
+                  url: transUrl,
+                  title: (isZh() ? '翻译: ' : 'Translate: ') + formatHostLabel(cur),
+               });
+            },
+            '一键翻译此网页',
+         );
+
          // Reader Mode
          const readerMenuItem = addMenuItem(
             'reader',
@@ -7125,6 +7369,79 @@
             },
             '开发者调试抽屉',
          );
+
+         // Multi-Profile Switcher Strip (Desktop)
+         const profileBox = document.createElement('div');
+         profileBox.className = 'fnx-desktop-only-row';
+         profileBox.style.cssText =
+            'display: flex; flex-direction: column; gap: 5px; padding: 6px 9px; margin-top: 2px; border-top: 1px solid var(--fnx-border);';
+         const profileHeadRow = document.createElement('div');
+         profileHeadRow.style.cssText =
+            'display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--fnx-secondary);';
+         const profileTitleLbl = document.createElement('span');
+         const profileManageBtn = document.createElement('button');
+         profileManageBtn.type = 'button';
+         profileManageBtn.className = 'fnx-pop-link';
+         profileManageBtn.style.fontSize = '10.5px';
+         profileManageBtn.onclick = (ev) => {
+            ev.stopPropagation();
+            closeAllNavPopovers();
+            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-general' });
+         };
+         profileHeadRow.appendChild(profileTitleLbl);
+         profileHeadRow.appendChild(profileManageBtn);
+         const profilePillsRow = document.createElement('div');
+         profilePillsRow.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px;';
+         profileBox.appendChild(profileHeadRow);
+         profileBox.appendChild(profilePillsRow);
+         mainMenuEl.appendChild(profileBox);
+
+         function renderMenuProfilesRow() {
+            const zh = isZh();
+            profileTitleLbl.textContent = zh ? '浏览器配置文件' : 'Profile';
+            profileManageBtn.textContent = zh ? '管理 / 新建' : 'Manage';
+            profilePillsRow.textContent = '';
+            const list =
+               Array.isArray(browserProfiles) && browserProfiles.length > 0
+                  ? browserProfiles
+                  : [{ id: 'default', name: zh ? '默认' : 'Default', color: '#7C86FF' }];
+            for (let i = 0; i < list.length; i++) {
+               const p = list[i];
+               if (!p || !p.id) continue;
+               const isCur = p.id === activeProfileId;
+               const chip = document.createElement('button');
+               chip.type = 'button';
+               chip.style.cssText =
+                  'display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11px; cursor: pointer; border: 1px solid ' +
+                  (isCur ? 'var(--fnx-accent)' : 'var(--fnx-border)') +
+                  '; background: ' +
+                  (isCur ? 'var(--fnx-accent-bg)' : 'var(--fnx-surface)') +
+                  '; color: ' +
+                  (isCur ? 'var(--fnx-fg)' : 'var(--fnx-secondary)') +
+                  ';';
+               const dot = document.createElement('span');
+               dot.style.cssText =
+                  'width: 6px; height: 6px; border-radius: 50%; background: ' +
+                  (p.color || '#7C86FF') +
+                  ';';
+               const txt = document.createElement('span');
+               txt.textContent = p.name || p.id;
+               chip.appendChild(dot);
+               chip.appendChild(txt);
+               chip.title = isCur
+                  ? (zh ? '当前窗口使用的配置' : 'Active profile in this window')
+                  : (zh ? '在新独立窗口中打开此配置' : 'Open this profile in a new window');
+               chip.onclick = (ev) => {
+                  ev.stopPropagation();
+                  closeAllNavPopovers();
+                  if (!isCur) {
+                     sendIpc({ type: 'LAUNCH_PROFILE', id: p.id });
+                  }
+               };
+               profilePillsRow.appendChild(chip);
+            }
+         }
+         renderMenuProfilesRow();
 
          // Popover 2: Media Control & Audio Booster (>100% Volume)
          mediaPopoverEl = document.createElement('div');
@@ -7778,6 +8095,88 @@
             'display: none; flex-direction: column; gap: 5px; padding-top: 8px; border-top: 1px solid var(--fnx-border);';
          shieldBody.appendChild(sfCommandsWrap);
 
+         // Page Customization Tools (Element Picker + Site Boost CSS) inside Shield Popover
+         const shieldPageToolsSection = document.createElement('div');
+         shieldPageToolsSection.style.cssText =
+            'display: none; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--fnx-border);';
+
+         // Visual Element Picker ("点哪藏哪") controls
+         const pickerRow = document.createElement('div');
+         pickerRow.style.cssText =
+            'display: flex; align-items: center; gap: 6px; width: 100%;';
+         const btnPickElement = document.createElement('button');
+         btnPickElement.type = 'button';
+         btnPickElement.className = 'fnx-pop-btn';
+         setBtnIconAndText(btnPickElement, 'target', isZh() ? '点选隐藏页面元素' : 'Pick element to hide');
+         btnPickElement.style.cssText = 'flex: 1; width: auto; min-width: 0; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px;';
+
+         const btnResetPickedElements = document.createElement('button');
+         btnResetPickedElements.type = 'button';
+         btnResetPickedElements.className = 'fnx-pop-btn';
+         btnResetPickedElements.style.cssText =
+            'width: auto; flex-shrink: 0; padding: 0 10px; display: none;';
+         btnResetPickedElements.textContent = 'Restore';
+
+         pickerRow.appendChild(btnPickElement);
+         pickerRow.appendChild(btnResetPickedElements);
+         shieldPageToolsSection.appendChild(pickerRow);
+
+         const btnOpenSiteBoost = document.createElement('button');
+         btnOpenSiteBoost.type = 'button';
+         btnOpenSiteBoost.className = 'fnx-pop-btn';
+         setBtnIconAndText(
+            btnOpenSiteBoost,
+            'palette',
+            isZh() ? '魔改此网站 (Site Boost)' : 'Site Boost CSS',
+         );
+         btnOpenSiteBoost.style.cssText =
+            'width: 100%; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-color: var(--fnx-accent); color: var(--fnx-fg);';
+         btnOpenSiteBoost.onclick = (e) => {
+            e.stopPropagation();
+            toggleStudioPopover(btnShield, 'boost');
+         };
+         shieldPageToolsSection.appendChild(btnOpenSiteBoost);
+         shieldBody.appendChild(shieldPageToolsSection);
+
+         // Popover 3.2: Dedicated Site Info, Security & Permissions (Left Lock Icon)
+         siteInfoPopoverEl = document.createElement('div');
+         siteInfoPopoverEl.id = '__fynexo_site_popover__';
+         siteInfoPopoverEl.className = 'fnx-nav-popover fnx-nav-popover--panel';
+         siteInfoPopoverEl.style.width = '272px';
+
+         const siteInfoHeader = document.createElement('div');
+         siteInfoHeader.className = 'fnx-pop-head';
+         const siteInfoHeadLeft = document.createElement('div');
+         siteInfoHeadLeft.className = 'fnx-pop-title';
+         const siteInfoIconSlot = document.createElement('span');
+         siteInfoIconSlot.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;';
+         siteInfoIconSlot.appendChild(createIcon('lock'));
+         const siteInfoTitleTxt = document.createElement('span');
+         siteInfoTitleTxt.textContent = 'Connection is secure';
+         siteInfoHeadLeft.appendChild(siteInfoIconSlot);
+         siteInfoHeadLeft.appendChild(siteInfoTitleTxt);
+         const siteInfoProtoBadge = document.createElement('span');
+         siteInfoProtoBadge.className = 'fnx-pop-sub';
+         siteInfoProtoBadge.style.cssText =
+            'font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 5px; background: var(--fnx-surface); border: 1px solid var(--fnx-border); flex-shrink: 0;';
+         siteInfoHeader.appendChild(siteInfoHeadLeft);
+         siteInfoHeader.appendChild(siteInfoProtoBadge);
+         siteInfoPopoverEl.appendChild(siteInfoHeader);
+
+         const siteInfoBody = document.createElement('div');
+         siteInfoBody.className = 'fnx-pop-body';
+
+         const siteInfoHostBlock = document.createElement('div');
+         siteInfoHostBlock.style.cssText = 'display: flex; flex-direction: column; gap: 2px;';
+         const siteInfoHostEl = document.createElement('div');
+         siteInfoHostEl.className = 'fnx-pop-label';
+         siteInfoHostEl.style.cssText = 'overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+         const siteInfoDescEl = document.createElement('div');
+         siteInfoDescEl.className = 'fnx-pop-sub';
+         siteInfoHostBlock.appendChild(siteInfoHostEl);
+         siteInfoHostBlock.appendChild(siteInfoDescEl);
+         siteInfoBody.appendChild(siteInfoHostBlock);
+
          // Per-Site Overrides (Dark Mode + Zoom)
          const siteOvSection = document.createElement('div');
          siteOvSection.style.cssText =
@@ -7903,30 +8302,19 @@
          zmRow.appendChild(zmSeg);
          siteOvSection.appendChild(zmRow);
 
-         // Visual Element Picker ("点哪藏哪") controls inside siteOvSection
-         const pickerRow = document.createElement('div');
-         pickerRow.style.cssText =
-            'display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px;';
-         const btnPickElement = document.createElement('button');
-         btnPickElement.type = 'button';
-         btnPickElement.className = 'fnx-pop-btn';
-         setBtnIconAndText(btnPickElement, 'target', isZh() ? '点选隐藏页面元素' : 'Pick element to hide');
-         btnPickElement.style.cssText = 'flex: 1; width: auto; min-width: 0; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px;';
+         // Per-Site Permissions Inspector (Camera, Microphone, Location, Notifications, Clipboard)
+         const sitePermsWrap = document.createElement('div');
+         sitePermsWrap.style.cssText =
+            'display: none; flex-direction: column; gap: 5px; padding-top: 8px; border-top: 1px solid var(--fnx-border);';
+         const sitePermsHead = document.createElement('div');
+         sitePermsHead.className = 'fnx-pop-sub';
+         sitePermsHead.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--fnx-secondary);';
+         sitePermsWrap.appendChild(sitePermsHead);
+         const sitePermsList = document.createElement('div');
+         sitePermsList.style.cssText = 'display: flex; flex-direction: column; gap: 4px;';
+         sitePermsWrap.appendChild(sitePermsList);
+         siteOvSection.appendChild(sitePermsWrap);
 
-         const btnResetPickedElements = document.createElement('button');
-         btnResetPickedElements.type = 'button';
-         btnResetPickedElements.className = 'fnx-pop-btn';
-         btnResetPickedElements.style.cssText =
-            'width: auto; flex-shrink: 0; padding: 0 10px; display: none;';
-         btnResetPickedElements.textContent = 'Restore';
-
-         pickerRow.appendChild(btnPickElement);
-         pickerRow.appendChild(btnResetPickedElements);
-         siteOvSection.appendChild(pickerRow);
-
-         const siteDataRow = document.createElement('div');
-         siteDataRow.style.cssText =
-            'display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px;';
          const btnClearSiteData = document.createElement('button');
          btnClearSiteData.type = 'button';
          btnClearSiteData.className = 'fnx-pop-btn';
@@ -7936,7 +8324,7 @@
             isZh() ? '清理本站 Cookie 与缓存' : 'Clear site cookies & storage',
          );
          btnClearSiteData.style.cssText =
-            'flex: 1; width: auto; min-width: 0; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 5px;';
+            'width: 100%; margin-top: 2px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 5px;';
          function clearCurrentSiteStorageLocal() {
             try {
                const cookies = String(document.cookie || '').split(';');
@@ -8009,25 +8397,186 @@
                   : 'Cleared cookies & local storage for this site',
             );
          };
-         const btnOpenSiteBoost = document.createElement('button');
-         btnOpenSiteBoost.type = 'button';
-         btnOpenSiteBoost.className = 'fnx-pop-btn';
-         setBtnIconAndText(
-            btnOpenSiteBoost,
-            'palette',
-            isZh() ? '魔改此网站 (Boost)' : 'Site Boost CSS',
-         );
-         btnOpenSiteBoost.style.cssText =
-            'flex: 1; width: auto; min-width: 0; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-color: var(--fnx-accent); color: var(--fnx-fg);';
-         btnOpenSiteBoost.onclick = (e) => {
-            e.stopPropagation();
-            toggleStudioPopover(btnShield, 'boost');
-         };
-         siteDataRow.appendChild(btnOpenSiteBoost);
-         siteDataRow.appendChild(btnClearSiteData);
-         siteOvSection.appendChild(siteDataRow);
+         siteOvSection.appendChild(btnClearSiteData);
+         siteInfoBody.appendChild(siteOvSection);
+         siteInfoPopoverEl.appendChild(siteInfoBody);
 
-         shieldBody.appendChild(siteOvSection);
+         const btnOpenSitePermsSettings = document.createElement('button');
+         btnOpenSitePermsSettings.type = 'button';
+         btnOpenSitePermsSettings.className = 'fnx-pop-footer-row';
+         const sitePermsLinkLabel = document.createElement('span');
+         sitePermsLinkLabel.textContent = 'All site permissions';
+         const sitePermsLinkArrow = document.createElement('span');
+         sitePermsLinkArrow.style.cssText = 'opacity: 0.65; font-size: 12px;';
+         sitePermsLinkArrow.textContent = '→';
+         btnOpenSitePermsSettings.appendChild(sitePermsLinkLabel);
+         btnOpenSitePermsSettings.appendChild(sitePermsLinkArrow);
+         btnOpenSitePermsSettings.onclick = () => {
+            closeAllNavPopovers();
+            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-privacy' });
+         };
+         siteInfoPopoverEl.appendChild(btnOpenSitePermsSettings);
+
+         function resolveCurrentPermissionOrigin() {
+            const cur = canonicalCurrentUrl();
+            if (!cur || !/^https?:\/\//i.test(cur)) return '';
+            try {
+               const u = new URL(cur);
+               if (!u.hostname || u.hostname.toLowerCase() === 'fynexo.localhost') return '';
+               return (u.protocol + '//' + u.host).toLowerCase();
+            } catch (_) {
+               return '';
+            }
+         }
+
+         function renderSitePermsControls(zh) {
+            const origin = resolveCurrentPermissionOrigin();
+            if (!origin) {
+               sitePermsWrap.style.display = 'none';
+               return;
+            }
+            sitePermsWrap.style.display = 'flex';
+            sitePermsHead.textContent = zh ? '本站权限控制' : 'Site permissions';
+            sitePermsList.textContent = '';
+            const curPerms = (sitePermissions && sitePermissions[origin]) || {};
+            const defs = [
+               ['camera', zh ? '摄像头' : 'Camera'],
+               ['microphone', zh ? '麦克风' : 'Microphone'],
+               ['geolocation', zh ? '位置信息' : 'Location'],
+               ['notifications', zh ? '通知提醒' : 'Notifications'],
+               ['clipboard', zh ? '剪贴板读取' : 'Clipboard'],
+            ];
+            for (let i = 0; i < defs.length; i++) {
+               const [kind, label] = defs[i];
+               const row = document.createElement('div');
+               row.className = 'fnx-pop-row';
+               row.style.padding = '1px 0';
+               const lbl = document.createElement('span');
+               lbl.className = 'fnx-pop-sub';
+               lbl.style.color = 'var(--fnx-fg)';
+               lbl.textContent = label;
+               const sel = document.createElement('select');
+               sel.style.cssText =
+                  'height: 22px; font-size: 11px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--fnx-border); background: var(--fnx-surface); color: var(--fnx-fg); outline: none; cursor: pointer;';
+               const opts = [
+                  ['ask', zh ? '询问' : 'Ask'],
+                  ['allow', zh ? '允许' : 'Allow'],
+                  ['deny', zh ? '拒绝' : 'Block'],
+               ];
+               const curVal = curPerms[kind] || 'ask';
+               for (let j = 0; j < opts.length; j++) {
+                  const o = document.createElement('option');
+                  o.value = opts[j][0];
+                  o.textContent = opts[j][1];
+                  if (opts[j][0] === curVal) o.selected = true;
+                  sel.appendChild(o);
+               }
+               sel.onclick = (ev) => ev.stopPropagation();
+               sel.onchange = (ev) => {
+                  ev.stopPropagation();
+                  const nextState = sel.value || 'ask';
+                  if (!sitePermissions || typeof sitePermissions !== 'object') sitePermissions = {};
+                  if (!sitePermissions[origin]) sitePermissions[origin] = {};
+                  if (nextState === 'ask') {
+                     delete sitePermissions[origin][kind];
+                  } else {
+                     sitePermissions[origin][kind] = nextState;
+                  }
+                  sendIpc({
+                     type: 'SET_SITE_PERMISSION',
+                     origin: origin,
+                     kind: kind,
+                     state: nextState,
+                  });
+               };
+               row.appendChild(lbl);
+               row.appendChild(sel);
+               sitePermsList.appendChild(row);
+            }
+         }
+
+         function syncSiteInfoPopoverUI() {
+            const zh = isZh();
+            const internal = isInternalAny();
+            const uParts = getCurrentUrlParts();
+            const localDev = !internal && isLocalDevHost(uParts.hostname || '');
+            const unsafeHttp = !internal && isInsecureExternalHttp(canonicalCurrentUrl());
+            const displayHost =
+               (uParts.host || uParts.hostname || '').replace(/^www\./, '');
+
+            siteInfoIconSlot.textContent = '';
+            if (internal) {
+               siteInfoIconSlot.appendChild(createIcon('spark'));
+               siteInfoTitleTxt.textContent = zh ? 'Fynexo 内置页面' : 'Fynexo Studio Page';
+               siteInfoProtoBadge.textContent = 'Internal';
+               siteInfoProtoBadge.style.color = 'var(--fnx-accent)';
+               siteInfoHostEl.textContent = canonicalCurrentUrl() || 'fynexo://';
+               siteInfoDescEl.textContent = zh ? '系统内置页面，运行于本地安全沙箱。' : 'Built-in browser page.';
+            } else if (localDev) {
+               siteInfoIconSlot.appendChild(createIcon('code'));
+               siteInfoTitleTxt.textContent = zh ? '本地开发服务' : 'Local Development';
+               siteInfoProtoBadge.textContent = 'Local';
+               siteInfoProtoBadge.style.color = 'var(--fnx-accent)';
+               siteInfoHostEl.textContent = displayHost || 'localhost';
+               siteInfoDescEl.textContent = zh ? '本地端口自动豁免强制深色与广告拦截。' : 'Auto-exempt from adblock & auto-dark.';
+            } else if (unsafeHttp) {
+               siteInfoIconSlot.appendChild(createIcon('globe'));
+               siteInfoIconSlot.style.color = '#F59E0B';
+               siteInfoTitleTxt.textContent = zh ? '连接未加密' : 'Not secure';
+               siteInfoProtoBadge.textContent = 'HTTP';
+               siteInfoProtoBadge.style.color = '#F59E0B';
+               siteInfoHostEl.textContent = displayHost || (zh ? '当前网站' : 'Current site');
+               siteInfoDescEl.textContent = zh ? '此站点使用明文 HTTP，请勿输入敏感密码。' : 'Unencrypted HTTP connection.';
+            } else {
+               siteInfoIconSlot.appendChild(createIcon('lock'));
+               siteInfoIconSlot.style.color = '#34D399';
+               siteInfoTitleTxt.textContent = zh ? '连接安全' : 'Connection is secure';
+               siteInfoProtoBadge.textContent = 'HTTPS';
+               siteInfoProtoBadge.style.color = '#34D399';
+               siteInfoHostEl.textContent = displayHost || (zh ? '当前网站' : 'Current site');
+               siteInfoDescEl.textContent = zh ? '与该站点之间的数据传输已加密。' : 'Encrypted HTTPS connection.';
+            }
+
+            dmLabel.textContent = zh ? '本页夜间' : 'Site dark';
+            zmLabel.textContent = zh ? '本页缩放' : 'Site zoom';
+            sitePermsLinkLabel.textContent = zh ? '管理所有网站权限' : 'All site permissions';
+
+            const siteHost = resolveSiteOverrideKey();
+            if (internal || !siteHost) {
+               siteOvSection.style.display = 'none';
+            } else {
+               siteOvSection.style.display = 'flex';
+               const ov = getCurrentSiteOverride();
+               const curDm =
+                  ov && ov.dark_mode
+                     ? String(ov.dark_mode).toLowerCase()
+                     : 'auto';
+               for (let j = 0; j < dmBtns.length; j++) {
+                  const m = dmBtns[j].dataset.dm;
+                  dmBtns[j].textContent = zh
+                     ? (m === 'on' ? '开启' : m === 'off' ? '关闭' : '自动')
+                     : (m === 'on' ? 'On' : m === 'off' ? 'Off' : 'Auto');
+                  dmBtns[j].classList.toggle('active', m === curDm);
+               }
+               const hasZoom =
+                  ov &&
+                  typeof ov.zoom === 'number' &&
+                  ov.zoom >= 0.5 &&
+                  ov.zoom <= 2.5;
+               btnSiteZoomReset.textContent = hasZoom
+                  ? Math.round(ov.zoom * 100) + '%'
+                  : (zh ? '自动' : 'Auto');
+               btnSiteZoomReset.classList.toggle('active', !hasZoom);
+               setBtnIconAndText(
+                  btnClearSiteData,
+                  'broom',
+                  zh ? '清理本站 Cookie 与缓存' : 'Clear site cookies & storage',
+               );
+               btnClearSiteData.style.cssText =
+                  'width: 100%; margin-top: 2px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 5px;';
+               renderSitePermsControls(zh);
+            }
+         }
 
          function pickedRuleIdForHost(rawHost) {
             const dom = String(rawHost || '')
@@ -8472,30 +9021,9 @@
 
             const siteHost = resolveSiteOverrideKey();
             if (internal || !siteHost) {
-               siteOvSection.style.display = 'none';
+               shieldPageToolsSection.style.display = 'none';
             } else {
-               siteOvSection.style.display = 'flex';
-               const ov = getCurrentSiteOverride();
-               const curDm =
-                  ov && ov.dark_mode
-                     ? String(ov.dark_mode).toLowerCase()
-                     : 'auto';
-               for (let j = 0; j < dmBtns.length; j++) {
-                  const m = dmBtns[j].dataset.dm;
-                  dmBtns[j].textContent = zh
-                     ? (m === 'on' ? '开启' : m === 'off' ? '关闭' : '自动')
-                     : (m === 'on' ? 'On' : m === 'off' ? 'Off' : 'Auto');
-                  dmBtns[j].classList.toggle('active', m === curDm);
-               }
-               const hasZoom =
-                  ov &&
-                  typeof ov.zoom === 'number' &&
-                  ov.zoom >= 0.5 &&
-                  ov.zoom <= 2.5;
-               btnSiteZoomReset.textContent = hasZoom
-                  ? Math.round(ov.zoom * 100) + '%'
-                  : (zh ? '自动' : 'Auto');
-               btnSiteZoomReset.classList.toggle('active', !hasZoom);
+               shieldPageToolsSection.style.display = 'flex';
                const pickedId = pickedRuleIdForHost(siteHost);
                const hasPickedRule = Boolean(
                   pickedId &&
@@ -8523,18 +9051,12 @@
                setBtnIconAndText(
                   btnOpenSiteBoost,
                   'palette',
-                  zh ? '魔改此网站' : 'Site Boost',
+                  zh ? '魔改此网站 (Site Boost)' : 'Site Boost CSS',
                );
                btnOpenSiteBoost.style.cssText =
-                  'flex: 1; width: auto; min-width: 0; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-color: var(--fnx-accent); color: var(--fnx-fg);';
-               setBtnIconAndText(
-                  btnClearSiteData,
-                  'broom',
-                  zh ? '清理 Cookie' : 'Clear Data',
-               );
-               btnClearSiteData.style.cssText =
-                  'flex: 1; width: auto; min-width: 0; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 5px;';
+                  'width: 100%; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-color: var(--fnx-accent); color: var(--fnx-fg);';
             }
+            syncSiteInfoPopoverUI();
 
             sfCommandsWrap.textContent = '';
             const sfCmds = IS_HUD_SHELL
@@ -8630,7 +9152,7 @@
          btnOpenAdbStudio.appendChild(adbLinkArrow);
          btnOpenAdbStudio.onclick = () => {
             closeAllNavPopovers();
-            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings' });
+            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-rules' });
          };
          shieldPopoverEl.appendChild(btnOpenAdbStudio);
 
@@ -8752,6 +9274,14 @@
          }
          syncDownloadsUIRef = syncDownloadsUI;
 
+         function formatBytesShort(n) {
+            const v = Number(n) || 0;
+            if (v < 1024) return v + ' B';
+            if (v < 1048576) return (v / 1024).toFixed(1) + ' KB';
+            if (v < 1073741824) return (v / 1048576).toFixed(1) + ' MB';
+            return (v / 1073741824).toFixed(2) + ' GB';
+         }
+
          function renderDownloadsList() {
             const zh = isZh();
             dlListContainer.textContent = '';
@@ -8777,28 +9307,77 @@
                rowLeft.appendChild(fileIcon);
                const nameWrap = document.createElement('div');
                nameWrap.style.cssText =
-                  'min-width: 0; display: flex; flex-direction: column; gap: 1px;';
+                  'min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px;';
                const nameSpan = document.createElement('span');
                nameSpan.style.cssText =
                   'font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fnx-fg);';
                nameSpan.textContent = dl.name;
                const st = String(dl.status || '').toLowerCase();
-               const stLabel =
-                  st === 'downloading'
-                     ? (zh ? '下载中...' : 'Downloading...')
-                     : st === 'failed'
-                       ? (zh ? '已取消或失败' : 'Failed / Cancelled')
-                       : (zh ? '已完成' : 'Completed');
+               const recv = Number(dl.bytes_received) || 0;
+               const total = Number(dl.total_bytes) || 0;
+               const spd = Number(dl.speed_bps) || 0;
+               const pct = total > 0 ? Math.min(100, Math.round((recv * 100) / total)) : 0;
+
+               let metaLine = '';
+               if (st === 'downloading') {
+                  const sizePart =
+                     total > 0
+                        ? formatBytesShort(recv) + ' / ' + formatBytesShort(total) + ' (' + pct + '%)'
+                        : recv > 0
+                          ? formatBytesShort(recv)
+                          : (zh ? '准备中...' : 'Starting...');
+                  const spdPart = spd > 0 ? ' · ' + formatBytesShort(spd) + '/s' : '';
+                  metaLine = sizePart + spdPart;
+               } else if (st === 'cancelled') {
+                  const ts = formatDlTime(dl);
+                  metaLine = (ts ? ts + ' · ' : '') + (zh ? '已取消' : 'Cancelled');
+               } else if (st === 'failed') {
+                  const ts = formatDlTime(dl);
+                  metaLine = (ts ? ts + ' · ' : '') + (zh ? '下载失败' : 'Failed');
+               } else {
+                  const ts = formatDlTime(dl);
+                  const sz = total > 0 ? formatBytesShort(total) : (recv > 0 ? formatBytesShort(recv) : '');
+                  metaLine = [sz, ts, zh ? '已完成' : 'Completed'].filter(Boolean).join(' · ');
+               }
+
                const timeSpan = document.createElement('span');
                timeSpan.className = 'fnx-pop-sub';
                timeSpan.style.fontSize = '10.5px';
-               const ts = formatDlTime(dl);
-               timeSpan.textContent = ts ? ts + ' · ' + stLabel : stLabel;
+               timeSpan.textContent = metaLine;
                nameWrap.appendChild(nameSpan);
                nameWrap.appendChild(timeSpan);
+
+               if (st === 'downloading') {
+                  const track = document.createElement('div');
+                  track.style.cssText =
+                     'width: 100%; height: 3px; border-radius: 99px; background: var(--fnx-border); overflow: hidden; margin-top: 2px;';
+                  const fill = document.createElement('div');
+                  fill.style.cssText =
+                     'height: 100%; border-radius: 99px; background: var(--fnx-accent); transition: width 0.18s ease; width: ' +
+                     (total > 0 ? pct : 32) +
+                     '%;';
+                  track.appendChild(fill);
+                  nameWrap.appendChild(track);
+               }
+
                rowLeft.appendChild(nameWrap);
                row.appendChild(rowLeft);
-               if (st === 'completed') {
+
+               if (st === 'downloading' && Number(dl.id) > 0) {
+                  const btnCancel = document.createElement('button');
+                  btnCancel.type = 'button';
+                  btnCancel.className = 'fnx-icon-btn';
+                  btnCancel.style.cssText =
+                     'width: 22px; height: 22px; border-radius: 5px; color: var(--fnx-secondary); flex-shrink: 0;';
+                  btnCancel.title = zh ? '取消下载' : 'Cancel download';
+                  btnCancel.appendChild(createIcon('closeSmall'));
+                  btnCancel.onclick = (ev) => {
+                     ev.stopPropagation();
+                     if (ev.isTrusted === false && !isInternalAny()) return;
+                     sendIpc({ type: 'CANCEL_DOWNLOAD', id: Number(dl.id) });
+                  };
+                  row.appendChild(btnCancel);
+               } else if (st === 'completed') {
                   const actWrap = document.createElement('div');
                   actWrap.style.cssText =
                      'display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;';
@@ -8822,6 +9401,7 @@
                         if (ev.isTrusted === false && !isInternalAny()) return;
                         sendIpc({
                            type: 'REVEAL_DOWNLOAD_FILE',
+                           id: Number(dl.id) || 0,
                            filename: dl.name,
                         });
                      };
@@ -8832,7 +9412,11 @@
                row.onclick = (ev) => {
                   if (ev && ev.isTrusted === false && !isInternalAny()) return;
                   if (st === 'completed') {
-                     sendIpc({ type: 'OPEN_DOWNLOAD_FILE', filename: dl.name });
+                     sendIpc({
+                        type: 'OPEN_DOWNLOAD_FILE',
+                        id: Number(dl.id) || 0,
+                        filename: dl.name,
+                     });
                   } else {
                      sendIpc({ type: 'OPEN_DOWNLOADS_DIR' });
                   }
@@ -8871,6 +9455,245 @@
             }
          }
 
+         // Popover 3.3: Dedicated Contextual Mode Switcher (Mode Pill)
+         modePopoverEl = document.createElement('div');
+         modePopoverEl.id = '__fynexo_mode_popover__';
+         modePopoverEl.className = 'fnx-nav-popover fnx-nav-popover--panel';
+         modePopoverEl.style.width = '248px';
+
+         const modePopHead = document.createElement('div');
+         modePopHead.className = 'fnx-pop-head';
+         const modePopTitleWrap = document.createElement('div');
+         modePopTitleWrap.className = 'fnx-pop-title';
+         const modePopIconSlot = document.createElement('span');
+         modePopIconSlot.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;';
+         modePopIconSlot.appendChild(createIcon('spark'));
+         const modePopTitleTxt = document.createElement('span');
+         modePopTitleTxt.textContent = 'Browser Modes';
+         modePopTitleWrap.appendChild(modePopIconSlot);
+         modePopTitleWrap.appendChild(modePopTitleTxt);
+         const modePopStatusPill = document.createElement('span');
+         modePopStatusPill.className = 'fnx-pop-sub';
+         modePopStatusPill.style.cssText =
+            'font-size: 10.5px; font-weight: 600; color: var(--fnx-accent); flex-shrink: 0;';
+         modePopHead.appendChild(modePopTitleWrap);
+         modePopHead.appendChild(modePopStatusPill);
+         modePopoverEl.appendChild(modePopHead);
+
+         const modePopBody = document.createElement('div');
+         modePopBody.className = 'fnx-pop-body';
+         modePopBody.style.gap = '6px';
+         const modePopList = document.createElement('div');
+         modePopList.style.cssText = 'display: flex; flex-direction: column; gap: 3px;';
+         const modePopFeatsWrap = document.createElement('div');
+         modePopFeatsWrap.style.cssText =
+            'display: none; flex-wrap: wrap; gap: 4px; padding-top: 7px; border-top: 1px solid var(--fnx-border);';
+         modePopBody.appendChild(modePopList);
+         modePopBody.appendChild(modePopFeatsWrap);
+         modePopoverEl.appendChild(modePopBody);
+
+         const btnOpenModesCfg = document.createElement('button');
+         btnOpenModesCfg.type = 'button';
+         btnOpenModesCfg.className = 'fnx-pop-footer-row';
+         const modesCfgLabel = document.createElement('span');
+         modesCfgLabel.textContent = 'Configure modes';
+         const modesCfgArrow = document.createElement('span');
+         modesCfgArrow.style.cssText = 'opacity: 0.65; font-size: 12px;';
+         modesCfgArrow.textContent = '→';
+         btnOpenModesCfg.appendChild(modesCfgLabel);
+         btnOpenModesCfg.appendChild(modesCfgArrow);
+         btnOpenModesCfg.onclick = () => {
+            closeAllNavPopovers();
+            sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-modes' });
+         };
+         modePopoverEl.appendChild(btnOpenModesCfg);
+
+         function renderModePopoverUI() {
+            const zh = isZh();
+            const pref = String(rawBaseConfig.active_mode || 'auto').toLowerCase();
+            modePopTitleTxt.textContent = zh ? '场景模式切换' : 'Browser Modes';
+            modesCfgLabel.textContent = zh ? '配置模式与自动规则' : 'Configure modes';
+            modePopIconSlot.textContent = '';
+            if (activeModeMatch && activeModeMatch.profile) {
+               modePopIconSlot.appendChild(
+                  createIcon(
+                     resolveModeIconName(
+                        activeModeMatch.profile.icon,
+                        activeModeMatch.profile.id,
+                     ),
+                  ),
+               );
+               modePopStatusPill.textContent = activeModeMatch.auto
+                  ? (zh ? '域名自动' : 'Auto')
+                  : (zh ? '已锁定' : 'Locked');
+            } else {
+               modePopIconSlot.appendChild(createIcon('spark'));
+               modePopStatusPill.textContent =
+                  pref === 'default'
+                     ? (zh ? '标准' : 'Standard')
+                     : (zh ? '自动监听' : 'Auto');
+            }
+
+            modePopList.textContent = '';
+            const entries = [
+               {
+                  id: 'auto',
+                  name: zh ? '按网站自动切换' : 'Auto by Site',
+                  icon: 'spark',
+                  sub:
+                     activeModeMatch && activeModeMatch.auto && activeModeMatch.profile
+                        ? String(
+                             (zh
+                                ? activeModeMatch.profile.name_zh || activeModeMatch.profile.name_en
+                                : activeModeMatch.profile.name_en || activeModeMatch.profile.name_zh) ||
+                                activeModeMatch.profile.id,
+                          )
+                        : '',
+               },
+               {
+                  id: 'default',
+                  name: zh ? '标准模式（关闭场景）' : 'Standard (No Mode)',
+                  icon: 'globe',
+                  sub: '',
+               },
+            ];
+            const profiles = Array.isArray(rawBaseConfig.mode_profiles)
+               ? rawBaseConfig.mode_profiles
+               : [];
+            for (let i = 0; i < profiles.length; i++) {
+               const pr = profiles[i];
+               if (!pr || !pr.id) continue;
+               const nm = String(
+                  (zh ? pr.name_zh || pr.name_en : pr.name_en || pr.name_zh) ||
+                     pr.name ||
+                     pr.id,
+               );
+               entries.push({
+                  id: pr.id,
+                  name: nm,
+                  icon: resolveModeIconName(pr.icon, pr.id),
+                  sub: '',
+               });
+            }
+
+            for (let i = 0; i < entries.length; i++) {
+               const it = entries[i];
+               const isSelected = pref === String(it.id).toLowerCase();
+               const rowBtn = document.createElement('button');
+               rowBtn.type = 'button';
+               rowBtn.className = 'fnx-pop-btn';
+               rowBtn.style.cssText =
+                  'width: 100%; height: 30px; padding: 0 9px; justify-content: flex-start; gap: 7px; font-size: 12px; font-weight: ' +
+                  (isSelected ? '600' : '450') +
+                  '; border-color: ' +
+                  (isSelected ? 'var(--fnx-accent)' : 'transparent') +
+                  '; background: ' +
+                  (isSelected ? 'var(--fnx-accent-bg)' : 'transparent') +
+                  '; color: ' +
+                  (isSelected ? 'var(--fnx-fg)' : 'var(--fnx-secondary)') +
+                  ';';
+               const ic = createIcon(it.icon);
+               ic.style.cssText = 'width: 13px; height: 13px; flex-shrink: 0;';
+               const lbl = document.createElement('span');
+               lbl.style.cssText = 'flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+               lbl.textContent = it.name;
+               rowBtn.appendChild(ic);
+               rowBtn.appendChild(lbl);
+               if (it.sub) {
+                  const sub = document.createElement('span');
+                  sub.style.cssText = 'font-size: 10.5px; color: var(--fnx-accent); flex-shrink: 0; max-width: 78px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+                  sub.textContent = it.sub;
+                  rowBtn.appendChild(sub);
+               } else if (isSelected) {
+                  const chk = createIcon('check');
+                  chk.style.cssText = 'width: 12px; height: 12px; color: var(--fnx-accent); flex-shrink: 0;';
+                  rowBtn.appendChild(chk);
+               }
+               rowBtn.onclick = (ev) => {
+                  ev.stopPropagation();
+                  rawBaseConfig.active_mode = it.id;
+                  config.active_mode = it.id;
+                  pageManualFeatureOverrides = Object.create(null);
+                  userFpsHudOverride = null;
+                  sendIpc({ type: 'PATCH_HUD_PREFS', active_mode: it.id });
+                  syncAllStyles();
+                  syncMainMenuUI();
+                  renderModePopoverUI();
+                  closeAllNavPopovers();
+                  showHudToast((zh ? '模式已切换：' : 'Mode: ') + it.name);
+               };
+               modePopList.appendChild(rowBtn);
+            }
+
+            modePopFeatsWrap.textContent = '';
+            if (activeModeMatch && activeModeMatch.profile) {
+               const pr = activeModeMatch.profile;
+               const featDefs = [
+                  ['adblock', zh ? '广告拦截' : 'Adblock'],
+                  ['force_dark', zh ? '智能夜间' : 'Force Dark'],
+                  ['ext_side_panel', zh ? '侧边栏' : 'Side Panel'],
+                  ['ext_reader_mode', zh ? '阅读模式' : 'Reader'],
+                  ['ext_yt_ad_skipper', zh ? 'YT 跳广告' : 'YT Ad Skip'],
+                  ['ext_media_booster', zh ? '音量增益' : 'Audio Boost'],
+                  ['ext_userscript_engine', 'ScriptForge'],
+                  ['ext_mouse_gestures', zh ? '鼠标手势' : 'Gestures'],
+                  ['fps_hud', 'FPS'],
+               ];
+               let shown = 0;
+               for (let i = 0; i < featDefs.length; i++) {
+                  const [k, label] = featDefs[i];
+                  if (!pr[k]) continue;
+                  const chip = document.createElement('span');
+                  chip.style.cssText =
+                     'font-size: 10px; padding: 2px 6px; border-radius: 5px; background: var(--fnx-surface); border: 1px solid var(--fnx-border); color: var(--fnx-secondary);';
+                  chip.textContent = label;
+                  modePopFeatsWrap.appendChild(chip);
+                  shown++;
+               }
+               modePopFeatsWrap.style.display = shown > 0 ? 'flex' : 'none';
+            } else {
+               modePopFeatsWrap.style.display = 'none';
+            }
+         }
+         renderModePopoverUI();
+
+         function toggleSiteInfoPopover(anchorBtn) {
+            const isOpen =
+               siteInfoPopoverEl &&
+               (siteInfoPopoverEl.style.display === 'flex' ||
+                  activeNavPopoverEl === siteInfoPopoverEl);
+            if (isOpen) {
+               closeAllNavPopovers();
+            } else {
+               closeAllNavPopovers();
+               syncSiteInfoPopoverUI();
+               positionNavPopover(anchorBtn || addrIcon, siteInfoPopoverEl, 'left');
+               siteInfoPopoverEl.style.display = 'flex';
+               activeNavPopoverEl = siteInfoPopoverEl;
+            }
+         }
+
+         function toggleModePopover(anchorBtn) {
+            const isOpen =
+               modePopoverEl &&
+               (modePopoverEl.style.display === 'flex' ||
+                  activeNavPopoverEl === modePopoverEl);
+            if (isOpen) {
+               closeAllNavPopovers();
+            } else {
+               closeAllNavPopovers();
+               renderModePopoverUI();
+               const anchor =
+                  anchorBtn ||
+                  (modeTopPill && modeTopPill.style.display !== 'none'
+                     ? modeTopPill
+                     : btnMore);
+               positionNavPopover(anchor, modePopoverEl, 'right');
+               modePopoverEl.style.display = 'flex';
+               activeNavPopoverEl = modePopoverEl;
+            }
+         }
+
          function toggleShieldPopover(anchorBtn) {
             const isOpen =
                shieldPopoverEl &&
@@ -8901,7 +9724,11 @@
             } else {
                closeAllNavPopovers();
                renderDownloadsList();
-               positionNavPopover(btnDownloads, downloadsPopoverEl);
+               const anchor =
+                  btnDownloads && btnDownloads.style.display !== 'none'
+                     ? btnDownloads
+                     : btnMore;
+               positionNavPopover(anchor, downloadsPopoverEl);
                downloadsPopoverEl.style.display = 'flex';
                activeNavPopoverEl = downloadsPopoverEl;
             }
@@ -8910,6 +9737,8 @@
          shell.appendChild(mainMenuEl);
          shell.appendChild(mediaPopoverEl);
          shell.appendChild(shieldPopoverEl);
+         shell.appendChild(siteInfoPopoverEl);
+         shell.appendChild(modePopoverEl);
          shell.appendChild(downloadsPopoverEl);
 
          // Popover 4.2: Live UI Studio & Site Boost Customizer (Arc Boosts + Vivaldi Quick Studio)
@@ -13291,6 +14120,55 @@
                   }
                   return;
                }
+               if (
+                  (e.ctrlKey || e.metaKey) &&
+                  !e.altKey &&
+                  !e.shiftKey &&
+                  (e.key || '').toLowerCase() === 'p'
+               ) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (IS_HUD_SHELL) {
+                     sendIpc({
+                        type: 'CONTENT_ACTION',
+                        action: 'print_page',
+                        payload: {},
+                     });
+                  } else {
+                     try { window.print(); } catch (_) {}
+                  }
+                  return;
+               }
+               if (
+                  (e.ctrlKey || e.metaKey) &&
+                  !e.altKey &&
+                  !e.shiftKey &&
+                  (e.key || '').toLowerCase() === 'h'
+               ) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (IS_CONTENT_TAB) {
+                     sendIpc({ type: 'HUD_ACTION', action: 'open_history' });
+                  } else {
+                     sendIpc({ type: 'NEW_TAB', url: 'fynexo://settings#sec-privacy' });
+                  }
+                  return;
+               }
+               if (
+                  (e.ctrlKey || e.metaKey) &&
+                  !e.altKey &&
+                  !e.shiftKey &&
+                  (e.key || '').toLowerCase() === 'j'
+               ) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (IS_CONTENT_TAB) {
+                     sendIpc({ type: 'HUD_ACTION', action: 'toggle_downloads' });
+                  } else if (typeof toggleDownloadsPopover === 'function') {
+                     toggleDownloadsPopover();
+                  }
+                  return;
+               }
                if (matchesKeybind(e, keybinds.find_in_page)) {
                   if (!isInternalSettings()) {
                      e.preventDefault();
@@ -13310,6 +14188,10 @@
                if (matchesKeybind(e, keybinds.force_dark)) {
                   e.preventDefault();
                   e.stopPropagation();
+                  if (IS_CONTENT_TAB) {
+                     sendIpc({ type: 'HUD_ACTION', action: 'toggle_force_dark' });
+                     return;
+                  }
                   config.force_dark = !config.force_dark;
                   sendIpc({
                      type: 'PATCH_HUD_PREFS',
@@ -14559,8 +15441,12 @@
             if (typeof syncShieldPopoverUIRef === 'function') {
                syncShieldPopoverUIRef();
             }
-            syncYouTubeAdSkipper();
-            syncGithubDrawerHarmonizer();
+            if (typeof syncYouTubeAdSkipper === 'function') {
+               syncYouTubeAdSkipper();
+            }
+            if (typeof syncGithubDrawerHarmonizer === 'function') {
+               syncGithubDrawerHarmonizer();
+            }
             if (typeof syncMouseGestures === 'function') {
                syncMouseGestures();
             }
@@ -14750,10 +15636,46 @@
                if (!r || r.width < 1 || r.height < 1) return null;
                const vw = Math.max(0, window.innerWidth || 0);
                const vh = Math.max(0, window.innerHeight || 0);
-               const x0 = Math.max(0, Math.floor(r.left - pad));
-               const y0 = Math.max(0, Math.floor(r.top - pad));
-               const x1 = Math.min(vw, Math.ceil(r.right + pad));
-               const y1 = Math.min(vh, Math.ceil(r.bottom + pad));
+               let rawL = r.left;
+               let rawT = r.top;
+               let rawR = r.right;
+               let rawB = r.bottom;
+               // During entrance animations (e.g. translateY(-3px) scale(0.985)), getBoundingClientRect()
+               // reports a shrunk/shifted box; union with the untransformed fixed layout box so Windows
+               // SetWindowRgn never clips the bottom or right border of popovers.
+               if (st.position === 'fixed' && el.offsetWidth > 0 && el.offsetHeight > 0) {
+                  const ow = el.offsetWidth;
+                  const oh = el.offsetHeight;
+                  const parsePx = (v) => (v && v.endsWith('px') ? parseFloat(v) : NaN);
+                  const topPx = parsePx(st.top);
+                  const botPx = parsePx(st.bottom);
+                  const leftPx = parsePx(st.left);
+                  const rightPx = parsePx(st.right);
+                  if (Number.isFinite(topPx) && st.bottom === 'auto') {
+                     rawT = Math.min(rawT, topPx);
+                     rawB = Math.max(rawB, topPx + oh);
+                  } else if (Number.isFinite(botPx) && st.top === 'auto') {
+                     const endB = vh - botPx;
+                     rawT = Math.min(rawT, endB - oh);
+                     rawB = Math.max(rawB, endB);
+                  } else if (oh > r.height) {
+                     rawB = Math.max(rawB, rawT + oh);
+                  }
+                  if (Number.isFinite(leftPx) && st.right === 'auto') {
+                     rawL = Math.min(rawL, leftPx);
+                     rawR = Math.max(rawR, leftPx + ow);
+                  } else if (Number.isFinite(rightPx) && st.left === 'auto') {
+                     const endR = vw - rightPx;
+                     rawL = Math.min(rawL, endR - ow);
+                     rawR = Math.max(rawR, endR);
+                  } else if (ow > r.width) {
+                     rawR = Math.max(rawR, rawL + ow);
+                  }
+               }
+               const x0 = Math.max(0, Math.floor(rawL - pad));
+               const y0 = Math.max(0, Math.floor(rawT - pad));
+               const x1 = Math.min(vw, Math.ceil(rawR + pad));
+               const y1 = Math.min(vh, Math.ceil(rawB + pad));
                if (x1 <= x0 || y1 <= y0) return null;
                let radius = fallbackRadius;
                if (radius < 0) {
@@ -14820,6 +15742,8 @@
                   '__fynexo_main_menu__',
                   '__fynexo_media_popover__',
                   '__fynexo_shield_popover__',
+                  '__fynexo_site_popover__',
+                  '__fynexo_mode_popover__',
                   '__fynexo_downloads_popover__',
                   '__fynexo_studio_popover__',
                   '__fynexo_exts_popover__',
@@ -14883,6 +15807,8 @@
                   attributes: true,
                   attributeFilter: ['style', 'class'],
                });
+               shadowRoot.addEventListener('animationend', scheduleSyncHudLayout, true);
+               shadowRoot.addEventListener('transitionend', scheduleSyncHudLayout, true);
             } catch (_) {}
 
             window.addEventListener(
@@ -14902,6 +15828,15 @@
                   case 'open_command_palette':
                      openModalHud();
                      break;
+                  case 'open_history':
+                     closeAnyOmnibox();
+                     sendIpc({ type: 'NEW_TAB', url: 'fynexo://settings#sec-privacy' });
+                     break;
+                  case 'toggle_downloads':
+                     if (typeof toggleDownloadsPopover === 'function') {
+                        toggleDownloadsPopover();
+                     }
+                     break;
                   case 'toggle_side_panel':
                      if (typeof toggleSidePanel === 'function') toggleSidePanel();
                      break;
@@ -14914,6 +15849,24 @@
                   case 'toggle_preferences':
                      closeAnyOmnibox();
                      togglePreferences();
+                     break;
+                  case 'toggle_force_dark':
+                     config.force_dark = !config.force_dark;
+                     sendIpc({
+                        type: 'PATCH_HUD_PREFS',
+                        force_dark: config.force_dark,
+                     });
+                     applyPageRules();
+                     syncBookmarkButtons();
+                     showHudToast(
+                        config.force_dark
+                           ? isZh()
+                              ? '已开启智能深色模式'
+                              : 'Smart Force Dark enabled'
+                           : isZh()
+                             ? '已关闭智能深色模式'
+                             : 'Smart Force Dark off',
+                     );
                      break;
                   case 'fullscreen_peek':
                      if (isFullscreen && !isTopbarPeek) {
@@ -14961,6 +15914,12 @@
                updateShieldState();
                if (shieldPopoverEl && shieldPopoverEl.style.display === 'flex') {
                   syncShieldPopoverUI();
+               }
+               if (siteInfoPopoverEl && siteInfoPopoverEl.style.display === 'flex') {
+                  syncSiteInfoPopoverUI();
+               }
+               if (modePopoverEl && modePopoverEl.style.display === 'flex') {
+                  renderModePopoverUI();
                }
                if (typeof syncMainMenuUIRef === 'function') {
                   syncMainMenuUIRef();

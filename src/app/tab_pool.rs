@@ -312,16 +312,21 @@ impl TabPool {
                 let _ = next_tv.webview.focus();
             }
         }
-        if let Some(prev_id) = self.visible_tab_id {
-            if prev_id != id {
-                if let Some(prev_tv) = self.live_webviews.get(&prev_id) {
-                    let clear_script = format!(
-                        "window.__fynexo_finish_progress__ && window.__fynexo_finish_progress__(true, {});",
-                        bridge_tok_js
-                    );
-                    let _ = prev_tv.webview.evaluate_script(&clear_script);
-                    let _ = prev_tv.webview.set_visible(false);
+        let clear_script = format!(
+            "window.__fynexo_finish_progress__ && window.__fynexo_finish_progress__(true, {});",
+            bridge_tok_js
+        );
+        let prev_id_opt = self.visible_tab_id;
+        for (&other_id, other_tv) in &self.live_webviews {
+            if other_id != id {
+                if prev_id_opt == Some(other_id) {
+                    let _ = other_tv.webview.evaluate_script(&clear_script);
                 }
+                let _ = other_tv.webview.set_visible(false);
+            }
+        }
+        if let Some(prev_id) = prev_id_opt {
+            if prev_id != id {
                 self.last_active_at.insert(prev_id, Instant::now());
             }
         }

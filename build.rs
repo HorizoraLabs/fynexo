@@ -88,10 +88,49 @@ fn load_env_file(path: &Path) {
     }
 }
 
+fn try_embed_windows_icon() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let ico = Path::new("assets/fynexo.ico");
+    println!("cargo:rerun-if-changed={}", ico.display());
+    if !ico.is_file() {
+        return;
+    }
+    let Ok(out_dir) = std::env::var("OUT_DIR") else {
+        return;
+    };
+    let Ok(abs_ico) = fs::canonicalize(ico) else {
+        return;
+    };
+    let mut ico_str = abs_ico.to_string_lossy().replace('\\', "/");
+    if let Some(s) = ico_str.strip_prefix("//?/") {
+        ico_str = s.to_string();
+    }
+    let rc_path = Path::new(&out_dir).join("fynexo_icon.rc");
+    let res_path = Path::new(&out_dir).join("fynexo_icon.res");
+    let rc_content = format!("1 ICON \"{}\"\n", ico_str);
+    if fs::write(&rc_path, rc_content).is_err() {
+        return;
+    }
+    let ok = std::process::Command::new("rc.exe")
+        .arg("/nologo")
+        .arg("/fo")
+        .arg(&res_path)
+        .arg(&rc_path)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if ok && res_path.is_file() {
+        println!("cargo:rustc-link-arg-bin=fynexo={}", res_path.display());
+    }
+}
+
 fn main() {
     for key in ENV_KEYS {
         println!("cargo:rerun-if-env-changed={}", key);
     }
     load_env_file(Path::new(".env"));
     load_env_file(Path::new(".env.local"));
+    try_embed_windows_icon();
 }

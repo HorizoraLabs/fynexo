@@ -62,13 +62,32 @@ pub struct RuntimePayload {
     pub chrome_extensions: Vec<crate::chrome_ext::ChromeExtensionEntry>,
     #[serde(default)]
     pub chrome_ext_engine_active: bool,
+    #[serde(default)]
+    pub site_permissions:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    #[serde(default)]
+    pub profiles: Vec<super::profiles::ProfileEntry>,
+    #[serde(default)]
+    pub active_profile_id: String,
+    #[serde(default)]
+    pub app_version: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct DownloadEntry {
+    #[serde(default)]
+    pub id: u64,
     pub name: String,
     pub status: String,
     pub updated_at: u64,
+    #[serde(default)]
+    pub bytes_received: u64,
+    #[serde(default)]
+    pub total_bytes: u64,
+    #[serde(default)]
+    pub speed_bps: u64,
+    #[serde(skip)]
+    pub saved_path: String,
 }
 
 /// Slim boot payload injected into external webpages (`hud.rs`) so disabled rules, inactive `.json`
@@ -91,6 +110,12 @@ pub struct HudBootPayload<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub chrome_extensions: Vec<crate::chrome_ext::HudChromeExtension>,
     pub chrome_ext_engine_active: bool,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub site_permissions:
+        &'a std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "<[super::profiles::ProfileEntry]>::is_empty")]
+    pub profiles: &'a [super::profiles::ProfileEntry],
+    pub active_profile_id: &'a str,
 }
 
 pub fn collect_mode_themes<'a>(
@@ -132,8 +157,25 @@ impl<'a> HudBootPayload<'a> {
             downloads: &[],
             chrome_extensions,
             chrome_ext_engine_active: payload.chrome_ext_engine_active,
+            site_permissions: &payload.site_permissions,
+            profiles: &payload.profiles,
+            active_profile_id: &payload.active_profile_id,
         }
     }
+}
+
+/// Minimal privacy-preserving boot payload injected into Windows Dual-WebView content tabs.
+/// Deliberately omits bookmarks, browsing history, downloads, and installed Chrome extensions.
+#[derive(Serialize, Clone, Debug)]
+pub struct ContentBootPayload<'a> {
+    pub config: &'a AppConfig,
+    pub active_theme: &'a ThemeColors,
+    pub keybinds: &'a KeybindsConfig,
+    pub enabled_rules: Vec<&'a SiteRule>,
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    pub adblock_whitelist: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tabs: Option<&'a crate::tabs::TabState>,
 }
 
 /// Slim boot payload for `fynexo://newtab` so opening a new tab avoids cloning or

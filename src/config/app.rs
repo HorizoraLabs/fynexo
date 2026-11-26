@@ -119,6 +119,10 @@ fn default_sleep_minutes() -> u32 {
     15
 }
 
+fn default_translate_provider() -> String {
+    "google".to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct BrowserModeProfile {
@@ -368,6 +372,10 @@ pub struct AppConfig {
     pub window_mode: String,
     #[serde(default)]
     pub downloads_dir: String,
+    #[serde(default)]
+    pub ask_download_location: bool,
+    #[serde(default = "default_translate_provider")]
+    pub translate_provider: String,
     #[serde(default = "default_search_engines")]
     pub search_engines: Vec<SearchEngineItem>,
     #[serde(default = "default_bangs")]
@@ -411,6 +419,8 @@ impl Default for AppConfig {
             homepage: "fynexo://newtab".to_string(),
             window_mode: default_window_mode(),
             downloads_dir: String::new(),
+            ask_download_location: false,
+            translate_provider: default_translate_provider(),
             search_engines: default_search_engines(),
             bangs: default_bangs(),
         }
@@ -443,9 +453,19 @@ impl AppConfig {
         }
     }
 
+    pub fn normalize_translate_provider(raw: &str) -> &'static str {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "bing" => "bing",
+            "youdao" => "youdao",
+            _ => "google",
+        }
+    }
+
     pub fn sanitize_perf_fields(&mut self) {
         self.tab_cache_mode = Self::normalize_tab_cache_mode(&self.tab_cache_mode).to_string();
         self.perf_preset = Self::normalize_perf_preset(&self.perf_preset).to_string();
+        self.translate_provider =
+            Self::normalize_translate_provider(&self.translate_provider).to_string();
         if self.tab_sleep_minutes > 240 {
             self.tab_sleep_minutes = 240;
         }
