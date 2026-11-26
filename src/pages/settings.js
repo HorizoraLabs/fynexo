@@ -3584,6 +3584,11 @@
         document.querySelectorAll('#uaModeGroup .seg-btn').forEach(btn => {
             btn.onclick = () => {
                 config.user_agent_mode = btn.dataset.ua;
+                if (window.__fynexo_android__ && typeof window.__fynexo_android__.setUserAgentMode === 'function') {
+                    try {
+                        window.__fynexo_android__.setUserAgentMode(btn.dataset.ua);
+                    } catch (_) {}
+                }
                 syncFormControls();
                 saveConfig((isZh() ? 'UA 模式：' : 'User-Agent mode: ') + btn.textContent);
             };

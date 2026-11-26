@@ -234,6 +234,7 @@ pub struct MobileBarStyles {
     pub pill_radius: String,
     pub button_size: String,
     pub auto_hide_on_keyboard: bool,
+    pub auto_hide_on_scroll: bool,
     pub custom_css: String,
 }
 
@@ -250,6 +251,7 @@ impl Default for MobileBarStyles {
             pill_radius: "11px".to_string(),
             button_size: "38px".to_string(),
             auto_hide_on_keyboard: true,
+            auto_hide_on_scroll: false,
             custom_css: String::new(),
         }
     }

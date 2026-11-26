@@ -16,7 +16,7 @@
             line-height: 1.45;
         }
 
-        button, input, select {
+        button, input, select, a, label, [role="button"], .ht-row {
             font-family: inherit;
             touch-action: manipulation;
         }

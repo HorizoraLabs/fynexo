@@ -394,6 +394,20 @@ impl AppState {
         };
         crate::util::json_for_html_script(&slim)
     }
+
+    /// Serialize bookmarks manager boot JSON for `fynexo://bookmarks`.
+    pub fn bookmarks_boot_json(&self) -> String {
+        let active_theme = self
+            .resolve_active_theme_ref()
+            .unwrap_or_else(|| Self::default_theme_colors());
+        let slim = crate::config::BookmarksBootPayload {
+            config: &self.config,
+            styles: &self.styles,
+            active_theme,
+            bookmarks: &self.userdata.bookmarks,
+        };
+        crate::util::json_for_html_script(&slim)
+    }
 }
 
 #[cfg(test)]

@@ -220,6 +220,7 @@
 
         const pageTitleEl = document.getElementById('htPageTitle');
         const totalPillEl = document.getElementById('htTotalPill');
+        const btnReopenClosed = document.getElementById('btnHtReopenClosed');
         const btnSelectMode = document.getElementById('btnHtSelectMode');
         const btnClearAll = document.getElementById('btnHtClearAll');
         const searchInput = document.getElementById('inputHtSearch');
@@ -249,6 +250,7 @@
             const zh = isZh();
             document.title = zh ? '浏览历史 — Fynexo' : 'History — Fynexo';
             pageTitleEl.textContent = zh ? '浏览历史' : 'History';
+            if (btnReopenClosed) btnReopenClosed.textContent = zh ? '恢复关闭' : 'Reopen tab';
             btnSelectMode.textContent = batchMode ? (zh ? '完成管理' : 'Done') : (zh ? '批量管理' : 'Select');
             if (!btnClearAll.classList.contains('confirming')) {
                 btnClearAll.textContent = zh ? '清空全部' : 'Clear all';
@@ -685,6 +687,9 @@
             sendIpc({ type: 'CLEAR_HISTORY' });
             renderAll();
         };
+        if (btnReopenClosed) {
+            btnReopenClosed.onclick = () => sendIpc({ type: 'REOPEN_CLOSED_TAB' });
+        }
         btnResetFilters.onclick = () => {
             scopeFilter = 'all';
             timeFilter = 'all';
@@ -695,6 +700,12 @@
         };
 
         document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key || '').toLowerCase() === 'f') {
+                e.preventDefault();
+                searchInput.focus();
+                searchInput.select();
+                return;
+            }
             const active = document.activeElement;
             const inInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
             if (e.key === '/' && !inInput && !e.ctrlKey && !e.metaKey && !e.altKey) {

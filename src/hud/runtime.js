@@ -61,11 +61,58 @@
       typeof window.__fynexo_android__.setUserAgentMode === 'function'
          ? window.__fynexo_android__.setUserAgentMode.bind(window.__fynexo_android__)
          : null;
+   const __fnxAndroidSetUaModeAndReload =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.setUserAgentModeAndReload === 'function'
+         ? window.__fynexo_android__.setUserAgentModeAndReload.bind(window.__fynexo_android__)
+         : null;
    const __fnxAndroidFetchSuggest =
       window.__fynexo_android__ &&
       typeof window.__fynexo_android__.fetchSearchSuggestions === 'function'
          ? window.__fynexo_android__.fetchSearchSuggestions.bind(window.__fynexo_android__)
          : null;
+   const __fnxAndroidShareUrl =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.shareUrl === 'function'
+         ? window.__fynexo_android__.shareUrl.bind(window.__fynexo_android__)
+         : null;
+   const __fnxAndroidDownloadUrl =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.downloadUrl === 'function'
+         ? window.__fynexo_android__.downloadUrl.bind(window.__fynexo_android__)
+         : null;
+   const __fnxAndroidSetSystemBarTheme =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.setSystemBarTheme === 'function'
+         ? window.__fynexo_android__.setSystemBarTheme.bind(window.__fynexo_android__)
+         : null;
+   const __fnxAndroidHaptic =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.haptic === 'function'
+         ? window.__fynexo_android__.haptic.bind(window.__fynexo_android__)
+         : null;
+   const __fnxAndroidSyncNavState =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.syncNavState === 'function'
+         ? window.__fynexo_android__.syncNavState.bind(window.__fynexo_android__)
+         : null;
+   let lastAndroidBarThemeSig = '';
+
+   function triggerAndroidHaptic(kind) {
+      if (!__fnxAndroidHaptic) return;
+      try {
+         __fnxAndroidHaptic(kind || 'tick');
+      } catch (_) {}
+   }
+
+   function isHexColorLight(hex) {
+      const s = String(hex || '').trim();
+      if (!/^#[0-9a-f]{6}$/i.test(s)) return false;
+      const r = parseInt(s.slice(1, 3), 16);
+      const g = parseInt(s.slice(3, 5), 16);
+      const b = parseInt(s.slice(5, 7), 16);
+      return (0.299 * r + 0.587 * g + 0.114 * b) > 145;
+   }
 
    function applyAndroidZoomNow(zoomFactor) {
       if (!__fnxAndroidSetZoom) return;
@@ -257,6 +304,150 @@
       },
       bootPayload.config || {},
    );
+
+   // Early document_start YouTube Ad Shield (strips pre-roll/mid-roll/feed ad payloads before player boots)
+   (() => {
+      if (IS_HUD_SHELL) return;
+      let host = '';
+      try {
+         host = String((window.location && window.location.hostname) || '').toLowerCase();
+      } catch (_) {}
+      if (host !== 'youtube.com' && !host.endsWith('.youtube.com')) return;
+
+      const AD_KEYS = new Set([
+         'adPlacements',
+         'playerAds',
+         'adSlots',
+         'adBreakHeartbeatParams',
+      ]);
+      const AD_RENDERERS = new Set([
+         'adSlotRenderer',
+         'promotedSparklesWebRenderer',
+         'promotedSparklesTextSearchRenderer',
+         'promotedVideoRenderer',
+         'inFeedAdLayoutRenderer',
+         'statementBannerRenderer',
+         'mealbarPromoRenderer',
+         'videoDisplayFullButtonedRenderer',
+      ]);
+
+      function shouldStripYtAds() {
+         return config.adblock !== false || !!config.ext_yt_ad_skipper;
+      }
+
+      function pruneYtObj(node, depth) {
+         if (!node || typeof node !== 'object' || depth > 14) return node;
+         if (Array.isArray(node)) {
+            let writeIdx = 0;
+            for (let i = 0; i < node.length; i++) {
+               const item = node[i];
+               if (item && typeof item === 'object') {
+                  let isAdEntry = false;
+                  for (const rk of AD_RENDERERS) {
+                     if (Object.prototype.hasOwnProperty.call(item, rk)) {
+                        isAdEntry = true;
+                        break;
+                     }
+                  }
+                  if (isAdEntry) continue;
+                  pruneYtObj(item, depth + 1);
+               }
+               node[writeIdx++] = item;
+            }
+            node.length = writeIdx;
+            return node;
+         }
+         for (const ak of AD_KEYS) {
+            if (Object.prototype.hasOwnProperty.call(node, ak)) {
+               node[ak] = Array.isArray(node[ak]) ? [] : undefined;
+            }
+         }
+         for (const rk of AD_RENDERERS) {
+            if (Object.prototype.hasOwnProperty.call(node, rk)) {
+               delete node[rk];
+            }
+         }
+         const keys = Object.keys(node);
+         for (let i = 0; i < keys.length; i++) {
+            const k = keys[i];
+            if (k === 'streamingData' || k === 'videoDetails' || k === 'captions' || k === 'storyboards') continue;
+            const v = node[k];
+            if (v && typeof v === 'object') pruneYtObj(v, depth + 1);
+         }
+         return node;
+      }
+
+      function trapGlobalProp(propName) {
+         try {
+            let backing = window[propName];
+            if (backing && typeof backing === 'object' && shouldStripYtAds()) {
+               pruneYtObj(backing, 0);
+            }
+            __fnxDefineProperty(window, propName, {
+               configurable: true,
+               enumerable: true,
+               get() {
+                  return backing;
+               },
+               set(val) {
+                  if (val && typeof val === 'object' && shouldStripYtAds()) {
+                     try {
+                        pruneYtObj(val, 0);
+                     } catch (_) {}
+                  }
+                  backing = val;
+               },
+            });
+         } catch (_) {}
+      }
+      trapGlobalProp('ytInitialPlayerResponse');
+      trapGlobalProp('ytInitialData');
+
+      if (typeof window.fetch === 'function') {
+         const origFetch = window.fetch.bind(window);
+         window.fetch = function (input, init) {
+            const urlStr =
+               typeof input === 'string'
+                  ? input
+                  : input && typeof input.url === 'string'
+                    ? input.url
+                    : '';
+            const isYtApi =
+               shouldStripYtAds() &&
+               /\/youtubei\/v1\/(?:player|next|browse|search)(?:[?#]|$)/i.test(urlStr);
+            const p = origFetch(input, init);
+            if (!isYtApi) return p;
+            return p.then((res) => {
+               try {
+                  if (!res || !res.ok) return res;
+                  const ct = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
+                  if (!ct.toLowerCase().includes('json')) return res;
+                  return res
+                     .clone()
+                     .text()
+                     .then((txt) => {
+                        try {
+                           const data = __fnxJsonParse(txt);
+                           pruneYtObj(data, 0);
+                           const headers = new Headers(res.headers);
+                           headers.delete('content-length');
+                           return new Response(__fnxJsonStringify(data), {
+                              status: res.status,
+                              statusText: res.statusText,
+                              headers: headers,
+                           });
+                        } catch (_) {
+                           return res;
+                        }
+                     })
+                     .catch(() => res);
+               } catch (_) {
+                  return res;
+               }
+            });
+         };
+      }
+   })();
    if (!Array.isArray(config.mode_profiles) || config.mode_profiles.length === 0) {
       config.mode_profiles =
          typeof DEFAULT_MODE_PROFILES !== 'undefined'
@@ -406,6 +597,8 @@
    let openHistoryDrawerRef = null;
    let closeHistoryDrawerRef = null;
    let isHistoryOpenRef = null;
+   let closeLongPressSheetRef = null;
+   let isLongPressSheetOpenRef = null;
    let openPromptModalRef = null;
    let closePromptModalRef = null;
    let isPromptOpenRef = null;
@@ -1043,6 +1236,11 @@
             )
                return 'history';
             if (
+               host === 'bookmarks' ||
+               (host === 'localhost' && path === 'bookmarks')
+            )
+               return 'bookmarks';
+            if (
                host === 'newtab' ||
                (host === 'localhost' && (path === '' || path === 'newtab'))
             )
@@ -1055,6 +1253,7 @@
          ) {
             if (path === 'settings') return 'settings';
             if (path === 'history') return 'history';
+            if (path === 'bookmarks') return 'bookmarks';
             if (path === '' || path === 'newtab') return 'newtab';
          }
       } catch (_) {}
@@ -1069,12 +1268,21 @@
       return parseInternalRoute(rawUrl) === 'history';
    }
 
+   function isInternalBookmarks(rawUrl) {
+      return parseInternalRoute(rawUrl) === 'bookmarks';
+   }
+
    function isInternalNewtab(rawUrl) {
       return parseInternalRoute(rawUrl) === 'newtab';
    }
 
    function isInternalAny(rawUrl) {
-      return isInternalSettings(rawUrl) || isInternalHistory(rawUrl) || isInternalNewtab(rawUrl);
+      return (
+         isInternalSettings(rawUrl) ||
+         isInternalHistory(rawUrl) ||
+         isInternalBookmarks(rawUrl) ||
+         isInternalNewtab(rawUrl)
+      );
    }
 
    function canonicalCurrentUrl() {
@@ -1082,11 +1290,13 @@
          const raw = getCurrentRawUrl();
          if (isInternalSettings(raw)) return 'fynexo://settings';
          if (isInternalHistory(raw)) return 'fynexo://history';
+         if (isInternalBookmarks(raw)) return 'fynexo://bookmarks';
          if (isInternalNewtab(raw)) return 'fynexo://newtab';
          return raw || 'fynexo://newtab';
       }
       if (isInternalSettings()) return 'fynexo://settings';
       if (isInternalHistory()) return 'fynexo://history';
+      if (isInternalBookmarks()) return 'fynexo://bookmarks';
       if (isInternalNewtab()) return 'fynexo://newtab';
       return window.location.href || '';
    }
@@ -1121,12 +1331,15 @@
       const ntTxt = zh ? '搜索或输入网址' : 'Search or enter URL';
       const prefTxt = zh ? '偏好设置' : 'Preferences';
       const histTxt = zh ? '浏览历史' : 'History';
+      const bmTxt = zh ? '书签管理' : 'Bookmarks';
       if (!rawUrl && isInternalNewtab()) return ntTxt;
       if (!rawUrl && isInternalSettings()) return prefTxt;
       if (!rawUrl && isInternalHistory()) return histTxt;
+      if (!rawUrl && isInternalBookmarks()) return bmTxt;
       if (isInternalNewtab(rawUrl)) return ntTxt;
       if (isInternalSettings(rawUrl)) return prefTxt;
       if (isInternalHistory(rawUrl)) return histTxt;
+      if (isInternalBookmarks(rawUrl)) return bmTxt;
       if (!rawUrl || rawUrl === 'about:blank') return ntTxt;
       try {
          const parsed = new URL(rawUrl);
@@ -1142,6 +1355,7 @@
    function extractMonogram(rawUrl, title) {
       if (isInternalNewtab(rawUrl)) return 'F';
       if (isInternalHistory(rawUrl)) return 'H';
+      if (isInternalBookmarks(rawUrl)) return 'B';
       if (!rawUrl || isInternalSettings(rawUrl)) return 'S';
       try {
          const parsed = new URL(rawUrl);
@@ -1156,7 +1370,8 @@
    }
 
    function monogramAccentColor(rawUrl) {
-      if (isInternalNewtab(rawUrl) || isInternalHistory(rawUrl)) return 'var(--fnx-accent)';
+      if (isInternalNewtab(rawUrl) || isInternalHistory(rawUrl) || isInternalBookmarks(rawUrl))
+         return 'var(--fnx-accent)';
       if (!rawUrl || isInternalSettings(rawUrl)) return 'var(--fnx-secondary)';
       let host = '';
       let hostKey = '';
@@ -1224,6 +1439,7 @@
    function siteBrandIconName(rawUrl) {
       if (isInternalNewtab(rawUrl)) return 'siteNewtab';
       if (isInternalHistory(rawUrl)) return 'history';
+      if (isInternalBookmarks(rawUrl)) return 'starFilled';
       if (!rawUrl || isInternalSettings(rawUrl)) return 'siteSettings';
       let host = '';
       try {
@@ -2004,6 +2220,18 @@
          );
       }
       const p = resolvePalette();
+      if (__fnxAndroidSetSystemBarTheme && p && p.bg) {
+         const bgHex = String(p.bg || '').trim();
+         const panelHex = String(p.panel || bgHex).trim();
+         const light = isHexColorLight(bgHex);
+         const sig = bgHex + '|' + panelHex + '|' + (light ? '1' : '0');
+         if (sig !== lastAndroidBarThemeSig) {
+            lastAndroidBarThemeSig = sig;
+            try {
+               __fnxAndroidSetSystemBarTheme(bgHex, panelHex, light);
+            } catch (_) {}
+         }
+      }
 
       let dynStyle = shadowRoot.getElementById('__fynexo_dynamic_styles__');
       if (!dynStyle) {
@@ -2033,7 +2261,7 @@
       const addrWidth = ab.width || '340px';
       const tabRadius = ts.border_radius || '6px';
 
-      dynStyle.textContent = `
+      const nextDynCss = `
             :host, #__fynexo_shell__ {
                 --fnx-bg: ${p.bg};
                 --fnx-panel: ${p.panel};
@@ -2381,6 +2609,9 @@
             `
             }
         `;
+      if (dynStyle.textContent !== nextDynCss) {
+         dynStyle.textContent = nextDynCss;
+      }
 
       // Sync layout between 2-Row Layered Deck ("deck") and Single-Row ("compact")
       const tabRow = shadowRoot.getElementById('__fynexo_tab_row__');
@@ -2767,6 +2998,7 @@
       if (!containerEl) return;
       const isSet = isInternalSettings(rawUrl);
       const isHist = isInternalHistory(rawUrl);
+      const isBm = isInternalBookmarks(rawUrl);
       const isNt = isInternalNewtab(rawUrl);
       const isHttps = rawUrl && rawUrl.startsWith('https://');
       const isUnsafeHttp = isInsecureExternalHttp(rawUrl);
@@ -2774,19 +3006,21 @@
          ? 'settings'
          : isHist
            ? 'history'
-           : isNt
-             ? 'search'
-             : isUnsafeHttp
-               ? 'alert'
-               : isHttps
-                 ? 'lock'
-                 : 'search';
+           : isBm
+             ? 'starFilled'
+             : isNt
+               ? 'search'
+               : isUnsafeHttp
+                 ? 'alert'
+                 : isHttps
+                   ? 'lock'
+                   : 'search';
       if (containerEl.dataset.iconKind !== kind) {
          containerEl.dataset.iconKind = kind;
          containerEl.textContent = '';
          containerEl.appendChild(createIcon(kind));
       }
-      containerEl.style.color = isSet || isHist
+      containerEl.style.color = isSet || isHist || isBm
          ? 'var(--fnx-accent)'
          : isUnsafeHttp
            ? '#F59E0B'
@@ -2914,6 +3148,7 @@
       const label = formatHostLabel(href);
       const isSet = isInternalSettings(href);
       const isHist = isInternalHistory(href);
+      const isBm = isInternalBookmarks(href);
       const isNt = isInternalNewtab(href);
       const engName = currentEngineObj().name || 'Google';
 
@@ -2944,6 +3179,12 @@
             domEl.textContent = 'history';
             domEl.style.color = 'var(--fnx-fg)';
             pathEl.textContent = zh ? ' · 浏览历史' : ' · History';
+            pathEl.style.color = 'var(--fnx-muted)';
+         } else if (isBm) {
+            if (schemeEl) schemeEl.textContent = 'fynexo://';
+            domEl.textContent = 'bookmarks';
+            domEl.style.color = 'var(--fnx-fg)';
+            pathEl.textContent = zh ? ' · 书签管理' : ' · Bookmarks';
             pathEl.style.color = 'var(--fnx-muted)';
          } else {
             try {
@@ -3568,6 +3809,7 @@
          const isActive = tab.id === tabState.active_id;
          const isSet = isInternalSettings(tab.url);
          const isHist = isInternalHistory(tab.url);
+         const isBm = isInternalBookmarks(tab.url);
          const isNt = isInternalNewtab(tab.url);
          const card = document.createElement('div');
          card.className = isActive
@@ -3587,9 +3829,11 @@
             ? (zh ? '偏好设置' : 'Preferences')
             : isHist
               ? (zh ? '浏览历史' : 'History')
-              : isNt
-                ? (zh ? '起始页' : 'Start page')
-                : tab.title || (zh ? '新标签页' : 'New tab');
+              : isBm
+                ? (zh ? '书签管理' : 'Bookmarks')
+                : isNt
+                  ? (zh ? '起始页' : 'Start page')
+                  : tab.title || (zh ? '新标签页' : 'New tab');
          if (tab.pinned) {
             const pinBadge = document.createElement('span');
             pinBadge.className = 'fnx-drawer-pin-icon';
@@ -3607,9 +3851,11 @@
             ? 'fynexo://settings'
             : isHist
               ? 'fynexo://history'
-              : isNt
-                ? 'fynexo://newtab'
-                : formatHostLabel(tab.url || '');
+              : isBm
+                ? 'fynexo://bookmarks'
+                : isNt
+                  ? 'fynexo://newtab'
+                  : formatHostLabel(tab.url || '');
 
          meta.appendChild(t);
          meta.appendChild(u);
@@ -4521,15 +4767,18 @@
                   const isActive = tab.id === tabState.active_id;
                   const isSet = isInternalSettings(tab.url);
                   const isHist = isInternalHistory(tab.url);
+                  const isBm = isInternalBookmarks(tab.url);
                   const isNt = isInternalNewtab(tab.url);
                   const zh = isZh();
                   const cleanTitle = isSet
                      ? (zh ? '偏好设置' : 'Preferences')
                      : isHist
                        ? (zh ? '浏览历史' : 'History')
-                       : isNt
-                         ? (zh ? '起始页' : 'Start page')
-                         : tab.title || (zh ? '新标签页' : 'New tab');
+                       : isBm
+                         ? (zh ? '书签管理' : 'Bookmarks')
+                         : isNt
+                           ? (zh ? '起始页' : 'Start page')
+                           : tab.title || (zh ? '新标签页' : 'New tab');
 
                   const el = document.createElement('div');
                   let cls = isActive ? 'fnx-tab-item active' : 'fnx-tab-item';
@@ -5182,6 +5431,7 @@
             const internalPages = [
                ['fynexo://settings', zh ? '偏好设置' : 'Preferences', 'fynexo://settings settings preferences 设置 偏好'],
                ['fynexo://history', zh ? '浏览历史' : 'History', 'fynexo://history history 历史 历史记录'],
+               ['fynexo://bookmarks', zh ? '书签管理' : 'Bookmarks', 'fynexo://bookmarks bookmarks 书签 收藏夹'],
                ['fynexo://newtab', zh ? '起始页' : 'Start Page', 'fynexo://newtab newtab start home 起始页 主页'],
             ];
             for (let i = 0; i < internalPages.length; i++) {
@@ -5694,6 +5944,13 @@
       ) {
          return 'fynexo://history';
       }
+      if (
+         /^(bookmarks|fynexo:bookmarks|about:bookmarks)$/i.test(
+            raw,
+         )
+      ) {
+         return 'fynexo://bookmarks';
+      }
 
       // Bang shortcut resolution (!gh, !yt, !b, !w, etc.)
       if (raw.startsWith('!')) {
@@ -6147,6 +6404,10 @@
 
    // Android Hardware / Gesture Back Hook (called from Kotlin MainActivity with 0 args)
    exposeReadOnly('__fynexo_handle_back__', function () {
+      if (isLongPressSheetOpenRef && isLongPressSheetOpenRef()) {
+         if (closeLongPressSheetRef) closeLongPressSheetRef();
+         return true;
+      }
       if (isPromptOpenRef && isPromptOpenRef()) {
          if (closePromptModalRef) closePromptModalRef();
          return true;
@@ -6200,6 +6461,13 @@
          return true;
       }
       return false;
+   });
+
+   exposeReadOnly('__fynexo_on_android_nav_state__', function (canBack, canForward) {
+      if (!__FNX_MOBILE_HOST) return;
+      navState.canBack = !!canBack;
+      navState.canForward = !!canForward;
+      syncNavButtons();
    });
 
    exposeReadOnly('__fynexo_on_ime_inset__', function (imeOpen) {
@@ -7467,6 +7735,15 @@
                   String(config.user_agent_mode || 'default').toLowerCase() === 'desktop';
                desktopSiteSwitch.classList.toggle('on', isDeskUa);
             }
+            if (typeof autoHideScrollLabel !== 'undefined' && autoHideScrollLabel) {
+               autoHideScrollLabel.textContent = zh ? '滚动隐藏底栏' : 'Auto-hide bar on scroll';
+            }
+            if (typeof autoHideScrollSwitch !== 'undefined' && autoHideScrollSwitch) {
+               autoHideScrollSwitch.classList.toggle(
+                  'on',
+                  !!(styles.mobile_bar && styles.mobile_bar.auto_hide_on_scroll),
+               );
+            }
             zoomLabel.textContent = zh ? '网页缩放' : 'Zoom';
             darkSwitch.classList.toggle('on', !!config.force_dark);
             zoomValSpan.textContent =
@@ -7621,11 +7898,6 @@
             const nextUa = isDeskNow ? 'default' : 'desktop';
             config.user_agent_mode = nextUa;
             rawBaseConfig.user_agent_mode = nextUa;
-            if (__fnxAndroidSetUaMode) {
-               try {
-                  __fnxAndroidSetUaMode(nextUa);
-               } catch (_) {}
-            }
             sendIpc({ type: 'PATCH_HUD_PREFS', user_agent_mode: nextUa });
             syncMainMenuUI();
             closeAllNavPopovers();
@@ -7642,6 +7914,19 @@
             );
             if (!internal) {
                triggerProgress();
+            }
+            if (__fnxAndroidSetUaModeAndReload) {
+               try {
+                  __fnxAndroidSetUaModeAndReload(nextUa, !internal);
+                  return;
+               } catch (_) {}
+            }
+            if (__fnxAndroidSetUaMode) {
+               try {
+                  __fnxAndroidSetUaMode(nextUa);
+               } catch (_) {}
+            }
+            if (!internal) {
                setTimeout(() => {
                   try {
                      window.location.reload();
@@ -7650,6 +7935,89 @@
             }
          };
          mainMenuEl.appendChild(desktopSiteItem);
+
+         // Mobile 1-Tap Auto-Hide Bottom Bar on Scroll Toggle
+         const autoHideScrollItem = document.createElement('div');
+         autoHideScrollItem.className = 'fnx-menu-item fnx-mobile-only-row';
+         autoHideScrollItem.setAttribute('role', 'menuitem');
+         autoHideScrollItem.tabIndex = 0;
+         const autoHideScrollLeft = document.createElement('div');
+         autoHideScrollLeft.style.cssText =
+            'display: flex; align-items: center; gap: 9px; min-width: 0;';
+         const autoHideScrollIconSlot = document.createElement('span');
+         autoHideScrollIconSlot.className = 'fnx-menu-icon';
+         autoHideScrollIconSlot.appendChild(createIcon('mobile'));
+         autoHideScrollLeft.appendChild(autoHideScrollIconSlot);
+         const autoHideScrollLabel = document.createElement('span');
+         autoHideScrollLabel.textContent = isZh() ? '滚动隐藏底栏' : 'Auto-hide bar on scroll';
+         autoHideScrollLeft.appendChild(autoHideScrollLabel);
+         autoHideScrollItem.appendChild(autoHideScrollLeft);
+         const autoHideScrollSwitch = document.createElement('span');
+         autoHideScrollSwitch.className =
+            styles.mobile_bar && styles.mobile_bar.auto_hide_on_scroll
+               ? 'fnx-pop-switch on'
+               : 'fnx-pop-switch';
+         autoHideScrollItem.appendChild(autoHideScrollSwitch);
+         autoHideScrollItem.onclick = (e) => {
+            e.stopPropagation();
+            const nextVal = !(styles.mobile_bar && styles.mobile_bar.auto_hide_on_scroll);
+            styles.mobile_bar = Object.assign({}, styles.mobile_bar || {}, {
+               auto_hide_on_scroll: nextVal,
+            });
+            const mbEl = shadowRoot ? shadowRoot.getElementById('__fynexo_bottom_bar__') : null;
+            if (!nextVal && mbEl) mbEl.classList.remove('fnx-scroll-hidden');
+            sendIpc({ type: 'PATCH_HUD_PREFS', mobile_auto_hide_on_scroll: nextVal });
+            syncMainMenuUI();
+            showHudToast(
+               nextVal
+                  ? (isZh() ? '下滑自动隐藏底栏已开启' : 'Auto-hide bottom bar enabled')
+                  : (isZh() ? '已保持底栏常驻显示' : 'Bottom bar pinned'),
+            );
+         };
+         mainMenuEl.appendChild(autoHideScrollItem);
+
+         // Bookmarks Manager Page (fynexo://bookmarks)
+         addMenuItem(
+            'star',
+            'Bookmarks Manager',
+            '',
+            () => {
+               triggerProgress();
+               sendIpc({ type: 'NAVIGATE', url: 'fynexo://bookmarks' });
+            },
+            '书签管理',
+         );
+
+         // Native Share Page (Android Share Sheet / Web Share / Copy fallback)
+         addMenuItem(
+            'share',
+            'Share page',
+            '',
+            () => {
+               const zh = isZh();
+               const cur = canonicalCurrentUrl();
+               if (!cur || isInternalAny(cur)) {
+                  showHudToast(zh ? '仅支持分享外部网页链接' : 'Only web pages can be shared');
+                  return;
+               }
+               const tObj = IS_HUD_SHELL ? getActiveTabObj() : null;
+               const title = (tObj && tObj.title) || document.title || formatHostLabel(cur);
+               if (__fnxAndroidShareUrl) {
+                  try {
+                     __fnxAndroidShareUrl(title, cur);
+                     return;
+                  } catch (_) {}
+               }
+               if (navigator.share && typeof navigator.share === 'function') {
+                  navigator.share({ title: title, url: cur }).catch(() => {
+                     copyTextToClipboard(cur, zh ? '已复制分享链接' : 'Link copied');
+                  });
+               } else {
+                  copyTextToClipboard(cur, zh ? '已复制分享链接' : 'Link copied');
+               }
+            },
+            '分享当前页面',
+         );
 
          // Compact Contextual Mode Entry (opens dedicated Mode Switcher popover; no duplicated chip grid)
          const modeMenuRow = document.createElement('div');
@@ -7814,13 +8182,10 @@
                zoomValSpan.textContent = Math.round(next * 100) + '%';
             },
          );
-         btnZoomOut.style.cssText =
-            'width: 22px; height: 22px; border-radius: 5px; border: none;';
+         btnZoomOut.classList.add('fnx-zoom-step-btn');
          const zoomValSpan = document.createElement('button');
          zoomValSpan.type = 'button';
-         zoomValSpan.className = 'fnx-pop-link';
-         zoomValSpan.style.cssText =
-            'min-width: 42px; text-align: center; font-weight: 500; font-size: 11.5px; color: var(--fnx-fg);';
+         zoomValSpan.className = 'fnx-pop-link fnx-zoom-val-btn';
          zoomValSpan.textContent =
             Math.round((Number(config.default_zoom) || 1.0) * 100) + '%';
          zoomValSpan.title = 'Click to reset zoom (100%)';
@@ -7844,8 +8209,7 @@
                zoomValSpan.textContent = Math.round(next * 100) + '%';
             },
          );
-         btnZoomIn.style.cssText =
-            'width: 22px; height: 22px; border-radius: 5px; border: none;';
+         btnZoomIn.classList.add('fnx-zoom-step-btn');
          const btnZoomFull = makeDesktopIconBtn(
             'fullscreen',
             `Fullscreen (${keybinds.fullscreen || 'F11'})`,
@@ -11245,7 +11609,8 @@
          bmAddBtn.appendChild(document.createTextNode('Save page'));
          bmAddBtn.onclick = () => {
             if (isInternalAny()) {
-               togglePreferences();
+               triggerProgress();
+               sendIpc({ type: 'NAVIGATE', url: 'fynexo://bookmarks' });
             } else {
                toggleCurrentBookmark();
             }
@@ -11477,6 +11842,447 @@
          mobileBar.appendChild(mbMore);
          shell.appendChild(mobileBar);
 
+         // 2.1 Mobile Bottom-Bar Horizontal Swipe to Switch Tabs (address pill only, high threshold so taps never misfire)
+         (() => {
+            let swStartX = 0;
+            let swStartY = 0;
+            let swTracking = false;
+            let swMoved = false;
+            let swTriggered = false;
+            mbPillTrigger.addEventListener(
+               'touchstart',
+               (e) => {
+                  if (!isMobilePlatform() && window.innerWidth > 768) return;
+                  if (!e.touches || e.touches.length !== 1) return;
+                  if (!tabState.tabs || tabState.tabs.length < 2) return;
+                  swStartX = e.touches[0].clientX;
+                  swStartY = e.touches[0].clientY;
+                  swTracking = true;
+                  swMoved = false;
+                  swTriggered = false;
+               },
+               { passive: true },
+            );
+            mbPillTrigger.addEventListener(
+               'touchmove',
+               (e) => {
+                  if (!swTracking || !e.touches || e.touches.length !== 1) return;
+                  const dx = e.touches[0].clientX - swStartX;
+                  const dy = e.touches[0].clientY - swStartY;
+                  if (Math.abs(dy) > 26 && Math.abs(dy) > Math.abs(dx)) {
+                     swTracking = false;
+                     if (swMoved) {
+                        swMoved = false;
+                        mbPill.style.transform = '';
+                     }
+                     return;
+                  }
+                  if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                     swMoved = true;
+                     const clamped = Math.max(-34, Math.min(34, (dx > 0 ? dx - 24 : dx + 24) * 0.45));
+                     mbPill.style.transition = 'none';
+                     mbPill.style.transform = `translateX(${clamped}px)`;
+                  }
+               },
+               { passive: true },
+            );
+            const finishSwipe = (endX, endY) => {
+               if (!swTracking) return;
+               swTracking = false;
+               if (swMoved) {
+                  swMoved = false;
+                  mbPill.style.transition = 'transform 0.16s ease';
+                  mbPill.style.transform = '';
+               }
+               const dx = endX - swStartX;
+               const dy = endY - swStartY;
+               if (Math.abs(dx) >= 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && tabState.tabs.length >= 2) {
+                  swTriggered = true;
+                  const curIdx = tabState.tabs.findIndex((t) => t.id === tabState.active_id);
+                  if (curIdx !== -1) {
+                     const step = dx < 0 ? 1 : -1;
+                     const nextTab = tabState.tabs[(curIdx + step + tabState.tabs.length) % tabState.tabs.length];
+                     if (nextTab && nextTab.id !== tabState.active_id) {
+                        triggerAndroidHaptic('tick');
+                        flushScrollSync();
+                        triggerProgress();
+                        sendIpc({ type: 'SWITCH_TAB', id: nextTab.id });
+                     }
+                  }
+                  setTimeout(() => { swTriggered = false; }, 220);
+               }
+            };
+            mbPillTrigger.addEventListener(
+               'touchend',
+               (e) => {
+                  if (!swTracking || !e.changedTouches || !e.changedTouches[0]) return;
+                  finishSwipe(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+               },
+               { passive: true },
+            );
+            mbPillTrigger.addEventListener(
+               'touchcancel',
+               () => {
+                  swTracking = false;
+                  if (swMoved) {
+                     swMoved = false;
+                     mbPill.style.transform = '';
+                  }
+               },
+               { passive: true },
+            );
+            mbPillTrigger.addEventListener(
+               'click',
+               (e) => {
+                  if (swTriggered) {
+                     e.preventDefault();
+                     e.stopImmediatePropagation();
+                  }
+               },
+               true,
+            );
+         })();
+
+         // 2.2 Mobile Pull-to-Refresh + Scroll Auto-Hide Bottom Bar
+         const ptrPill = document.createElement('div');
+         ptrPill.id = '__fynexo_ptr_pill__';
+         ptrPill.appendChild(createIcon('reload'));
+         shell.appendChild(ptrPill);
+
+         if (!IS_HUD_SHELL) {
+            let ptrStartY = 0;
+            let ptrStartX = 0;
+            let ptrActive = false;
+            let ptrPullDist = 0;
+            let ptrArmedHaptic = false;
+            function hasScrolledAncestor(el) {
+               let node = el;
+               while (node && node !== document.body && node !== document.documentElement) {
+                  try {
+                     if (node.scrollTop > 2) return true;
+                  } catch (_) {}
+                  node = node.parentElement;
+               }
+               return false;
+            }
+            document.addEventListener(
+               'touchstart',
+               (e) => {
+                  if (
+                     (!isMobilePlatform() && window.innerWidth > 768) ||
+                     isInternalAny() ||
+                     isReaderOpen ||
+                     !e.touches ||
+                     e.touches.length !== 1 ||
+                     (window.scrollY || document.documentElement.scrollTop || 0) > 2 ||
+                     hasScrolledAncestor(e.target)
+                  ) {
+                     ptrActive = false;
+                     return;
+                  }
+                  ptrStartY = e.touches[0].clientY;
+                  ptrStartX = e.touches[0].clientX;
+                  ptrPullDist = 0;
+                  ptrArmedHaptic = false;
+                  ptrActive = true;
+               },
+               { passive: true },
+            );
+            document.addEventListener(
+               'touchmove',
+               (e) => {
+                  if (!ptrActive || !e.touches || e.touches.length !== 1) return;
+                  if ((window.scrollY || document.documentElement.scrollTop || 0) > 2) {
+                     ptrActive = false;
+                     ptrPill.style.display = 'none';
+                     return;
+                  }
+                  const dy = e.touches[0].clientY - ptrStartY;
+                  const dx = e.touches[0].clientX - ptrStartX;
+                  if (dy <= 8 || Math.abs(dx) > dy * 0.9) {
+                     if (ptrPullDist > 0) {
+                        ptrPullDist = 0;
+                        ptrPill.style.display = 'none';
+                     }
+                     return;
+                  }
+                  ptrPullDist = Math.min(110, dy * 0.55);
+                  if (ptrPullDist >= 64 && !ptrArmedHaptic) {
+                     ptrArmedHaptic = true;
+                     triggerAndroidHaptic('tick');
+                  } else if (ptrPullDist < 54 && ptrArmedHaptic) {
+                     ptrArmedHaptic = false;
+                  }
+                  ptrPill.style.display = 'flex';
+                  ptrPill.style.transition = 'none';
+                  const yOff = Math.round(ptrPullDist - 42);
+                  const deg = Math.round(ptrPullDist * 3.2);
+                  ptrPill.style.opacity = String(Math.min(1, ptrPullDist / 52));
+                  ptrPill.style.transform = `translate(-50%, ${yOff}px) rotate(${deg}deg)`;
+               },
+               { passive: true },
+            );
+            const endPtr = () => {
+               if (!ptrActive) return;
+               const fire = ptrPullDist >= 64;
+               ptrActive = false;
+               ptrPullDist = 0;
+               ptrPill.style.transition = 'transform 0.16s ease, opacity 0.16s ease';
+               ptrPill.style.transform = 'translate(-50%, -64px)';
+               ptrPill.style.opacity = '0';
+               setTimeout(() => { ptrPill.style.display = 'none'; }, 180);
+               if (fire) {
+                  triggerProgress();
+                  sendIpc({ type: 'RELOAD' });
+               }
+            };
+            document.addEventListener('touchend', endPtr, { passive: true });
+            document.addEventListener('touchcancel', endPtr, { passive: true });
+
+            // Scroll-based optional bottom bar auto-hide
+            let lastScrollY = window.scrollY || 0;
+            let scrollAccum = 0;
+            window.addEventListener(
+               'scroll',
+               () => {
+                  if (
+                     (!isMobilePlatform() && window.innerWidth > 768) ||
+                     isInternalAny() ||
+                     isReaderOpen ||
+                     !(styles.mobile_bar && styles.mobile_bar.auto_hide_on_scroll)
+                  ) {
+                     mobileBar.classList.remove('fnx-scroll-hidden');
+                     return;
+                  }
+                  const curY = Math.max(0, window.scrollY || document.documentElement.scrollTop || 0);
+                  const delta = curY - lastScrollY;
+                  lastScrollY = curY;
+                  if (curY <= 12) {
+                     scrollAccum = 0;
+                     mobileBar.classList.remove('fnx-scroll-hidden');
+                     return;
+                  }
+                  if ((delta > 0 && scrollAccum < 0) || (delta < 0 && scrollAccum > 0)) {
+                     scrollAccum = 0;
+                  }
+                  scrollAccum += delta;
+                  if (scrollAccum > 42) {
+                     mobileBar.classList.add('fnx-scroll-hidden');
+                     scrollAccum = 0;
+                  } else if (scrollAccum < -18) {
+                     mobileBar.classList.remove('fnx-scroll-hidden');
+                     scrollAccum = 0;
+                  }
+               },
+               { passive: true },
+            );
+         }
+
+         // 2.3 Mobile Long-Press Context Sheet for Links & Images
+         const ctxSheetRoot = document.createElement('div');
+         ctxSheetRoot.id = '__fynexo_ctx_sheet_root__';
+         const ctxSheetCard = document.createElement('div');
+         ctxSheetCard.id = '__fynexo_ctx_sheet_card__';
+         ctxSheetCard.onclick = (e) => e.stopPropagation();
+         ctxSheetRoot.appendChild(ctxSheetCard);
+         shell.appendChild(ctxSheetRoot);
+
+         let isCtxSheetOpen = false;
+         function closeLongPressSheet() {
+            if (!isCtxSheetOpen) return;
+            isCtxSheetOpen = false;
+            ctxSheetRoot.style.display = 'none';
+            ctxSheetCard.textContent = '';
+         }
+         ctxSheetRoot.onclick = closeLongPressSheet;
+         closeLongPressSheetRef = closeLongPressSheet;
+         isLongPressSheetOpenRef = () => isCtxSheetOpen;
+
+         function openLongPressSheet(linkUrl, linkText, imgUrl) {
+            if (!linkUrl && !imgUrl) return;
+            const zh = isZh();
+            ctxSheetCard.textContent = '';
+
+            const handle = document.createElement('div');
+            handle.className = 'fnx-ctx-handle';
+            ctxSheetCard.appendChild(handle);
+
+            const head = document.createElement('div');
+            head.className = 'fnx-ctx-head';
+            const tEl = document.createElement('div');
+            tEl.className = 'fnx-ctx-title';
+            tEl.textContent =
+               linkText ||
+               (linkUrl ? formatHostLabel(linkUrl) : (zh ? '图片操作' : 'Image'));
+            const uEl = document.createElement('div');
+            uEl.className = 'fnx-ctx-url';
+            uEl.textContent = linkUrl || imgUrl;
+            head.appendChild(tEl);
+            head.appendChild(uEl);
+            ctxSheetCard.appendChild(head);
+
+            function addCtxBtn(iconName, label, fn) {
+               const b = document.createElement('button');
+               b.type = 'button';
+               b.className = 'fnx-ctx-btn';
+               b.appendChild(createIcon(iconName));
+               const sp = document.createElement('span');
+               sp.textContent = label;
+               b.appendChild(sp);
+               b.onclick = () => {
+                  closeLongPressSheet();
+                  fn();
+               };
+               ctxSheetCard.appendChild(b);
+            }
+
+            if (linkUrl) {
+               addCtxBtn(
+                  'plus',
+                  zh ? '后台新标签页打开链接' : 'Open link in background tab',
+                  () => {
+                     sendIpc({ type: 'NEW_TAB', url: linkUrl, title: linkText || '', background: true });
+                     showHudToast(zh ? '已在后台标签页打开' : 'Opened in background tab');
+                  },
+               );
+               addCtxBtn(
+                  'externalLink',
+                  zh ? '新标签页打开链接' : 'Open link in new tab',
+                  () => {
+                     triggerProgress();
+                     sendIpc({ type: 'NEW_TAB', url: linkUrl, title: linkText || '', background: false });
+                  },
+               );
+               addCtxBtn(
+                  'copy',
+                  zh ? '复制链接地址' : 'Copy link address',
+                  () => {
+                     copyTextToClipboard(linkUrl, zh ? '已复制链接地址' : 'Link copied');
+                  },
+               );
+               if (__fnxAndroidShareUrl || (navigator.share && typeof navigator.share === 'function')) {
+                  addCtxBtn(
+                     'share',
+                     zh ? '分享链接' : 'Share link',
+                     () => {
+                        if (__fnxAndroidShareUrl) {
+                           try { __fnxAndroidShareUrl(linkText || '', linkUrl); return; } catch (_) {}
+                        }
+                        if (navigator.share) navigator.share({ title: linkText || '', url: linkUrl }).catch(() => {});
+                     },
+                  );
+               }
+            }
+
+            if (imgUrl) {
+               addCtxBtn(
+                  'download',
+                  zh ? '保存图片到下载目录' : 'Save image',
+                  () => {
+                     if (__fnxAndroidDownloadUrl) {
+                        try {
+                           __fnxAndroidDownloadUrl(imgUrl, '');
+                           return;
+                        } catch (_) {}
+                     }
+                     const a = document.createElement('a');
+                     a.href = imgUrl;
+                     a.download = '';
+                     a.rel = 'noopener';
+                     a.click();
+                  },
+               );
+               addCtxBtn(
+                  'externalLink',
+                  zh ? '新标签页查看大图' : 'Open image in new tab',
+                  () => {
+                     triggerProgress();
+                     sendIpc({ type: 'NEW_TAB', url: imgUrl, background: false });
+                  },
+               );
+               addCtxBtn(
+                  'copy',
+                  zh ? '复制图片地址' : 'Copy image URL',
+                  () => {
+                     copyTextToClipboard(imgUrl, zh ? '已复制图片地址' : 'Image URL copied');
+                  },
+               );
+            }
+
+            isCtxSheetOpen = true;
+            ctxSheetRoot.style.display = 'flex';
+         }
+
+         if (!IS_HUD_SHELL) {
+            let lpTimer = null;
+            let lpStartX = 0;
+            let lpStartY = 0;
+            let lpConsumed = false;
+            const cancelLp = () => {
+               if (lpTimer) {
+                  clearTimeout(lpTimer);
+                  lpTimer = null;
+               }
+            };
+            document.addEventListener(
+               'touchstart',
+               (e) => {
+                  cancelLp();
+                  lpConsumed = false;
+                  if ((!isMobilePlatform() && window.innerWidth > 768) || isInternalAny() || !e.touches || e.touches.length !== 1) return;
+                  const tgt = e.target;
+                  if (!tgt || tgt.id === '__fynexo_host__') return;
+                  const anchor = tgt.closest ? tgt.closest('a[href]') : null;
+                  const img = tgt.closest ? tgt.closest('img[src]') : null;
+                  let linkUrl = '';
+                  let linkText = '';
+                  if (anchor && anchor.href && /^https?:\/\//i.test(anchor.href)) {
+                     linkUrl = anchor.href;
+                     linkText = String(anchor.textContent || anchor.title || '').trim().slice(0, 80);
+                  }
+                  let imgUrl = '';
+                  if (img && (img.currentSrc || img.src) && /^https?:\/\//i.test(img.currentSrc || img.src)) {
+                     imgUrl = img.currentSrc || img.src;
+                  }
+                  if (!linkUrl && !imgUrl) return;
+                  lpStartX = e.touches[0].clientX;
+                  lpStartY = e.touches[0].clientY;
+                  lpTimer = setTimeout(() => {
+                     lpTimer = null;
+                     lpConsumed = true;
+                     triggerAndroidHaptic('long');
+                     openLongPressSheet(linkUrl, linkText, imgUrl);
+                  }, 480);
+               },
+               { passive: true },
+            );
+            document.addEventListener(
+               'touchmove',
+               (e) => {
+                  if (!lpTimer || !e.touches || !e.touches[0]) return;
+                  if (
+                     Math.abs(e.touches[0].clientX - lpStartX) > 12 ||
+                     Math.abs(e.touches[0].clientY - lpStartY) > 12
+                  ) {
+                     cancelLp();
+                  }
+               },
+               { passive: true },
+            );
+            document.addEventListener('touchend', cancelLp, { passive: true });
+            document.addEventListener('touchcancel', cancelLp, { passive: true });
+            document.addEventListener(
+               'contextmenu',
+               (e) => {
+                  if ((isMobilePlatform() || window.innerWidth <= 768) && (lpConsumed || isCtxSheetOpen)) {
+                     e.preventDefault();
+                     lpConsumed = false;
+                  }
+               },
+               true,
+            );
+         }
+
          function bindBottomSheetSwipeDismiss(sheetEl, scrollListEl, onClose) {
             if (!sheetEl || typeof onClose !== 'function') return;
             let tracking = false;
@@ -11496,14 +12302,16 @@
                (e) => {
                   if (!isMobilePlatform() && window.innerWidth > 768) return;
                   if (!e.touches || e.touches.length !== 1) return;
-                  const targetTag = (
-                     (e.target && e.target.tagName) ||
-                     ''
-                  ).toLowerCase();
+                  const tgtEl =
+                     e.target && e.target.nodeType === 1
+                        ? e.target
+                        : e.target && e.target.parentElement;
                   if (
-                     targetTag === 'input' ||
-                     targetTag === 'textarea' ||
-                     targetTag === 'select'
+                     tgtEl &&
+                     tgtEl.closest &&
+                     tgtEl.closest(
+                        'button, a, input, textarea, select, [role="button"], .fnx-sheet-bottom-bar, .fnx-drawer-close, .fnx-drawer-head-btn',
+                     )
                   ) {
                      return;
                   }
@@ -11531,11 +12339,11 @@
                   const dx = touch.clientX - startX;
                   const dy = touch.clientY - startY;
                   if (!dragging) {
-                     if (dy < -2 || Math.abs(dx) > Math.abs(dy) * 1.15) {
+                     if (dy < -4 || Math.abs(dx) > Math.abs(dy) * 0.85) {
                         tracking = false;
                         return;
                      }
-                     if (dy > 8) {
+                     if (dy > 28) {
                         if (startedInScrollableList && !isScrollAtTop()) {
                            tracking = false;
                            return;
@@ -11546,7 +12354,7 @@
                         return;
                      }
                   }
-                  const pull = Math.max(0, dy - 8);
+                  const pull = Math.max(0, dy - 28);
                   const now = Date.now();
                   const dt = Math.max(1, now - lastTs);
                   velocity = (pull - lastDy) / dt;
@@ -13798,7 +14606,7 @@
                closeAllNavPopovers();
             hideTabContextMenu();
             // Mobile: jump directly to full fynexo://history page (Scheme B dual-track)
-            if (window.innerWidth <= 768) {
+            if (isMobilePlatform() || window.innerWidth <= 768) {
                triggerProgress();
                sendIpc({ type: 'NAVIGATE', url: 'fynexo://history' });
                return;
@@ -14326,17 +15134,16 @@
 
             const btnClear = document.createElement('button');
             btnClear.type = 'button';
+            btnClear.className = 'fnx-hud-clear-btn';
             btnClear.title = 'Clear';
-            btnClear.style.cssText =
-               'width: 26px; height: 26px; border: none; background: transparent; display: none; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; opacity: 0.85;';
+            btnClear.style.display = 'none';
             btnClear.appendChild(createIcon('clear'));
             btnClear.onmousedown = (e) => e.preventDefault();
 
             const btnGo = document.createElement('button');
             btnGo.type = 'button';
+            btnGo.className = 'fnx-hud-go-btn';
             btnGo.title = 'Go';
-            btnGo.style.cssText =
-               'width: 32px; height: 30px; border: none; background: var(--fnx-accent); color: #ffffff; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;';
             btnGo.appendChild(createIcon('go'));
             btnGo.onmousedown = (e) => e.preventDefault();
 
@@ -14441,6 +15248,7 @@
 
          function openHud() {
             const useInline =
+               !isMobilePlatform() &&
                window.innerWidth > 768 &&
                (styles.address_bar.mode || 'inline').toLowerCase() !== 'modal';
             if (useInline) {
@@ -17040,6 +17848,11 @@
          // Frame-0 Immediate Style & Layout Synchronization (0ms paint, zero overlap)
          syncAllStyles();
          syncNavButtons();
+         if (__fnxAndroidSyncNavState) {
+            try {
+               __fnxAndroidSyncNavState();
+            } catch (_) {}
+         }
 
          // Single Combined IPC Sync on Boot (with resilient retry if window.ipc is delayed)
          function sendBootSyncWhenReady(retries) {

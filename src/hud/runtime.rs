@@ -3,15 +3,15 @@ use std::sync::OnceLock;
 /// HUD runtime (plain JavaScript, lint/syntax-checkable with `node --check`).
 /// Placeholders: __FNX_ICONS__, __FNX_I18N__, __FNX_DEFAULTS__, __FNX_BASE_CSS__, __FNX_SCRIPTFORGE__,
 /// __FNX_EXTENSIONS__, __FNX_INITIAL_JSON__ (and __FNX_IPC_TOKEN__, __FNX_BRIDGE_TOKEN__, __FNX_ROLE__).
-const HUD_RUNTIME_TEMPLATE: &str = include_str!("runtime.js");
-const CONTENT_AGENT_TEMPLATE: &str = include_str!("content_agent.js");
-const ICONS_SCRIPT: &str = include_str!("icons.js");
-const I18N_SCRIPT: &str = include_str!("i18n.js");
-const SCRIPTFORGE_SCRIPT: &str = include_str!("scriptforge.js");
-const EXTENSIONS_SCRIPT: &str = include_str!("extensions.js");
-const BASE_TOKENS_CSS: &str = include_str!("tokens.css");
-const BASE_STYLES_CSS: &str = include_str!("styles.css");
-const CONTENT_STYLES_CSS: &str = include_str!("content_styles.css");
+const HUD_RUNTIME_TEMPLATE: &str = include_str!(concat!(env!("OUT_DIR"), "/hud_runtime.min.js"));
+const CONTENT_AGENT_TEMPLATE: &str = include_str!(concat!(env!("OUT_DIR"), "/hud_content_agent.min.js"));
+const ICONS_SCRIPT: &str = include_str!(concat!(env!("OUT_DIR"), "/hud_icons.min.js"));
+const I18N_SCRIPT: &str = include_str!(concat!(env!("OUT_DIR"), "/hud_i18n.min.js"));
+const SCRIPTFORGE_SCRIPT: &str = include_str!(concat!(env!("OUT_DIR"), "/hud_scriptforge.min.js"));
+const EXTENSIONS_SCRIPT: &str = include_str!(concat!(env!("OUT_DIR"), "/hud_extensions.min.js"));
+const BASE_TOKENS_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/hud_tokens.min.css"));
+const BASE_STYLES_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/hud_styles.min.css"));
+const CONTENT_STYLES_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/hud_content_styles.min.css"));
 const INITIAL_JSON_PLACEHOLDER: &str = "__FNX_INITIAL_JSON__";
 
 /// HUD runtime role determining whether this WebView hosts only chrome (`HudShell`),

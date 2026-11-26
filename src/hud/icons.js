@@ -485,6 +485,12 @@
                     ['path', { d: 'M12 12L4.5 4.5M4.5 10V4.5H10', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]
                 ]);
                 break;
+            case 'share':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['path', { d: 'M8 2.4v7.4M5.2 5.2L8 2.4l2.8 2.8', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }],
+                    ['path', { d: 'M3.2 8.8v3.3a1.4 1.4 0 0 0 1.4 1.4h6.8a1.4 1.4 0 0 0 1.4-1.4V8.8', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
             default:
                 return document.createElement('span');
         }

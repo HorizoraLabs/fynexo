@@ -24,7 +24,21 @@
                     transition-duration: 0.01ms !important;
                     scroll-behavior: auto !important;
                 }
-                button, input {
+                button,
+                input,
+                select,
+                textarea,
+                a,
+                label,
+                [role="button"],
+                [role="menuitem"],
+                .fnx-menu-item,
+                .fnx-drawer-card,
+                .fnx-pop-switch,
+                .fnx-pop-dl-row,
+                .fnx-suggest-act,
+                #__fynexo_bottom_bar__,
+                .fnx-nav-popover {
                     font-family: inherit;
                     touch-action: manipulation;
                 }
@@ -734,7 +748,8 @@
                     font-size: 12.5px;
                     line-height: 1.25;
                 }
-                .fnx-menu-item:hover {
+                .fnx-menu-item:hover,
+                .fnx-menu-item:active {
                     background: var(--fnx-hover);
                 }
                 .fnx-menu-icon {
@@ -1860,39 +1875,128 @@
                 #__fynexo_shell__.fnx-is-mobile .fnx-menu-kbd {
                     display: none !important;
                 }
+                .fnx-zoom-step-btn {
+                    width: 22px;
+                    height: 22px;
+                    border-radius: 5px;
+                    border: none;
+                }
+                .fnx-zoom-val-btn {
+                    min-width: 42px;
+                    text-align: center;
+                    font-weight: 500;
+                    font-size: 11.5px;
+                    color: var(--fnx-fg);
+                }
+                .fnx-hud-clear-btn {
+                    width: 26px;
+                    height: 26px;
+                    border: none;
+                    background: transparent;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    flex-shrink: 0;
+                    opacity: 0.85;
+                }
+                .fnx-hud-go-btn {
+                    width: 32px;
+                    height: 30px;
+                    border: none;
+                    background: var(--fnx-accent);
+                    color: #ffffff;
+                    border-radius: 8px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    flex-shrink: 0;
+                }
+                .fnx-hud-go-btn:active {
+                    transform: scale(0.94);
+                }
+                .fnx-drawer-card:active,
+                .fnx-pop-btn:active,
+                .fnx-pop-seg-btn:active,
+                .fnx-pop-footer-row:active,
+                .fnx-suggest-row:active,
+                .fnx-drawer-head-btn:active {
+                    background: var(--fnx-hover);
+                    color: var(--fnx-fg);
+                }
                 #__fynexo_shell__.fnx-is-mobile .fnx-menu-item {
-                    min-height: 36px;
-                    padding: 7px 10px;
+                    min-height: 42px;
+                    padding: 9px 12px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-mb-btn {
+                    min-width: 42px;
+                    min-height: 42px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-zoom-step-btn {
+                    width: 34px;
+                    height: 34px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-zoom-val-btn {
+                    min-width: 48px;
+                    height: 34px;
+                    font-size: 12.5px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-hud-clear-btn {
+                    width: 34px;
+                    height: 34px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-hud-go-btn {
+                    width: 38px;
+                    height: 34px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-suggest-act {
+                    width: 34px;
+                    height: 34px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-drawer-head-btn {
+                    height: 34px;
+                    padding: 0 11px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-pop-btn {
+                    min-height: 38px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-pop-seg-btn {
+                    min-height: 34px;
+                }
+                #__fynexo_shell__.fnx-is-mobile .fnx-pop-footer-row {
+                    min-height: 42px;
+                    padding: 10px 12px;
                 }
                 @media (pointer: coarse) {
                     .fnx-menu-item {
-                        min-height: 36px;
-                        padding: 7px 10px;
+                        min-height: 42px;
+                        padding: 9px 12px;
                     }
                     .fnx-pop-btn {
-                        min-height: 34px;
+                        min-height: 38px;
                     }
                     .fnx-pop-seg-btn {
-                        min-height: 28px;
+                        min-height: 34px;
                     }
                     .fnx-pop-row {
-                        min-height: 30px;
+                        min-height: 34px;
                     }
                     .fnx-pop-switch {
-                        width: 34px;
-                        height: 19px;
+                        width: 36px;
+                        height: 21px;
                     }
                     .fnx-pop-switch::after {
-                        width: 13px;
-                        height: 13px;
+                        width: 15px;
+                        height: 15px;
                     }
                     .fnx-pop-switch.on::after {
                         transform: translateX(15px);
                     }
                 }
                 #__fynexo_shell__.fnx-is-mobile #__fynexo_mb_reload__ {
-                    width: 34px;
-                    height: 34px;
+                    width: 38px;
+                    height: 38px;
                 }
                 #__fynexo_shell__.fnx-is-mobile #__fynexo_hud_card__ {
                     max-height: calc(100dvh - 20px);
@@ -2507,6 +2611,119 @@
                 }
                 .fnx-prompt-btn.primary:hover {
                     filter: brightness(1.08);
+                }
+
+                #__fynexo_bottom_bar__.fnx-scroll-hidden {
+                    transform: translateY(118%) !important;
+                    opacity: 0 !important;
+                    pointer-events: none !important;
+                }
+
+                #__fynexo_ptr_pill__ {
+                    position: fixed;
+                    top: 12px;
+                    left: 50%;
+                    transform: translate(-50%, -64px);
+                    z-index: 2147483645;
+                    width: 38px;
+                    height: 38px;
+                    border-radius: 999px;
+                    background: var(--fnx-panel);
+                    border: 1px solid var(--fnx-border-hover);
+                    color: var(--fnx-accent);
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    pointer-events: none;
+                    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+                    transition: transform 0.16s ease, opacity 0.16s ease;
+                }
+
+                #__fynexo_ctx_sheet_root__ {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 2147483647;
+                    background: rgba(0, 0, 0, 0.48);
+                    backdrop-filter: blur(4px);
+                    -webkit-backdrop-filter: blur(4px);
+                    display: none;
+                    align-items: flex-end;
+                    justify-content: center;
+                    pointer-events: auto;
+                    padding: 0;
+                }
+
+                #__fynexo_ctx_sheet_card__ {
+                    width: 100%;
+                    max-width: 520px;
+                    background: var(--fnx-panel);
+                    border: 1px solid var(--fnx-border-hover);
+                    border-bottom: none;
+                    border-radius: 16px 16px 0 0;
+                    padding: 10px 12px calc(16px + env(safe-area-inset-bottom, 0px));
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                    box-shadow: 0 -12px 34px rgba(0, 0, 0, 0.45);
+                }
+
+                .fnx-ctx-handle {
+                    width: 36px;
+                    height: 4px;
+                    border-radius: 999px;
+                    background: var(--fnx-border-hover);
+                    margin: 0 auto 8px;
+                }
+
+                .fnx-ctx-head {
+                    padding: 4px 8px 10px;
+                    border-bottom: 1px solid var(--fnx-border);
+                    margin-bottom: 4px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                }
+
+                .fnx-ctx-title {
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: var(--fnx-fg);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+
+                .fnx-ctx-url {
+                    font-size: 11px;
+                    color: var(--fnx-muted);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+
+                .fnx-ctx-btn {
+                    width: 100%;
+                    border: none;
+                    border-radius: var(--r-md);
+                    background: transparent;
+                    color: var(--fnx-fg);
+                    padding: 11px 10px;
+                    display: flex;
+                    align-items: center;
+                    gap: 11px;
+                    font-size: 13.5px;
+                    font-weight: 500;
+                    text-align: left;
+                    cursor: pointer;
+                    transition: background 0.1s ease;
+                }
+                .fnx-ctx-btn:active,
+                .fnx-ctx-btn:hover {
+                    background: var(--fnx-hover);
+                }
+                .fnx-ctx-btn svg {
+                    color: var(--fnx-secondary);
+                    flex-shrink: 0;
                 }
 
                 /* Dual-WebView Role Overrides */

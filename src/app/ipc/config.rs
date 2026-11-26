@@ -83,6 +83,33 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                 }
             }
         }
+        "EDIT_BOOKMARK" => {
+            if let (Some(orig_url), Some(new_url)) =
+                (val["orig_url"].as_str(), val["url"].as_str())
+            {
+                let norm_new = normalize_logical_url(new_url);
+                if !security::is_safe_bookmark_url(&norm_new) {
+                    return true;
+                }
+                let title = val["title"].as_str().unwrap_or("");
+                let folder = val["folder"].as_str().unwrap_or("");
+                let mut locked = app_state.lock_safe();
+                let zh = is_zh_lang(&locked.config.language);
+                if locked
+                    .userdata
+                    .edit_bookmark(orig_url, title, &norm_new, folder)
+                {
+                    locked.shortcuts_mtime = UserData::shortcuts_mtime();
+                    drop(locked);
+                    let _ = proxy.send_event(UserEvent::SyncConfig);
+                    let _ = proxy.send_event(UserEvent::Toast(if zh {
+                        "已更新书签".to_string()
+                    } else {
+                        "Bookmark updated".to_string()
+                    }));
+                }
+            }
+        }
         "REMOVE_BOOKMARK" => {
             if let Some(raw_url) = val["url"].as_str() {
                 let mut locked = app_state.lock_safe();
@@ -1158,6 +1185,12 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                             }
                             _ => {}
                         }
+                    }
+                }
+                if let Some(v) = val["mobile_auto_hide_on_scroll"].as_bool() {
+                    if locked.styles.mobile_bar.auto_hide_on_scroll != v {
+                        locked.styles.mobile_bar.auto_hide_on_scroll = v;
+                        styles_dirty = true;
                     }
                 }
                 if let Some(nt_obj) = val.get("newtab_prefs").and_then(|v| v.as_object()) {

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-fynexo-internal="bookmarks">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <title>Bookmarks — Fynexo</title>
+    <style>
+__FNX_BOOKMARKS_CSS__
+    </style>
+</head>
+<body>
+    <div id="__fynexo_bookmarks_app__">
+        <header class="bm-header">
+            <div class="bm-header-inner">
+                <div class="bm-title-row">
+                    <div class="bm-brand">
+                        <svg class="bm-brand-glyph" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <path d="M3.4 2.1H13.6L11.85 5.25H2.6V2.9C2.6 2.46 2.96 2.1 3.4 2.1Z" fill="currentColor"/>
+                            <path d="M2.6 6.7H11.25L9.65 9.65H5.9V12.65L2.6 14.05V6.7Z" fill="currentColor" opacity="0.78"/>
+                        </svg>
+                        <h1 class="bm-title" id="bmPageTitle">书签管理</h1>
+                        <span class="bm-count-pill" id="bmTotalPill">0</span>
+                    </div>
+                    <div class="bm-head-actions">
+                        <button type="button" class="bm-btn bm-btn-primary" id="btnBmAddToggle">+ 添加</button>
+                        <button type="button" class="bm-btn" id="btnBmImport">导入</button>
+                        <button type="button" class="bm-btn" id="btnBmExport">导出</button>
+                        <input type="file" id="inputBmImportFile" accept=".html,.htm,.json,text/html,application/json" style="display: none;">
+                    </div>
+                </div>
+
+                <div class="bm-search-box">
+                    <svg class="bm-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <circle cx="7.2" cy="7.2" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M10.6 10.6L13.8 13.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    <input type="text" id="inputBmSearch" class="bm-search-input" placeholder="搜索书签标题、网址或文件夹..." autocomplete="off" spellcheck="false">
+                    <kbd class="bm-search-kbd" id="bmSearchKbd">/</kbd>
+                    <button type="button" id="btnBmClearSearch" class="bm-search-clear" aria-label="Clear search" style="display: none;">×</button>
+                </div>
+
+                <div class="bm-folder-bar" id="bmFolderBar" role="tablist"></div>
+            </div>
+        </header>
+
+        <main class="bm-main">
+            <section class="bm-editor-card" id="bmEditorCard" style="display: none;">
+                <div class="bm-editor-head">
+                    <span class="bm-editor-title" id="bmEditorTitle">添加新书签</span>
+                    <button type="button" class="bm-link-btn" id="btnBmEditorCancel">取消</button>
+                </div>
+                <div class="bm-editor-grid">
+                    <input type="text" id="inputBmTitle" class="bm-input" placeholder="名称（如 GitHub）" autocomplete="off">
+                    <input type="text" id="inputBmUrl" class="bm-input" placeholder="网址（如 https://github.com）" autocomplete="off" spellcheck="false">
+                    <input type="text" id="inputBmFolder" class="bm-input" list="bmFolderSuggestions" placeholder="文件夹（可选，如 开发 / 工具）" autocomplete="off">
+                    <datalist id="bmFolderSuggestions"></datalist>
+                    <button type="button" class="bm-btn bm-btn-primary" id="btnBmEditorSave">保存</button>
+                </div>
+            </section>
+
+            <div id="bmGroupsContainer" class="bm-groups"></div>
+
+            <div id="bmEmptyState" class="bm-empty" style="display: none;">
+                <div class="bm-empty-title" id="bmEmptyTitle">暂无匹配的书签</div>
+                <div class="bm-empty-desc" id="bmEmptyDesc">可以点击右上角「+ 添加」或导入 Chrome/Edge 书签文件。</div>
+                <button type="button" class="bm-btn" id="btnBmResetFilters" style="display: none;">重置筛选</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+__FNX_BOOKMARKS_JS__
+    </script>
+</body>
+</html>

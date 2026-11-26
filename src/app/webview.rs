@@ -670,8 +670,9 @@ pub fn build_tab_webview(
         let is_settings = route == Some("settings");
         let is_newtab = route == Some("newtab");
         let is_history = route == Some("history");
+        let is_bookmarks = route == Some("bookmarks");
 
-        if is_settings || is_newtab || is_history {
+        if is_settings || is_newtab || is_history || is_bookmarks {
             let html = {
                 let mut st = state_for_proto.lock_safe();
                 let _ = st.reload_if_changed();
@@ -683,6 +684,10 @@ pub fn build_tab_webview(
                     let boot_json = st.history_boot_json();
                     drop(st);
                     pages::history_html_from_json(&boot_json)
+                } else if is_bookmarks {
+                    let boot_json = st.bookmarks_boot_json();
+                    drop(st);
+                    pages::bookmarks_html_from_json(&boot_json)
                 } else {
                     let boot_json = st.newtab_boot_json();
                     drop(st);

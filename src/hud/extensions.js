@@ -35,7 +35,10 @@
          let ytStopTeardown = null;
          function syncYouTubeAdSkipper() {
             if (IS_HUD_SHELL) return;
-            if (!config.ext_yt_ad_skipper) {
+            const enabled = config.adblock !== false || !!config.ext_yt_ad_skipper;
+            const existingCosmetic = document.getElementById('__fnx_yt_cosmetic__');
+            if (!enabled) {
+               if (existingCosmetic) existingCosmetic.remove();
                if (ytStopTeardown) {
                   ytStopTeardown();
                   ytStopTeardown = null;
@@ -43,10 +46,20 @@
                ytAdSkipperActive = false;
                return;
             }
-            if (ytAdSkipperActive) return;
             try {
                const host = (window.location.hostname || '').toLowerCase();
                if (!host.includes('youtube.com')) return;
+
+               // Cosmetic hiding for Mobile (m.youtube.com) & Desktop YouTube feed/banner/overlay ads
+               if (!existingCosmetic && (document.head || document.documentElement)) {
+                  const st = document.createElement('style');
+                  st.id = '__fnx_yt_cosmetic__';
+                  st.textContent =
+                     'ytm-promoted-sparkles-web-renderer,ytm-promoted-video-renderer,ytm-ad-slot-renderer,ad-slot-renderer,ytm-in-feed-ad-layout-renderer,ytm-companion-slot,ytm-statement-banner-renderer,ytm-mealbar-promo-renderer,ytm-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"],.ytp-ad-overlay-container,.ytp-ad-image-overlay,.ytp-ad-text-overlay,ytd-ad-slot-renderer,ytd-in-feed-ad-layout-renderer,ytd-display-ad-renderer,ytd-promoted-sparkles-web-renderer,ytd-promoted-video-renderer,ytd-banner-promo-renderer,ytd-statement-banner-renderer,#masthead-ad,#player-ads,ytd-companion-slot-renderer{display:none!important;}';
+                  (document.head || document.documentElement).appendChild(st);
+               }
+
+               if (ytAdSkipperActive) return;
                ytAdSkipperActive = true;
 
                if (!IS_CONTENT_TAB) {
@@ -77,7 +90,7 @@
                let adPollTimer = null;
 
                const skipAds = () => {
-                  if (config.adblock === false) {
+                  if (config.adblock === false && !config.ext_yt_ad_skipper) {
                      if (adPollTimer) {
                         clearInterval(adPollTimer);
                         adPollTimer = null;
@@ -85,26 +98,38 @@
                      return;
                   }
                   if (!playerEl || !playerEl.isConnected) {
-                     playerEl = document.querySelector('.html5-video-player');
+                     playerEl = document.querySelector('.html5-video-player, #movie_player');
                   }
                   if (!playerEl) return;
 
                   const isAd =
                      playerEl.classList.contains('ad-showing') ||
-                     playerEl.classList.contains('ad-interrupting');
+                     playerEl.classList.contains('ad-interrupting') ||
+                     !!playerEl.querySelector('.ytp-ad-player-overlay, .ytp-ad-player-overlay-layout, .ytp-ad-preview-container');
                   const v = playerEl.querySelector('video');
 
                   if (v) {
                      if (isAd) {
-                        // Mute ad and fast-forward at 16x without seeking currentTime to avoid MSE pipeline crash/black screen
                         v.muted = true;
-                        v.playbackRate = 16.0;
+                        try {
+                           v.playbackRate = 16.0;
+                        } catch (_) {
+                           try { v.playbackRate = 8.0; } catch (_2) {}
+                        }
+                        if (
+                           isFinite(v.duration) &&
+                           v.duration > 0.5 &&
+                           v.currentTime < v.duration - 0.15
+                        ) {
+                           try {
+                              v.currentTime = v.duration - 0.08;
+                           } catch (_) {}
+                        }
                      } else {
-                        // Restore playback speed and respect the tab's mute state as soon as ad finishes
                         if (v.playbackRate > 2.0) {
-                           v.playbackRate = savedRate || 1.0;
+                           try { v.playbackRate = savedRate || 1.0; } catch (_) {}
                            v.muted = isTabMutedState;
-                        } else {
+                        } else if (v.playbackRate >= 0.25 && v.playbackRate <= 2.0) {
                            savedRate = v.playbackRate;
                         }
                      }
@@ -112,10 +137,10 @@
 
                   if (isAd) {
                      if (!adPollTimer) {
-                        adPollTimer = setInterval(skipAds, 250);
+                        adPollTimer = setInterval(skipAds, 200);
                      }
                      const skipBtn = playerEl.querySelector(
-                        'button.ytp-ad-skip-button-modern, button.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-container button',
+                        'button.ytp-ad-skip-button-modern, button.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-container button, .ytp-ad-skip-button-slot button',
                      );
                      if (skipBtn && typeof skipBtn.click === 'function') {
                         try {
@@ -136,12 +161,14 @@
                   }
                };
 
-               // Observe player class changes so idle playback incurs zero 250ms DOM polling.
                let observedPlayer = null;
                let playerObserver = null;
+               let bodyWatchObserver = null;
+               let bodyWatchTimer = null;
                const attachPlayerObserver = () => {
-                  const p = document.querySelector('.html5-video-player');
-                  if (!p || p === observedPlayer) return false;
+                  const p = document.querySelector('.html5-video-player, #movie_player');
+                  if (!p) return false;
+                  if (p === observedPlayer && observedPlayer.isConnected) return true;
                   if (playerObserver) {
                      try {
                         playerObserver.disconnect();
@@ -157,20 +184,48 @@
                   skipAds();
                   return true;
                };
+
+               // Watch lazily-mounted m.youtube.com SPA player forever (not just first 20s)
+               const ensureBodyWatch = () => {
+                  if (bodyWatchObserver || !document.body) return;
+                  bodyWatchObserver = new MutationObserver(() => {
+                     if (observedPlayer && observedPlayer.isConnected) return;
+                     if (bodyWatchTimer) return;
+                     bodyWatchTimer = setTimeout(() => {
+                        bodyWatchTimer = null;
+                        attachPlayerObserver();
+                     }, 180);
+                  });
+                  bodyWatchObserver.observe(document.body, {
+                     childList: true,
+                     subtree: true,
+                  });
+               };
+
                if (!attachPlayerObserver()) {
                   let tries = 0;
                   const bootTimer = setInterval(() => {
-                     if (attachPlayerObserver() || ++tries > 40)
+                     if (attachPlayerObserver() || ++tries > 30)
                         clearInterval(bootTimer);
-                  }, 500);
+                  }, 400);
                }
-               const onYtNav = () => setTimeout(attachPlayerObserver, 200);
+               ensureBodyWatch();
+               const onYtNav = () => {
+                  ensureBodyWatch();
+                  setTimeout(attachPlayerObserver, 180);
+                  setTimeout(skipAds, 420);
+               };
                window.addEventListener('yt-navigate-finish', onYtNav, { passive: true });
+               window.addEventListener('state-navigateend', onYtNav, { passive: true });
                window.addEventListener('popstate', onYtNav, { passive: true });
                ytStopTeardown = () => {
                   if (adPollTimer) {
                      clearInterval(adPollTimer);
                      adPollTimer = null;
+                  }
+                  if (bodyWatchTimer) {
+                     clearTimeout(bodyWatchTimer);
+                     bodyWatchTimer = null;
                   }
                   if (playerObserver) {
                      try {
@@ -178,8 +233,15 @@
                      } catch (_) {}
                      playerObserver = null;
                   }
+                  if (bodyWatchObserver) {
+                     try {
+                        bodyWatchObserver.disconnect();
+                     } catch (_) {}
+                     bodyWatchObserver = null;
+                  }
                   observedPlayer = null;
                   window.removeEventListener('yt-navigate-finish', onYtNav);
+                  window.removeEventListener('state-navigateend', onYtNav);
                   window.removeEventListener('popstate', onYtNav);
                };
             } catch (_) {}

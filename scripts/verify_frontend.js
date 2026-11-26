@@ -72,7 +72,7 @@ for (const file of allSrcFiles) {
     }
   });
 
-  if (norm === 'src/pages/settings.html' || norm === 'src/pages/newtab.html' || norm === 'src/pages/history.html') {
+  if (norm === 'src/pages/settings.html' || norm === 'src/pages/newtab.html' || norm === 'src/pages/history.html' || norm === 'src/pages/bookmarks.html') {
     const seen = new Map();
     for (const m of txt.matchAll(/\bid\s*=\s*"([^"]+)"/g)) {
       const id = m[1];

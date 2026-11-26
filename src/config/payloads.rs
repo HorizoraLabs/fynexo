@@ -209,6 +209,15 @@ pub struct HistoryBootPayload<'a> {
     pub recent_searches: &'a [String],
 }
 
+/// Bookmarks boot payload for `fynexo://bookmarks`.
+#[derive(Serialize, Clone, Debug)]
+pub struct BookmarksBootPayload<'a> {
+    pub config: &'a AppConfig,
+    pub styles: &'a ComponentStyles,
+    pub active_theme: &'a ThemeColors,
+    pub bookmarks: &'a [BookmarkItem],
+}
+
 impl<'a> NewTabBootPayload<'a> {
     pub fn from_runtime(payload: &'a RuntimePayload) -> Self {
         let history_slice = &payload.history[..payload.history.len().min(40)];

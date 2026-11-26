@@ -44,7 +44,10 @@ __FNX_NEWTAB_CSS__
             <section class="nt-section" id="shortcutsSection">
                 <div class="nt-sec-head">
                     <span class="nt-sec-label" id="ntShortcutsLabel">Shortcuts</span>
-                    <button type="button" class="nt-mini-btn" id="btnToggleAddBm">+ Add</button>
+                    <div class="nt-sec-actions">
+                        <button type="button" class="nt-mini-btn" id="btnManageBm">Manage →</button>
+                        <button type="button" class="nt-mini-btn" id="btnToggleAddBm">+ Add</button>
+                    </div>
                 </div>
 
                 <div class="nt-add-bar" id="addBmBar">
@@ -59,7 +62,10 @@ __FNX_NEWTAB_CSS__
             <section class="nt-section" id="histSection" style="display: none;">
                 <div class="nt-sec-head">
                     <span class="nt-sec-label" id="ntHistLabel">Recent</span>
-                    <button type="button" class="nt-mini-btn" id="btnClearHist">Clear</button>
+                    <div class="nt-sec-actions">
+                        <button type="button" class="nt-mini-btn" id="btnManageHist">All →</button>
+                        <button type="button" class="nt-mini-btn" id="btnClearHist">Clear</button>
+                    </div>
                 </div>
                 <div class="hist-list" id="histList"></div>
             </section>

@@ -314,6 +314,7 @@
             if (/^fynexo:\/\//i.test(raw)) return raw;
             if (/^(settings|preferences|about:settings)$/i.test(raw)) return 'fynexo://settings';
             if (/^(history|fynexo:history|about:history)$/i.test(raw)) return 'fynexo://history';
+            if (/^(bookmarks|fynexo:bookmarks|about:bookmarks)$/i.test(raw)) return 'fynexo://bookmarks';
             if (raw.startsWith('!')) {
                 const sp = raw.indexOf(' ');
                 const tok = (sp === -1 ? raw : raw.slice(0, sp)).toLowerCase();
@@ -526,6 +527,8 @@
 
             const scLbl = document.getElementById('ntShortcutsLabel');
             if (scLbl) scLbl.textContent = zh ? '常用网站' : 'Shortcuts';
+            const btnManageBm = document.getElementById('btnManageBm');
+            if (btnManageBm) btnManageBm.textContent = zh ? '全部书签 →' : 'Manage →';
             const btnToggleAdd = document.getElementById('btnToggleAddBm');
             if (btnToggleAdd) btnToggleAdd.textContent = zh ? '+ 添加网站' : '+ Add';
             const inpAddTitle = document.getElementById('addBmTitle');
@@ -536,6 +539,8 @@
             if (btnSaveBmEl) btnSaveBmEl.textContent = zh ? '保存' : 'Save';
             const histLbl = document.getElementById('ntHistLabel');
             if (histLbl) histLbl.textContent = zh ? '最近访问' : 'Recent';
+            const btnManageHist = document.getElementById('btnManageHist');
+            if (btnManageHist) btnManageHist.textContent = zh ? '全部历史 →' : 'All →';
             const btnClearH = document.getElementById('btnClearHist');
             if (btnClearH) btnClearH.textContent = zh ? '清空' : 'Clear';
 
@@ -1256,6 +1261,7 @@
                     const internalPages = [
                         ['fynexo://settings', zh ? '偏好设置' : 'Preferences', 'fynexo://settings settings preferences 设置 偏好'],
                         ['fynexo://history', zh ? '浏览历史' : 'History', 'fynexo://history history 历史 历史记录'],
+                        ['fynexo://bookmarks', zh ? '书签管理' : 'Bookmarks', 'fynexo://bookmarks bookmarks 书签 收藏夹'],
                         ['fynexo://newtab', zh ? '起始页' : 'Start Page', 'fynexo://newtab newtab start home 起始页 主页']
                     ];
                     internalPages.forEach(p => {
@@ -1679,6 +1685,14 @@
         const addBar = document.getElementById('addBmBar');
         const addTitle = document.getElementById('addBmTitle');
         const addUrl = document.getElementById('addBmUrl');
+        const btnManageBmEl = document.getElementById('btnManageBm');
+        if (btnManageBmEl) {
+            btnManageBmEl.onclick = () => sendIpc({ type: 'NAVIGATE', url: 'fynexo://bookmarks' });
+        }
+        const btnManageHistEl = document.getElementById('btnManageHist');
+        if (btnManageHistEl) {
+            btnManageHistEl.onclick = () => sendIpc({ type: 'NAVIGATE', url: 'fynexo://history' });
+        }
         document.getElementById('btnToggleAddBm').onclick = () => {
             const open = addBar.classList.toggle('open');
             if (open) addUrl.focus();

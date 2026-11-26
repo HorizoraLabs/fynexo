@@ -104,6 +104,105 @@
    };
    let rawBaseConfig = Object.assign({}, DEFAULT_CONTENT_CONFIG, bootPayload.config || {});
    let config = Object.assign({}, rawBaseConfig);
+
+   // Early document_start YouTube Ad Shield for Windows Dual-WebView content tabs
+   (() => {
+      let host = '';
+      try {
+         host = String((window.location && window.location.hostname) || '').toLowerCase();
+      } catch (_) {}
+      if (host !== 'youtube.com' && !host.endsWith('.youtube.com')) return;
+      const AD_KEYS = new Set(['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams']);
+      const AD_RENDERERS = new Set([
+         'adSlotRenderer',
+         'promotedSparklesWebRenderer',
+         'promotedSparklesTextSearchRenderer',
+         'promotedVideoRenderer',
+         'inFeedAdLayoutRenderer',
+         'statementBannerRenderer',
+         'mealbarPromoRenderer',
+         'videoDisplayFullButtonedRenderer',
+      ]);
+      const shouldStrip = () => config.adblock !== false || !!config.ext_yt_ad_skipper;
+      function pruneYtObj(node, depth) {
+         if (!node || typeof node !== 'object' || depth > 14) return node;
+         if (Array.isArray(node)) {
+            let w = 0;
+            for (let i = 0; i < node.length; i++) {
+               const it = node[i];
+               if (it && typeof it === 'object') {
+                  let drop = false;
+                  for (const rk of AD_RENDERERS) {
+                     if (Object.prototype.hasOwnProperty.call(it, rk)) { drop = true; break; }
+                  }
+                  if (drop) continue;
+                  pruneYtObj(it, depth + 1);
+               }
+               node[w++] = it;
+            }
+            node.length = w;
+            return node;
+         }
+         for (const ak of AD_KEYS) {
+            if (Object.prototype.hasOwnProperty.call(node, ak)) {
+               node[ak] = Array.isArray(node[ak]) ? [] : undefined;
+            }
+         }
+         for (const rk of AD_RENDERERS) {
+            if (Object.prototype.hasOwnProperty.call(node, rk)) delete node[rk];
+         }
+         const keys = Object.keys(node);
+         for (let i = 0; i < keys.length; i++) {
+            const k = keys[i];
+            if (k === 'streamingData' || k === 'videoDetails' || k === 'captions' || k === 'storyboards') continue;
+            const v = node[k];
+            if (v && typeof v === 'object') pruneYtObj(v, depth + 1);
+         }
+         return node;
+      }
+      ['ytInitialPlayerResponse', 'ytInitialData'].forEach((prop) => {
+         try {
+            let backing = window[prop];
+            if (backing && typeof backing === 'object' && shouldStrip()) pruneYtObj(backing, 0);
+            Object.defineProperty(window, prop, {
+               configurable: true,
+               enumerable: true,
+               get() { return backing; },
+               set(val) {
+                  if (val && typeof val === 'object' && shouldStrip()) {
+                     try { pruneYtObj(val, 0); } catch (_) {}
+                  }
+                  backing = val;
+               },
+            });
+         } catch (_) {}
+      });
+      if (typeof window.fetch === 'function') {
+         const origFetch = window.fetch.bind(window);
+         window.fetch = function (input, init) {
+            const urlStr = typeof input === 'string' ? input : (input && input.url) || '';
+            const isYtApi = shouldStrip() && /\/youtubei\/v1\/(?:player|next|browse|search)(?:[?#]|$)/i.test(urlStr);
+            const p = origFetch(input, init);
+            if (!isYtApi) return p;
+            return p.then((res) => {
+               try {
+                  if (!res || !res.ok) return res;
+                  const ct = (res.headers && res.headers.get && res.headers.get('content-type')) || '';
+                  if (!ct.toLowerCase().includes('json')) return res;
+                  return res.clone().text().then((txt) => {
+                     try {
+                        const data = JSON.parse(txt);
+                        pruneYtObj(data, 0);
+                        const headers = new Headers(res.headers);
+                        headers.delete('content-length');
+                        return new Response(JSON.stringify(data), { status: res.status, statusText: res.statusText, headers });
+                     } catch (_) { return res; }
+                  }).catch(() => res);
+               } catch (_) { return res; }
+            });
+         };
+      }
+   })();
    let styles = bootPayload.styles || {};
    let activeTheme = Object.assign({}, DEFAULT_STYLES.colors, bootPayload.active_theme || {});
    let keybinds = Object.assign({}, DEFAULT_KEYBINDS, bootPayload.keybinds || {});
@@ -265,6 +364,9 @@
          }
          if (/^https?:\/\/fynexo\.localhost(?::\d+)?\/history/i.test(href)) {
             return 'fynexo://history';
+         }
+         if (/^https?:\/\/fynexo\.localhost(?::\d+)?\/bookmarks/i.test(href)) {
+            return 'fynexo://bookmarks';
          }
          if (/^https?:\/\/fynexo\.localhost(?::\d+)?(?:\/newtab|\/?$)/i.test(href)) {
             return 'fynexo://newtab';

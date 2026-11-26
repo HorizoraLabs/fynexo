@@ -579,6 +579,47 @@ impl UserData {
         false
     }
 
+    pub fn edit_bookmark(
+        &mut self,
+        orig_url: &str,
+        title: &str,
+        new_url: &str,
+        folder: &str,
+    ) -> bool {
+        let trimmed_url = new_url.trim();
+        if trimmed_url.is_empty() {
+            return false;
+        }
+        let full_url = if !trimmed_url.starts_with("http://")
+            && !trimmed_url.starts_with("https://")
+            && !trimmed_url.starts_with("fynexo://")
+        {
+            format!("https://{}", trimmed_url)
+        } else {
+            trimmed_url.to_string()
+        };
+        let orig_key = normalize_url_key(orig_url);
+        let Some(pos) = self
+            .bookmarks
+            .iter()
+            .position(|b| normalize_url_key(&b.url).eq_ignore_ascii_case(orig_key))
+        else {
+            return false;
+        };
+        let clean_title = if title.trim().is_empty() {
+            full_url.clone()
+        } else {
+            title.trim().to_string()
+        };
+        let clean_folder = sanitize_folder_name(folder);
+        let bm = &mut self.bookmarks[pos];
+        bm.title = clean_title;
+        bm.url = full_url;
+        bm.folder = clean_folder;
+        self.save_shortcuts();
+        true
+    }
+
     pub fn remove_bookmark(&mut self, url: &str) -> bool {
         let key = normalize_url_key(url);
         let before = self.bookmarks.len();

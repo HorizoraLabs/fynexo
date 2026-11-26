@@ -64,6 +64,8 @@ fn initial_title_for(url: &str) -> String {
         "Preferences".to_string()
     } else if url.starts_with("fynexo://history") {
         "History".to_string()
+    } else if url.starts_with("fynexo://bookmarks") {
+        "Bookmarks".to_string()
     } else if let Some(rest) = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))
@@ -329,6 +331,7 @@ impl TabManager {
             || u.starts_with("fynexo://newtab")
             || u.starts_with("fynexo://settings")
             || u.starts_with("fynexo://history")
+            || u.starts_with("fynexo://bookmarks")
         {
             return;
         }

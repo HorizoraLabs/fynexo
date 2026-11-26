@@ -39,7 +39,7 @@
             overflow-x: hidden;
         }
 
-        button, input, select, textarea, a {
+        button, input, select, textarea, a, label, [role="button"], .fnx-switch, .theme-card, .perf-preset-card {
             font-family: inherit;
             touch-action: manipulation;
         }

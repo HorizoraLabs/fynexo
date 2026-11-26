@@ -720,10 +720,12 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     let target_tid = if tab_id == 0 { bw.active_tab_id } else { tab_id };
                     if let Some(wv) = bw.pool.get_webview(target_tid) {
                         let script = nav_state_js(wv, &bridge_tok_js);
-                        let _ = wv.evaluate_script(&script);
-                        #[cfg(target_os = "windows")]
-                        if target_tid == bw.active_tab_id {
-                            let _ = bw.hud_webview.evaluate_script(&script);
+                        if !script.is_empty() {
+                            let _ = wv.evaluate_script(&script);
+                            #[cfg(target_os = "windows")]
+                            if target_tid == bw.active_tab_id {
+                                let _ = bw.hud_webview.evaluate_script(&script);
+                            }
                         }
                     }
                 }
@@ -2636,37 +2638,66 @@ fn sync_foreground_env(
 }
 
 fn nav_state_js(webview: &wry::WebView, bridge_tok_js: &str) -> String {
-    let can_back = webview.can_go_back().unwrap_or(false);
-    let can_fwd = webview.can_go_forward().unwrap_or(false);
-    format!(
-        "window.__fynexo_set_nav_state__ && window.__fynexo_set_nav_state__({}, {}, {});",
-        if can_back { "true" } else { "false" },
-        if can_fwd { "true" } else { "false" },
-        bridge_tok_js
-    )
+    // On Android, MainActivity's FynexoWebViewClient pushes canGoBack/canGoForward directly
+    // from the UI thread (onPageStarted / onPageFinished / doUpdateVisitedHistory) so we never
+    // block the tao event loop waiting on wry's bounded(8) MainPipe channel.
+    #[cfg(target_os = "android")]
+    {
+        let _ = (webview, bridge_tok_js);
+        String::new()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let can_back = webview.can_go_back().unwrap_or(false);
+        let can_fwd = webview.can_go_forward().unwrap_or(false);
+        format!(
+            "window.__fynexo_set_nav_state__ && window.__fynexo_set_nav_state__({}, {}, {});",
+            if can_back { "true" } else { "false" },
+            if can_fwd { "true" } else { "false" },
+            bridge_tok_js
+        )
+    }
 }
 
 fn navigate_webview_history(bw: &BrowserWindow, forward: bool, bridge_tok_js: &str) {
     let Some(fg) = bw.pool.get_webview(bw.active_tab_id) else {
         return;
     };
-    let can_nav = if forward {
-        fg.can_go_forward().unwrap_or(false)
-    } else {
-        fg.can_go_back().unwrap_or(false)
-    };
-    let ok = can_nav
-        && if forward {
+    #[cfg(target_os = "android")]
+    {
+        let ok = if forward {
             fg.go_forward().is_ok()
         } else {
             fg.go_back().is_ok()
         };
-    if !ok {
-        let script = format!(
-            "window.__fynexo_finish_progress__ && window.__fynexo_finish_progress__(true, {}); {}",
-            bridge_tok_js,
-            nav_state_js(fg, bridge_tok_js)
-        );
-        bw.eval_hud_and_tabs(&script);
+        if !ok {
+            let script = format!(
+                "window.__fynexo_finish_progress__ && window.__fynexo_finish_progress__(true, {});",
+                bridge_tok_js
+            );
+            bw.eval_hud_and_tabs(&script);
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let can_nav = if forward {
+            fg.can_go_forward().unwrap_or(false)
+        } else {
+            fg.can_go_back().unwrap_or(false)
+        };
+        let ok = can_nav
+            && if forward {
+                fg.go_forward().is_ok()
+            } else {
+                fg.go_back().is_ok()
+            };
+        if !ok {
+            let script = format!(
+                "window.__fynexo_finish_progress__ && window.__fynexo_finish_progress__(true, {}); {}",
+                bridge_tok_js,
+                nav_state_js(fg, bridge_tok_js)
+            );
+            bw.eval_hud_and_tabs(&script);
+        }
     }
 }

@@ -359,13 +359,54 @@ pub fn is_blocked_host(host: &str) -> bool {
     is_blocked_host_for_page(host, None)
 }
 
+/// Detects unmistakable first-party YouTube ad-serving/ad-telemetry URLs on `*.youtube.com`
+/// (never touches `googlevideo.com` media streams, `/youtubei/v1/player`, or watchtime pings).
+pub fn is_youtube_first_party_ad_url(lower_host: &str, url: &str) -> bool {
+    if lower_host != "youtube.com" && !lower_host.ends_with(".youtube.com") {
+        return false;
+    }
+    let after_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    let Some(slash_idx) = after_scheme.find('/') else {
+        return false;
+    };
+    let path_and_query = after_scheme[slash_idx..].to_ascii_lowercase();
+    path_and_query.starts_with("/pagead/")
+        || path_and_query.starts_with("/api/stats/ads")
+        || path_and_query.starts_with("/ptracking")
+        || path_and_query.starts_with("/get_midroll_info")
+        || path_and_query.starts_with("/ad_data_204")
+}
+
 #[inline]
 pub fn should_block_url_for_page(url: &str, page_host: Option<&str>) -> bool {
     if !is_enabled() {
         return false;
     }
     match extract_host(url) {
-        Some(host) => is_blocked_host_for_page(host, page_host),
+        Some(host) => {
+            if is_blocked_host_for_page(host, page_host) {
+                return true;
+            }
+            let lower = host.to_ascii_lowercase();
+            if is_youtube_first_party_ad_url(&lower, url) {
+                if HAS_DYNAMIC_RULES.load(Ordering::Relaxed) {
+                    if let Some(snap) = DYNAMIC_ADBLOCK.read().ok().map(|g| Arc::clone(&*g)) {
+                        let eff_page = page_host.unwrap_or(&snap.active_page_host);
+                        if !snap.whitelisted.is_empty()
+                            && (matches_domain_set(eff_page, &snap.whitelisted)
+                                || matches_domain_set(&lower, &snap.whitelisted))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }
+            false
+        }
         None => false,
     }
 }
@@ -1016,5 +1057,33 @@ mod tests {
         assert_eq!(desk["platform"], "Win32");
         assert_eq!(desk["userAgentMetadata"]["mobile"], false);
         assert_eq!(desk["userAgentMetadata"]["platform"], "Windows");
+    }
+
+    #[test]
+    fn youtube_first_party_ad_urls_are_blocked_without_breaking_playback() {
+        assert!(is_youtube_first_party_ad_url(
+            "m.youtube.com",
+            "https://m.youtube.com/pagead/adview?ai=1"
+        ));
+        assert!(is_youtube_first_party_ad_url(
+            "www.youtube.com",
+            "https://www.youtube.com/api/stats/ads?ns=yt"
+        ));
+        assert!(is_youtube_first_party_ad_url(
+            "m.youtube.com",
+            "https://m.youtube.com/get_midroll_info?v=abc"
+        ));
+        assert!(!is_youtube_first_party_ad_url(
+            "m.youtube.com",
+            "https://m.youtube.com/watch?v=dQw4w9WgXcQ"
+        ));
+        assert!(!is_youtube_first_party_ad_url(
+            "m.youtube.com",
+            "https://m.youtube.com/youtubei/v1/player"
+        ));
+        assert!(!is_youtube_first_party_ad_url(
+            "rr1---sn.googlevideo.com",
+            "https://rr1---sn.googlevideo.com/videoplayback?id=1"
+        ));
     }
 }
