@@ -60,6 +60,11 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                     || target_url.eq_ignore_ascii_case("about:bookmarks")
                 {
                     "fynexo://bookmarks".to_string()
+                } else if target_url.eq_ignore_ascii_case("fynexo:downloads")
+                    || target_url.eq_ignore_ascii_case("downloads")
+                    || target_url.eq_ignore_ascii_case("about:downloads")
+                {
+                    "fynexo://downloads".to_string()
                 } else if !target_url.starts_with("http://")
                     && !target_url.starts_with("https://")
                 {
@@ -99,6 +104,7 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                     if formatted_url == "fynexo://settings"
                         || formatted_url == "fynexo://history"
                         || formatted_url == "fynexo://bookmarks"
+                        || formatted_url == "fynexo://downloads"
                     {
                         if let Some(existing_id) = tm.find_tab_by_logical_url(&formatted_url) {
                             if existing_id != target_tid {
@@ -826,6 +832,198 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                 tab_id: source_tab_id,
                 meta: val.get("meta").cloned().unwrap_or(serde_json::Value::Null),
             });
+        }
+        "CREATE_TAB_GROUP" => {
+            if let Some(tid) = val["tab_id"].as_u64() {
+                let title = val["title"].as_str().unwrap_or("Group");
+                let color = val["color"].as_str().unwrap_or("blue");
+                if tab_manager
+                    .lock_safe()
+                    .create_tab_group(tid as usize, title, color)
+                    .is_some()
+                {
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
+                }
+            }
+        }
+        "SET_TAB_GROUP" => {
+            if let Some(tid) = val["tab_id"].as_u64() {
+                let gid = val["group_id"].as_str();
+                if tab_manager.lock_safe().set_tab_group(tid as usize, gid) {
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
+                }
+            }
+        }
+        "UPDATE_TAB_GROUP" => {
+            if let Some(gid) = val["group_id"].as_str() {
+                let title = val["title"].as_str();
+                let color = val["color"].as_str();
+                if tab_manager.lock_safe().update_tab_group(gid, title, color) {
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
+                }
+            }
+        }
+        "TOGGLE_TAB_GROUP_COLLAPSE" => {
+            if let Some(gid) = val["group_id"].as_str() {
+                if tab_manager.lock_safe().toggle_group_collapsed(gid) {
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
+                }
+            }
+        }
+        "UNGROUP_TABS" => {
+            if let Some(gid) = val["group_id"].as_str() {
+                if tab_manager.lock_safe().ungroup_tabs(gid) {
+                    let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
+                }
+            }
+        }
+        "CLOSE_TAB_GROUP" => {
+            if let Some(gid) = val["group_id"].as_str() {
+                let hp = app_state.lock_safe().config.homepage.clone();
+                let switch_opt = {
+                    let mut tm = tab_manager.lock_safe();
+                    let next_u = tm.close_group_tabs(gid, &hp);
+                    next_u.map(|u| (tm.active_id, u))
+                };
+                if let Some((aid, next_url)) = switch_opt {
+                    let _ = proxy.send_event(UserEvent::SwitchTab {
+                        win_id: source_win_id,
+                        id: aid,
+                        url: next_url,
+                    });
+                }
+                let _ = proxy.send_event(UserEvent::SyncTabs(source_win_id));
+            }
+        }
+        "TOGGLE_SPLIT_VIEW" => {
+            let tab_id = val["tab_id"].as_u64().map(|v| v as usize);
+            let _ = proxy.send_event(UserEvent::ToggleSplitView {
+                win_id: source_win_id,
+                tab_id,
+            });
+        }
+        "SET_SPLIT_TAB" => {
+            let tab_id = val["tab_id"].as_u64().map(|v| v as usize);
+            let _ = proxy.send_event(UserEvent::ToggleSplitView {
+                win_id: source_win_id,
+                tab_id,
+            });
+        }
+        "SET_SPLIT_RATIO" => {
+            if let Some(ratio) = val["ratio"].as_f64() {
+                if ratio.is_finite() {
+                    let _ = proxy.send_event(UserEvent::SetSplitRatio {
+                        win_id: source_win_id,
+                        ratio: ratio.clamp(0.25, 0.75),
+                    });
+                }
+            }
+        }
+        "SWAP_SPLIT_PANES" => {
+            let _ = proxy.send_event(UserEvent::SwapSplitPanes(source_win_id));
+        }
+        "CLOSE_SPLIT_VIEW" => {
+            let _ = proxy.send_event(UserEvent::CloseSplitView(source_win_id));
+        }
+        "CAPTURE_SCREENSHOT" => {
+            let _ = proxy.send_event(UserEvent::CaptureScreenshot(source_win_id));
+        }
+        "TRANSLATE_BATCH" => {
+            let req_id = val["req_id"].as_u64().unwrap_or(0);
+            let target_lang = val["target_lang"].as_str().unwrap_or("zh-CN");
+            let mut items: Vec<(u32, String)> = Vec::new();
+            if let Some(arr) = val["items"].as_array() {
+                for it in arr.iter().take(36) {
+                    if let (Some(id), Some(text)) = (it["id"].as_u64(), it["text"].as_str()) {
+                        items.push((id as u32, text.to_string()));
+                    }
+                }
+            }
+            if !items.is_empty() {
+                let tid = if source_tab_id == 0 {
+                    tab_manager.lock_safe().active_id
+                } else {
+                    source_tab_id
+                };
+                super::super::translate::spawn_translate_batch(
+                    source_win_id,
+                    tid,
+                    req_id,
+                    target_lang,
+                    items,
+                    proxy.clone(),
+                );
+            }
+        }
+        "GET_SITE_COOKIES" => {
+            let req_id = val["req_id"].as_u64().unwrap_or(0);
+            let uri = val["uri"].as_str().unwrap_or("").trim().to_string();
+            if uri.starts_with("http://") || uri.starts_with("https://") {
+                let _ = proxy.send_event(UserEvent::QuerySiteCookies {
+                    win_id: source_win_id,
+                    req_id,
+                    uri,
+                });
+            }
+        }
+        "DELETE_SITE_COOKIE" => {
+            if let (Some(name), Some(domain)) = (val["name"].as_str(), val["domain"].as_str()) {
+                let path = val["path"].as_str().unwrap_or("/").to_string();
+                let uri = val["uri"].as_str().unwrap_or("").to_string();
+                let _ = proxy.send_event(UserEvent::DeleteSiteCookie {
+                    win_id: source_win_id,
+                    name: name.to_string(),
+                    domain: domain.to_string(),
+                    path,
+                    uri,
+                });
+            }
+        }
+        "CLEAR_ORIGIN_COOKIES" => {
+            let uri = val["uri"].as_str().unwrap_or("").trim().to_string();
+            if uri.starts_with("http://") || uri.starts_with("https://") {
+                let _ = proxy.send_event(UserEvent::ClearOriginCookies {
+                    win_id: source_win_id,
+                    uri,
+                });
+            }
+        }
+        "SAVE_PAGE_PDF" => {
+            let _ = proxy.send_event(UserEvent::SavePagePdf(source_win_id));
+        }
+        "SAVE_IMAGE_URL" => {
+            let url = val["url"].as_str().unwrap_or("").trim().to_string();
+            if url.starts_with("http://")
+                || url.starts_with("https://")
+                || url.starts_with("data:image/")
+            {
+                let _ = proxy.send_event(UserEvent::SaveImageUrl {
+                    win_id: source_win_id,
+                    url,
+                });
+            }
+        }
+        "CLEAR_BROWSING_DATA" => {
+            let range_str = val["range"].as_str().unwrap_or("all").trim().to_ascii_lowercase();
+            let range_secs: u64 = match range_str.as_str() {
+                "1h" | "hour" => 3600,
+                "24h" | "day" => 86_400,
+                "7d" | "week" => 7 * 86_400,
+                "30d" | "month" => 30 * 86_400,
+                _ => 0,
+            };
+            let clear_history = val["history"].as_bool().unwrap_or(false);
+            let clear_cookies = val["cookies"].as_bool().unwrap_or(false);
+            let clear_cache = val["cache"].as_bool().unwrap_or(false);
+            if clear_history || clear_cookies || clear_cache {
+                let _ = proxy.send_event(UserEvent::ClearBrowsingData {
+                    win_id: source_win_id,
+                    range_secs,
+                    clear_history,
+                    clear_cookies,
+                    clear_cache,
+                });
+            }
         }
         _ => return false,
     }

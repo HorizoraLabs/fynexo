@@ -76,6 +76,7 @@ pub struct TabPool {
     runtime_hashes: HashMap<usize, u64>,
     idle_webview: Option<TabWebView>,
     visible_tab_id: Option<usize>,
+    secondary_visible_tab_id: Option<usize>,
     pending_reveal: Option<(usize, u64)>,
     reveal_gen: u64,
 }
@@ -95,6 +96,7 @@ impl TabPool {
             runtime_hashes: HashMap::new(),
             idle_webview: None,
             visible_tab_id: Some(initial_id),
+            secondary_visible_tab_id: None,
             pending_reveal: None,
             reveal_gen: 0,
         }
@@ -208,6 +210,56 @@ impl TabPool {
         }
         #[cfg(not(target_os = "windows"))]
         let _ = bounds;
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn show_secondary_tab(
+        &mut self,
+        id: usize,
+        bounds: ContentBounds,
+        hud_wv: Option<&wry::WebView>,
+    ) {
+        if let Some(prev) = self.secondary_visible_tab_id {
+            if prev != id && Some(prev) != self.visible_tab_id {
+                if let Some(prev_tv) = self.live_webviews.get(&prev) {
+                    let _ = prev_tv.webview.set_visible(false);
+                }
+            }
+        }
+        if let Some(tv) = self.live_webviews.get(&id) {
+            let _ = tv.webview.set_memory_usage_level(MemoryUsageLevel::Normal);
+            enable_clip_siblings(&tv.webview);
+            sync_webview_bounds_rect(&tv.webview, bounds);
+            bring_webview_below_hud(&tv.webview, hud_wv);
+            let _ = tv.webview.set_visible(true);
+            self.secondary_visible_tab_id = Some(id);
+            self.last_active_at.insert(id, Instant::now());
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn hide_secondary_tab(&mut self) {
+        if let Some(prev) = self.secondary_visible_tab_id.take() {
+            if Some(prev) != self.visible_tab_id {
+                if let Some(prev_tv) = self.live_webviews.get(&prev) {
+                    let _ = prev_tv.webview.set_visible(false);
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn resize_split(&self, left_bounds: ContentBounds, right_bounds: ContentBounds) {
+        if let Some(vis) = self.visible_webview() {
+            sync_webview_bounds_rect(vis, left_bounds);
+        }
+        if let Some(sid) = self.secondary_visible_tab_id {
+            if Some(sid) != self.visible_tab_id {
+                if let Some(sec_tv) = self.live_webviews.get(&sid) {
+                    sync_webview_bounds_rect(&sec_tv.webview, right_bounds);
+                }
+            }
+        }
     }
 
     pub fn notify_parent_moved(&self) {
@@ -343,8 +395,9 @@ impl TabPool {
             bridge_tok_js
         );
         let prev_id_opt = self.visible_tab_id;
+        let sec_id_opt = self.secondary_visible_tab_id;
         for (&other_id, other_tv) in &self.live_webviews {
-            if other_id != id {
+            if other_id != id && Some(other_id) != sec_id_opt {
                 if prev_id_opt == Some(other_id) {
                     let _ = other_tv.webview.evaluate_script(&clear_script);
                 }

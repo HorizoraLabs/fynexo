@@ -3227,6 +3227,7 @@
 
             const zoomPct = Math.round((Number(config.default_zoom) || 1) * 100);
             document.getElementById('btnZoomReset').textContent = `${zoomPct}%`;
+            if (typeof syncPageTypographyControls === 'function') syncPageTypographyControls();
 
             const curWMode = (config.window_mode || 'multi').toLowerCase() === 'single' ? 'single' : 'multi';
             document.querySelectorAll('#windowModeGroup .seg-btn').forEach(b => {
@@ -3235,6 +3236,14 @@
 
             setSwitchState('btnIncognitoToggle', !!config.incognito);
             setSwitchState('btnHttpsFirstToggle', config.https_first !== false);
+            setSwitchState('btnPwAutosaveToggle', config.password_autosave !== false);
+            setSwitchState('btnGenAutofillToggle', config.general_autofill !== false);
+            setPlainRowI18n(document.getElementById('lblPwAutosave'), '自动记住登录密码', 'Offer to save passwords');
+            setPlainRowI18n(document.getElementById('hintPwAutosave'), '开启 WebView2 原生密码保存与登录自动填充（无痕模式下始终自动禁用）。', 'Use WebView2 native password autosave when signing into websites (always disabled in Private mode).');
+            setPlainRowI18n(document.getElementById('lblGenAutofill'), '表单与地址自动填充', 'Form & address autofill');
+            setPlainRowI18n(document.getElementById('hintGenAutofill'), '自动填充常用邮箱、地址与网页表单信息。', 'Automatically fill saved emails, addresses, and web forms via WebView2 native autofill.');
+            const btnOpenClearData = document.getElementById('btnOpenClearData');
+            if (btnOpenClearData) btnOpenClearData.textContent = zh ? '按时间范围清理…' : 'Clear by range...';
 
             const perfOn = !!config.enforce_perf;
             setSwitchState('btnPerfToggle', perfOn);
@@ -3256,6 +3265,9 @@
             document.getElementById('btnClearHistory').textContent = historyCount > 0
                 ? (zh ? `清空历史记录 (${historyCount})` : `Clear history (${historyCount})`)
                 : (zh ? '清空历史记录' : 'Clear history');
+
+            if (typeof syncCloudSyncControls === 'function') syncCloudSyncControls();
+            if (typeof syncProxyControls === 'function') syncProxyControls();
 
             const tb = styles.topbar || {};
             setSwitchState('qsDeskTopToggle', tb.visible_on_desktop !== false);
@@ -4139,6 +4151,257 @@
         document.getElementById('btnOpenDataDir').onclick = () => sendIpc({ type: 'OPEN_DATA_DIR' });
         document.getElementById('btnOpenDownloadsDir').onclick = () => sendIpc({ type: 'OPEN_DOWNLOADS_DIR' });
 
+        function syncCloudSyncControls() {
+            const zh = isZh();
+            const prov = ['webdav', 'gist'].includes(String(config.sync_provider || '').toLowerCase())
+                ? String(config.sync_provider).toLowerCase()
+                : 'off';
+            setPlainRowI18n(document.getElementById('lblCloudSync'), '云端同步 (WebDAV / GitHub Gist)', 'Cloud Sync (WebDAV / GitHub Gist)');
+            setPlainRowI18n(
+                document.getElementById('hintCloudSync'),
+                '通过自己的 WebDAV 服务器（如坚果云 / Nextcloud）或私有 GitHub Gist 同步书签、自定义主题、脚本规则与偏好设置。',
+                'Sync bookmarks, custom themes, site rules, and preferences via your WebDAV server or private GitHub Gist.'
+            );
+            const btnOff = document.getElementById('btnSyncProvOff');
+            if (btnOff) btnOff.textContent = zh ? '关闭' : 'Off';
+            document.querySelectorAll('#syncProviderGroup .seg-btn').forEach((b) => {
+                b.classList.toggle('active', b.dataset.sp === prov);
+            });
+            const wrap = document.getElementById('syncFieldsWrap');
+            if (wrap) wrap.style.display = prov === 'off' ? 'none' : 'flex';
+            const userField = document.getElementById('syncUserField');
+            if (userField) userField.style.display = prov === 'webdav' ? 'flex' : 'none';
+            const lblUrl = document.getElementById('lblSyncUrl');
+            const inpUrl = document.getElementById('inputSyncUrl');
+            if (lblUrl) {
+                lblUrl.textContent = prov === 'gist'
+                    ? (zh ? 'GitHub Gist ID（留空将在首次上传时自动创建私有 Gist）' : 'GitHub Gist ID (leave blank to auto-create private Gist)')
+                    : (zh ? 'WebDAV 文件地址 (HTTPS)' : 'WebDAV File URL (HTTPS)');
+            }
+            if (inpUrl) {
+                inpUrl.placeholder = prov === 'gist'
+                    ? (zh ? '输入已有 Gist ID，或留空自动创建' : 'Existing Gist ID, or leave blank')
+                    : 'https://dav.example.com/fynexo-sync.json';
+                setInputIfNotFocused(inpUrl, config.sync_url || '');
+            }
+            const lblUser = document.getElementById('lblSyncUser');
+            if (lblUser) lblUser.textContent = zh ? 'WebDAV 用户名' : 'WebDAV Username';
+            const inpUser = document.getElementById('inputSyncUser');
+            if (inpUser) setInputIfNotFocused(inpUser, config.sync_username || '');
+            const lblTok = document.getElementById('lblSyncToken');
+            if (lblTok) {
+                lblTok.textContent = prov === 'gist'
+                    ? (zh ? 'GitHub Token (需 gist 权限)' : 'GitHub Personal Access Token (gist scope)')
+                    : (zh ? '应用密码 / Token' : 'App Password / Token');
+            }
+            const inpTok = document.getElementById('inputSyncToken');
+            if (inpTok) setInputIfNotFocused(inpTok, config.sync_token || '');
+            const lblAuto = document.getElementById('lblSyncAuto');
+            if (lblAuto) lblAuto.textContent = zh ? '记住配置并在设置页显示同步状态' : 'Remember sync settings';
+            setSwitchState('btnSyncAutoToggle', !!config.sync_auto);
+
+            const bSave = document.getElementById('btnSyncSave');
+            const bPull = document.getElementById('btnSyncPull');
+            const bPush = document.getElementById('btnSyncPush');
+            if (bSave) bSave.textContent = zh ? '保存配置' : 'Save';
+            if (bPull) bPull.textContent = zh ? '从云端拉取 (Pull)' : 'Pull from cloud';
+            if (bPush) bPush.textContent = zh ? '上传到云端 (Push)' : 'Push to cloud';
+
+            const statusEl = document.getElementById('syncStatusMeta');
+            if (statusEl) {
+                const ts = Number(config.sync_last_at) || 0;
+                statusEl.textContent = ts > 0
+                    ? (zh ? '上次同步：' : 'Last synced: ') + new Date(ts * 1000).toLocaleString()
+                    : (zh ? '尚未同步' : 'Not synced yet');
+            }
+        }
+        function commitCloudSyncInputs(silent) {
+            const inpUrl = document.getElementById('inputSyncUrl');
+            const inpUser = document.getElementById('inputSyncUser');
+            const inpTok = document.getElementById('inputSyncToken');
+            if (inpUrl) config.sync_url = inpUrl.value.trim();
+            if (inpUser) config.sync_username = inpUser.value.trim();
+            if (inpTok) config.sync_token = inpTok.value.trim();
+            saveConfig(silent ? '' : (isZh() ? '已保存云同步配置' : 'Cloud sync settings saved'));
+        }
+        document.querySelectorAll('#syncProviderGroup .seg-btn').forEach((btn) => {
+            btn.onclick = () => {
+                config.sync_provider = btn.dataset.sp || 'off';
+                syncCloudSyncControls();
+                saveConfig(isZh() ? '已更新云同步模式' : 'Updated cloud sync provider');
+            };
+        });
+        const btnSyncAutoEl = document.getElementById('btnSyncAutoToggle');
+        if (btnSyncAutoEl) {
+            btnSyncAutoEl.onclick = () => {
+                config.sync_auto = !config.sync_auto;
+                syncCloudSyncControls();
+                saveConfig();
+            };
+        }
+        const btnSyncSaveEl = document.getElementById('btnSyncSave');
+        if (btnSyncSaveEl) btnSyncSaveEl.onclick = () => commitCloudSyncInputs(false);
+        const btnSyncPushEl = document.getElementById('btnSyncPush');
+        if (btnSyncPushEl) {
+            btnSyncPushEl.onclick = () => {
+                commitCloudSyncInputs(true);
+                sendIpc({ type: 'CLOUD_SYNC_PUSH' });
+            };
+        }
+        const btnSyncPullEl = document.getElementById('btnSyncPull');
+        if (btnSyncPullEl) {
+            btnSyncPullEl.onclick = () => {
+                commitCloudSyncInputs(true);
+                sendIpc({ type: 'CLOUD_SYNC_PULL' });
+            };
+        }
+
+        const btnPwSaveEl = document.getElementById('btnPwAutosaveToggle');
+        if (btnPwSaveEl) {
+            btnPwSaveEl.onclick = () => {
+                config.password_autosave = !(config.password_autosave !== false);
+                syncFormControls();
+                saveConfig(config.password_autosave
+                    ? (isZh() ? '已开启密码自动保存' : 'Password autosave enabled')
+                    : (isZh() ? '已关闭密码自动保存' : 'Password autosave disabled'));
+            };
+        }
+        const btnGenFillEl = document.getElementById('btnGenAutofillToggle');
+        if (btnGenFillEl) {
+            btnGenFillEl.onclick = () => {
+                config.general_autofill = !(config.general_autofill !== false);
+                syncFormControls();
+                saveConfig(config.general_autofill
+                    ? (isZh() ? '已开启表单自动填充' : 'Form autofill enabled')
+                    : (isZh() ? '已关闭表单自动填充' : 'Form autofill disabled'));
+            };
+        }
+        const btnOpenCdEl = document.getElementById('btnOpenClearData');
+        if (btnOpenCdEl) {
+            btnOpenCdEl.onclick = () => sendIpc({ type: 'HUD_ACTION', action: 'open_clear_data' });
+        }
+
+        function syncProxyControls() {
+            const zh = isZh();
+            const pm = ['direct', 'custom'].includes(String(config.proxy_mode || '').toLowerCase())
+                ? String(config.proxy_mode).toLowerCase()
+                : 'system';
+            setPlainRowI18n(document.getElementById('lblProxy'), '独立网络代理 (HTTP / SOCKS5)', 'Network Proxy (HTTP / SOCKS5)');
+            setPlainRowI18n(
+                document.getElementById('hintProxy'),
+                '可选择跟随系统代理、直连网络，或为浏览器单独指定 HTTP / SOCKS5 代理端口（修改后重启 Fynexo 生效）。',
+                'Route Fynexo traffic through system proxy, direct connection, or a custom HTTP / SOCKS5 proxy (applies on restart).'
+            );
+            const bSys = document.getElementById('btnProxySystem');
+            const bDir = document.getElementById('btnProxyDirect');
+            const bCus = document.getElementById('btnProxyCustom');
+            if (bSys) bSys.textContent = zh ? '跟随系统' : 'System';
+            if (bDir) bDir.textContent = zh ? '直连无代理' : 'Direct';
+            if (bCus) bCus.textContent = zh ? '自定义代理' : 'Custom';
+            document.querySelectorAll('#proxyModeGroup .seg-btn').forEach((b) => {
+                b.classList.toggle('active', b.dataset.pm === pm);
+            });
+            const wrap = document.getElementById('proxyCustomWrap');
+            if (wrap) wrap.style.display = pm === 'custom' ? 'flex' : 'none';
+            const inp = document.getElementById('inputProxyServer');
+            if (inp) {
+                inp.placeholder = zh
+                    ? '例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080'
+                    : 'http://127.0.0.1:7890 or socks5://127.0.0.1:1080';
+                setInputIfNotFocused(inp, config.proxy_server || '');
+            }
+            const bSave = document.getElementById('btnSaveProxy');
+            if (bSave) bSave.textContent = zh ? '保存代理' : 'Save proxy';
+        }
+        document.querySelectorAll('#proxyModeGroup .seg-btn').forEach((btn) => {
+            btn.onclick = () => {
+                config.proxy_mode = btn.dataset.pm || 'system';
+                syncProxyControls();
+                saveConfig(isZh() ? '代理模式已保存（重启浏览器后生效）' : 'Proxy mode saved (restart to apply)');
+            };
+        });
+        const btnSaveProxyEl = document.getElementById('btnSaveProxy');
+        if (btnSaveProxyEl) {
+            btnSaveProxyEl.onclick = () => {
+                const inp = document.getElementById('inputProxyServer');
+                config.proxy_server = inp ? inp.value.trim() : '';
+                saveConfig(isZh() ? '代理地址已保存（重启浏览器后生效）' : 'Proxy server saved (restart to apply)');
+            };
+        }
+
+        const FONT_PRESET_VALS = [
+            '',
+            "system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif",
+            "'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif",
+            "'Noto Serif SC', 'Songti SC', Georgia, serif",
+            "'JetBrains Mono', Consolas, monospace"
+        ];
+        function syncPageTypographyControls() {
+            const zh = isZh();
+            setPlainRowI18n(document.getElementById('lblPageFont'), '网页自定义字体与最小字号', 'Web page font & minimum size');
+            setPlainRowI18n(
+                document.getElementById('hintPageFont'),
+                '统一替换外网正文默认字体，或限制网页最小字号防止文字过小（自动保留代码块等宽字体）。',
+                'Override site body font family or enforce a readable minimum font size (preserves code blocks).'
+            );
+            const selFont = document.getElementById('selPageFontPreset');
+            const inpFont = document.getElementById('inputCustomPageFont');
+            const selMin = document.getElementById('selMinFontSize');
+            const curFont = String(config.page_font_family || '').trim();
+            if (selFont) {
+                const opts = selFont.options;
+                if (opts.length >= 6) {
+                    opts[0].textContent = zh ? '跟随网页默认' : 'Site default';
+                    opts[1].textContent = zh ? '现代系统无衬线 (Sans)' : 'System Sans (Modern)';
+                    opts[2].textContent = zh ? '清晰中文黑体 (雅黑 / 苹方)' : 'Clean CJK Sans';
+                    opts[3].textContent = zh ? '阅读衬线体 (Serif)' : 'Reading Serif';
+                    opts[4].textContent = zh ? '等宽字体 (Monospace)' : 'Monospace';
+                    opts[5].textContent = zh ? '自定义字体名称…' : 'Custom font...';
+                }
+                const isPreset = FONT_PRESET_VALS.includes(curFont);
+                selFont.value = isPreset ? curFont : '__custom__';
+                if (inpFont) {
+                    inpFont.style.display = isPreset ? 'none' : 'block';
+                    setInputIfNotFocused(inpFont, curFont);
+                }
+            }
+            if (selMin) {
+                if (selMin.options.length > 0) {
+                    selMin.options[0].textContent = zh ? '最小字号：关闭' : 'Min: Off';
+                }
+                const m = Number(config.min_font_size) || 0;
+                selMin.value = String([0, 12, 13, 14, 15, 16, 18].includes(m) ? m : 0);
+            }
+        }
+        const selPageFontEl = document.getElementById('selPageFontPreset');
+        if (selPageFontEl) {
+            selPageFontEl.onchange = () => {
+                const v = selPageFontEl.value;
+                const inp = document.getElementById('inputCustomPageFont');
+                if (v === '__custom__') {
+                    if (inp) { inp.style.display = 'block'; inp.focus(); }
+                    return;
+                }
+                config.page_font_family = v;
+                if (inp) inp.style.display = 'none';
+                saveConfig(isZh() ? '已更新网页字体设置' : 'Updated web page font');
+            };
+        }
+        const inpCustomFontEl = document.getElementById('inputCustomPageFont');
+        if (inpCustomFontEl) {
+            inpCustomFontEl.onchange = () => {
+                config.page_font_family = inpCustomFontEl.value.trim();
+                saveConfig(isZh() ? '已应用自定义网页字体' : 'Applied custom web page font');
+            };
+        }
+        const selMinFsEl = document.getElementById('selMinFontSize');
+        if (selMinFsEl) {
+            selMinFsEl.onchange = () => {
+                config.min_font_size = Number(selMinFsEl.value) || 0;
+                saveConfig(isZh() ? '已更新网页最小字号' : 'Updated minimum font size');
+            };
+        }
+
         bindJsonFilePicker('btnImportAdblock', 'fileImportAdblock', 'IMPORT_ADBLOCK_JSON');
         document.getElementById('btnExportAdblock').onclick = () => sendIpc({ type: 'EXPORT_ADBLOCK' });
         document.getElementById('btnAdblockToggle').onclick = () => {
@@ -4741,7 +5004,7 @@
             'sec-bookmarks': 'shortcuts bookmarks favorites folder import export html 快捷方式 书签 收藏 文件夹 导入 导出',
             'sec-shortcuts': 'keybinds hotkeys keyboard shortcuts ctrl alt shift 快捷键 键盘 绑定 组合键',
             'sec-rules': 'adblock shield tracker block whitelist domain filter 广告 拦截 追踪 屏蔽 白名单 规则 盾牌',
-            'sec-privacy': 'privacy data https incognito private cache cookies history permissions camera microphone location notification clipboard backup bundle 隐私 数据 安全 无痕 缓存 历史记录 权限 摄像头 麦克风 定位 通知 剪贴板 备份 导出 导入',
+            'sec-privacy': 'privacy data https incognito private cache cookies history permissions camera microphone location notification clipboard backup bundle sync webdav gist cloud password autofill proxy socks5 http 隐私 数据 安全 无痕 缓存 历史记录 权限 摄像头 麦克风 定位 通知 剪贴板 备份 导出 导入 云同步 同步 密码 自动填充 代理',
             'sec-extensions': 'extensions scriptforge userscript gm chrome store crx zip cloud supabase reader side panel youtube github media booster gesture 扩展 插件 脚本 油猴 商店 侧边栏 阅读模式 音量 手势 云端',
         };
 

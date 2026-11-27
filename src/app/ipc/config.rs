@@ -126,6 +126,97 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                 }
             }
         }
+        "REORDER_BOOKMARK" => {
+            if let (Some(from_url), Some(to_url)) =
+                (val["from_url"].as_str(), val["to_url"].as_str())
+            {
+                let mut locked = app_state.lock_safe();
+                if locked.userdata.reorder_bookmark(from_url, to_url) {
+                    locked.shortcuts_mtime = UserData::shortcuts_mtime();
+                    drop(locked);
+                    let _ = proxy.send_event(UserEvent::SyncConfig);
+                }
+            }
+        }
+        "ANDROID_CLOUD_SYNC_CALLBACK" => {
+            let action = val["action"].as_str().unwrap_or("push").to_string();
+            let provider = val["provider"].as_str().unwrap_or("webdav").to_string();
+            let status = val["status"].as_u64().unwrap_or(0);
+            let body = val["body"].as_str().unwrap_or("");
+            let err_str = val["error"].as_str().unwrap_or("");
+            let zh = is_zh_cfg(app_state);
+            if !err_str.is_empty() || !(200..300).contains(&status) {
+                let detail = if !err_str.is_empty() {
+                    err_str.to_string()
+                } else {
+                    format!("HTTP {}", status)
+                };
+                let _ = proxy.send_event(UserEvent::CloudSyncResult {
+                    action: action.clone(),
+                    ok: false,
+                    message: if zh {
+                        format!(
+                            "云端{}失败：{}",
+                            if action == "pull" { "拉取" } else { "上传" },
+                            detail
+                        )
+                    } else {
+                        format!("Cloud {} failed: {}", action, detail)
+                    },
+                    pulled_bundle: None,
+                });
+            } else if action == "pull" {
+                match super::super::sync::parse_pulled_bundle_response(&provider, body) {
+                    Ok(bundle) => {
+                        let _ = proxy.send_event(UserEvent::CloudSyncResult {
+                            action,
+                            ok: true,
+                            message: if zh {
+                                format!("已从云端拉取 {} 条书签与配置", bundle.bookmarks.len())
+                            } else {
+                                format!("Pulled {} bookmarks & settings from cloud", bundle.bookmarks.len())
+                            },
+                            pulled_bundle: Some(Box::new(bundle)),
+                        });
+                    }
+                    Err(e) => {
+                        let _ = proxy.send_event(UserEvent::CloudSyncResult {
+                            action,
+                            ok: false,
+                            message: if zh {
+                                format!("云端拉取解析失败：{}", e)
+                            } else {
+                                format!("Cloud pull parse failed: {}", e)
+                            },
+                            pulled_bundle: None,
+                        });
+                    }
+                }
+            } else {
+                if provider == "gist" && !body.is_empty() {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+                        if let Some(gid) = v["id"].as_str() {
+                            let mut locked = app_state.lock_safe();
+                            if locked.config.sync_url.trim().is_empty() {
+                                locked.config.sync_url = gid.to_string();
+                                locked.config.save();
+                                locked.config_mtime = AppConfig::mtime();
+                            }
+                        }
+                    }
+                }
+                let _ = proxy.send_event(UserEvent::CloudSyncResult {
+                    action,
+                    ok: true,
+                    message: if zh {
+                        "云端同步上传成功".to_string()
+                    } else {
+                        "Cloud sync upload complete".to_string()
+                    },
+                    pulled_bundle: None,
+                });
+            }
+        }
         "IMPORT_SHORTCUTS_JSON" => {
             if let Some(raw_json) = val["json"].as_str() {
                 let merge = val["merge"].as_bool().unwrap_or(true);
@@ -694,10 +785,84 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                 let _ = fname;
             }
         }
+        "PAUSE_DOWNLOAD" => {
+            if let Some(id) = val["id"].as_u64() {
+                let _ = proxy.send_event(UserEvent::PauseDownload(id));
+            }
+        }
+        "RESUME_DOWNLOAD" => {
+            if let Some(id) = val["id"].as_u64() {
+                let _ = proxy.send_event(UserEvent::ResumeDownload(id));
+            }
+        }
         "CANCEL_DOWNLOAD" => {
             if let Some(id) = val["id"].as_u64() {
                 let _ = proxy.send_event(UserEvent::CancelDownload(id));
             }
+        }
+        "RETRY_DOWNLOAD" => {
+            if let Some(url) = val["url"].as_str() {
+                if super::super::security::is_safe_external_http_url(url) {
+                    let _ = proxy.send_event(UserEvent::RetryDownload {
+                        win_id: source_win_id,
+                        url: url.trim().to_string(),
+                    });
+                }
+            }
+        }
+        "DELETE_DOWNLOAD_ENTRY" => {
+            let id = val["id"].as_u64().unwrap_or(0);
+            let name = val["name"].as_str().unwrap_or("");
+            let updated_at = val["updated_at"].as_u64().unwrap_or(0);
+            if app_state
+                .lock_safe()
+                .delete_download_entry(id, name, updated_at)
+            {
+                let _ = proxy.send_event(UserEvent::SyncDownloads);
+            }
+        }
+        "CLEAR_DOWNLOADS_HISTORY" => {
+            let zh = is_zh_cfg(app_state);
+            if app_state.lock_safe().clear_finished_downloads() {
+                let _ = proxy.send_event(UserEvent::SyncDownloads);
+                let _ = proxy.send_event(UserEvent::Toast(if zh {
+                    "已清空已完成的下载记录".to_string()
+                } else {
+                    "Cleared finished downloads history".to_string()
+                }));
+            }
+        }
+        "CLOUD_SYNC_PUSH" => {
+            let (sync_cfg, bundle, zh) = {
+                let st = app_state.lock_safe();
+                let sc = super::super::sync::SyncTargetConfig {
+                    provider: st.config.sync_provider.clone(),
+                    url: st.config.sync_url.clone(),
+                    username: st.config.sync_username.clone(),
+                    token: st.config.sync_token.clone(),
+                };
+                let b = super::super::sync::CloudSyncBundle::build(
+                    &st.config,
+                    &st.userdata.bookmarks,
+                    &st.site_rules,
+                    &st.themes,
+                );
+                (sc, b, is_zh_lang(&st.config.language))
+            };
+            super::super::sync::spawn_cloud_sync_push(sync_cfg, bundle, proxy.clone(), zh);
+        }
+        "CLOUD_SYNC_PULL" => {
+            let (sync_cfg, zh) = {
+                let st = app_state.lock_safe();
+                let sc = super::super::sync::SyncTargetConfig {
+                    provider: st.config.sync_provider.clone(),
+                    url: st.config.sync_url.clone(),
+                    username: st.config.sync_username.clone(),
+                    token: st.config.sync_token.clone(),
+                };
+                (sc, is_zh_lang(&st.config.language))
+            };
+            super::super::sync::spawn_cloud_sync_pull(sync_cfg, proxy.clone(), zh);
         }
         "SET_SITE_PERMISSION" => {
             if let (Some(origin), Some(kind), Some(state)) = (
@@ -1396,28 +1561,32 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                     let next_overrides = new_cfg.site_overrides.clone();
                     let next_ua = new_cfg.resolved_user_agent();
                     let next_incog = new_cfg.incognito;
+                    let next_pw_save = new_cfg.password_autosave;
+                    let next_autofill = new_cfg.general_autofill;
                     let next_allow_eval = new_cfg.allow_page_eval;
 
-                    let (adblock_changed, zoom_changed, ua_changed, incog_changed, eval_changed) = {
+                    let (adblock_changed, zoom_changed, ua_changed, autofill_changed, eval_changed) = {
                         let mut locked = app_state.lock_safe();
                         let adblock_ch = locked.config.adblock != next_adblock;
                         let zoom_ch = (locked.config.default_zoom - next_zoom).abs() > 0.001
                             || locked.config.site_overrides != next_overrides;
                         let ua_ch = locked.config.resolved_user_agent() != next_ua;
-                        let incog_ch = locked.config.incognito != next_incog;
+                        let autofill_ch = locked.config.incognito != next_incog
+                            || locked.config.password_autosave != next_pw_save
+                            || locked.config.general_autofill != next_autofill;
                         let eval_ch = locked.config.allow_page_eval != next_allow_eval;
 
                         locked.config = new_cfg;
                         locked.config.save();
                         locked.config_mtime = AppConfig::mtime();
-                        (adblock_ch, zoom_ch, ua_ch, incog_ch, eval_ch)
+                        (adblock_ch, zoom_ch, ua_ch, autofill_ch, eval_ch)
                     };
 
                     if adblock_changed {
                         adblock::set_enabled(next_adblock);
                         let _ = proxy.send_event(UserEvent::SyncAdblockFilters);
                     }
-                    if incog_changed {
+                    if autofill_changed {
                         tab_manager.lock_safe().set_incognito(next_incog);
                         let _ = proxy.send_event(UserEvent::SyncAutofill(!next_incog));
                     }
@@ -1516,6 +1685,22 @@ fn sanitize_saved_config(cfg: &mut AppConfig) {
         norm_mode
     };
     cfg.downloads_dir = cfg.downloads_dir.trim().to_string();
+    cfg.sync_provider = match cfg.sync_provider.trim().to_ascii_lowercase().as_str() {
+        "webdav" => "webdav".to_string(),
+        "gist" => "gist".to_string(),
+        _ => String::new(),
+    };
+    cfg.sync_url = cfg.sync_url.trim().to_string();
+    cfg.sync_username = cfg.sync_username.trim().to_string();
+    cfg.sync_token = cfg.sync_token.trim().to_string();
+    cfg.proxy_mode = AppConfig::normalize_proxy_mode(&cfg.proxy_mode).to_string();
+    cfg.proxy_server = AppConfig::sanitize_proxy_server(&cfg.proxy_server);
+    cfg.page_font_family = AppConfig::sanitize_page_font_family(&cfg.page_font_family);
+    cfg.min_font_size = if cfg.min_font_size == 0 {
+        0
+    } else {
+        cfg.min_font_size.clamp(10, 24)
+    };
 }
 
 #[cfg(test)]

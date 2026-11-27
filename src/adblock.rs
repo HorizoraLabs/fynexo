@@ -672,7 +672,11 @@ pub fn apply_windows_user_agent(webview: &wry::WebView, custom_ua: Option<&str>)
 }
 
 #[cfg(target_os = "windows")]
-pub fn apply_windows_autofill(webview: &wry::WebView, enabled: bool) {
+pub fn apply_windows_autofill(
+    webview: &wry::WebView,
+    password_autosave: bool,
+    general_autofill: bool,
+) {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings4;
     use windows::core::Interface;
     use wry::WebViewExtWindows;
@@ -681,8 +685,8 @@ pub fn apply_windows_autofill(webview: &wry::WebView, enabled: bool) {
     unsafe {
         if let Ok(settings) = core_wv.Settings() {
             if let Ok(settings4) = settings.cast::<ICoreWebView2Settings4>() {
-                let _ = settings4.SetIsPasswordAutosaveEnabled(enabled);
-                let _ = settings4.SetIsGeneralAutofillEnabled(enabled);
+                let _ = settings4.SetIsPasswordAutosaveEnabled(password_autosave);
+                let _ = settings4.SetIsGeneralAutofillEnabled(general_autofill);
             }
         }
     }
@@ -703,7 +707,8 @@ pub fn apply_windows_devtools(webview: &wry::WebView, enabled: bool) {
 #[cfg(target_os = "windows")]
 pub fn attach_windows_resilience(
     webview: &wry::WebView,
-    incognito: bool,
+    password_autosave: bool,
+    general_autofill: bool,
     win_id: usize,
     tab_id: Arc<AtomicUsize>,
     proxy: tao::event_loop::EventLoopProxy<crate::app::events::UserEvent>,
@@ -716,7 +721,7 @@ pub fn attach_windows_resilience(
     use webview2_com::ProcessFailedEventHandler;
     use wry::WebViewExtWindows;
 
-    apply_windows_autofill(webview, !incognito);
+    apply_windows_autofill(webview, password_autosave, general_autofill);
 
     let core_wv = webview.webview();
     unsafe {

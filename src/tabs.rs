@@ -4,6 +4,15 @@ use std::path::PathBuf;
 
 use crate::config::data_dir;
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TabGroup {
+    pub id: String,
+    pub title: String,
+    pub color: String,
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TabItem {
     pub id: usize,
@@ -22,6 +31,8 @@ pub struct TabItem {
     pub playing_audio: bool,
     #[serde(default)]
     pub suspended: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub group_id: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -45,15 +56,27 @@ pub struct TabState {
     pub active_id: usize,
     #[serde(default)]
     pub closed_count: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<TabGroup>,
 }
 
 pub struct TabManager {
     pub tabs: Vec<TabItem>,
+    pub groups: Vec<TabGroup>,
     pub active_id: usize,
     counter: usize,
     closed_tabs: Vec<ClosedTabEntry>,
     incognito: bool,
     persist_session: bool,
+}
+
+fn normalize_group_color(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "purple" | "emerald" | "amber" | "rose" | "cyan" | "blue" => {
+            raw.trim().to_ascii_lowercase()
+        }
+        _ => "blue".to_string(),
+    }
 }
 
 #[inline]
@@ -66,6 +89,8 @@ fn initial_title_for(url: &str) -> String {
         "History".to_string()
     } else if url.starts_with("fynexo://bookmarks") {
         "Bookmarks".to_string()
+    } else if url.starts_with("fynexo://downloads") {
+        "Downloads".to_string()
     } else if let Some(rest) = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))
@@ -105,9 +130,11 @@ impl TabManager {
             muted: false,
             playing_audio: false,
             suspended: false,
+            group_id: String::new(),
         };
         Self {
             tabs: vec![first_tab],
+            groups: Vec::new(),
             active_id: 1,
             counter: 1,
             closed_tabs: Vec::new(),
@@ -134,14 +161,17 @@ impl TabManager {
                                 t.suspended = t.id != state.active_id;
                             }
                             state.tabs.sort_by_key(|t| !t.pinned);
-                            return Self {
+                            let mut mgr = Self {
                                 tabs: state.tabs,
+                                groups: state.groups,
                                 active_id: state.active_id,
                                 counter: max_id.max(1),
                                 closed_tabs: Vec::new(),
                                 incognito,
                                 persist_session: true,
                             };
+                            mgr.prune_empty_groups();
+                            return mgr;
                         }
                     }
                 }
@@ -183,7 +213,150 @@ impl TabManager {
             tabs: self.tabs.clone(),
             active_id: self.active_id,
             closed_count: self.closed_tabs.len(),
+            groups: self.groups.clone(),
         }
+    }
+
+    fn prune_empty_groups(&mut self) {
+        let valid_ids: Vec<String> = self
+            .groups
+            .iter()
+            .filter(|g| self.tabs.iter().any(|t| !t.pinned && t.group_id == g.id))
+            .map(|g| g.id.clone())
+            .collect();
+        self.groups.retain(|g| valid_ids.contains(&g.id));
+        for t in &mut self.tabs {
+            if t.pinned || (!t.group_id.is_empty() && !valid_ids.contains(&t.group_id)) {
+                t.group_id.clear();
+            }
+        }
+    }
+
+    fn cluster_group_tabs(&mut self, gid: &str) {
+        if gid.is_empty() {
+            return;
+        }
+        let Some(first_pos) = self.tabs.iter().position(|t| t.group_id == gid) else {
+            return;
+        };
+        let mut grouped = Vec::new();
+        let mut rest = Vec::with_capacity(self.tabs.len());
+        for t in self.tabs.drain(..) {
+            if t.group_id == gid {
+                grouped.push(t);
+            } else {
+                rest.push(t);
+            }
+        }
+        let insert_at = first_pos.min(rest.len());
+        for (i, t) in grouped.into_iter().enumerate() {
+            rest.insert(insert_at + i, t);
+        }
+        self.tabs = rest;
+        self.tabs.sort_by_key(|t| !t.pinned);
+    }
+
+    pub fn create_tab_group(&mut self, tab_id: usize, title: &str, color: &str) -> Option<String> {
+        let tab = self.tabs.iter_mut().find(|t| t.id == tab_id && !t.pinned)?;
+        let gid = format!("grp-{}", crate::config::now_unix_secs().wrapping_add(self.counter as u64 + 1));
+        self.counter += 1;
+        let clean_title = title.trim().chars().take(28).collect::<String>();
+        let group = TabGroup {
+            id: gid.clone(),
+            title: if clean_title.is_empty() {
+                "Group".to_string()
+            } else {
+                clean_title
+            },
+            color: normalize_group_color(color),
+            collapsed: false,
+        };
+        tab.group_id = gid.clone();
+        self.groups.push(group);
+        self.prune_empty_groups();
+        self.save();
+        Some(gid)
+    }
+
+    pub fn set_tab_group(&mut self, tab_id: usize, group_id: Option<&str>) -> bool {
+        let target_gid = group_id.unwrap_or("").trim().to_string();
+        if !target_gid.is_empty() && !self.groups.iter().any(|g| g.id == target_gid) {
+            return false;
+        }
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id && !t.pinned) else {
+            return false;
+        };
+        if tab.group_id == target_gid {
+            return false;
+        }
+        tab.group_id = target_gid.clone();
+        if !target_gid.is_empty() {
+            self.cluster_group_tabs(&target_gid);
+        }
+        self.prune_empty_groups();
+        self.save();
+        true
+    }
+
+    pub fn update_tab_group(&mut self, group_id: &str, title: Option<&str>, color: Option<&str>) -> bool {
+        let Some(g) = self.groups.iter_mut().find(|g| g.id == group_id) else {
+            return false;
+        };
+        if let Some(t) = title {
+            let clean: String = t.trim().chars().take(28).collect();
+            if !clean.is_empty() {
+                g.title = clean;
+            }
+        }
+        if let Some(c) = color {
+            g.color = normalize_group_color(c);
+        }
+        self.save();
+        true
+    }
+
+    pub fn toggle_group_collapsed(&mut self, group_id: &str) -> bool {
+        let Some(g) = self.groups.iter_mut().find(|g| g.id == group_id) else {
+            return false;
+        };
+        g.collapsed = !g.collapsed;
+        self.save();
+        true
+    }
+
+    pub fn ungroup_tabs(&mut self, group_id: &str) -> bool {
+        let had = self.groups.iter().any(|g| g.id == group_id);
+        if !had {
+            return false;
+        }
+        for t in &mut self.tabs {
+            if t.group_id == group_id {
+                t.group_id.clear();
+            }
+        }
+        self.groups.retain(|g| g.id != group_id);
+        self.save();
+        true
+    }
+
+    pub fn close_group_tabs(&mut self, group_id: &str, default_url: &str) -> Option<String> {
+        let ids: Vec<usize> = self
+            .tabs
+            .iter()
+            .filter(|t| t.group_id == group_id && !t.pinned)
+            .map(|t| t.id)
+            .collect();
+        if ids.is_empty() {
+            return None;
+        }
+        let mut last_switch = None;
+        for tid in ids {
+            if let Ok(Some(u)) = self.close_tab(tid, default_url, false) {
+                last_switch = Some(u);
+            }
+        }
+        self.prune_empty_groups();
+        last_switch
     }
 
     pub fn active_url(&self) -> String {
@@ -240,6 +413,7 @@ impl TabManager {
             muted: false,
             playing_audio: false,
             suspended: !activate,
+            group_id: String::new(),
         };
         if activate {
             self.tabs.push(item);
@@ -289,9 +463,13 @@ impl TabManager {
         let new_pinned = {
             let tab = self.tabs.iter_mut().find(|t| t.id == id)?;
             tab.pinned = !tab.pinned;
+            if tab.pinned {
+                tab.group_id.clear();
+            }
             tab.pinned
         };
         self.tabs.sort_by_key(|t| !t.pinned);
+        self.prune_empty_groups();
         self.save();
         Some(new_pinned)
     }
@@ -332,6 +510,7 @@ impl TabManager {
             || u.starts_with("fynexo://settings")
             || u.starts_with("fynexo://history")
             || u.starts_with("fynexo://bookmarks")
+            || u.starts_with("fynexo://downloads")
         {
             return;
         }
@@ -363,6 +542,7 @@ impl TabManager {
             muted: false,
             playing_audio: false,
             suspended: false,
+            group_id: String::new(),
         });
         self.active_id = id;
         self.save();
@@ -388,6 +568,7 @@ impl TabManager {
             muted: clone_item.muted,
             playing_audio: false,
             suspended: false,
+            group_id: clone_item.group_id,
         };
         self.tabs.insert(pos + 1, new_tab);
         self.active_id = new_id;
@@ -442,6 +623,7 @@ impl TabManager {
             self.push_closed(t);
         }
         self.tabs.clear();
+        self.groups.clear();
         self.counter += 1;
         let id = self.counter;
         self.tabs.push(TabItem {
@@ -455,6 +637,7 @@ impl TabManager {
             muted: false,
             playing_audio: false,
             suspended: false,
+            group_id: String::new(),
         });
         self.active_id = id;
         self.save();
@@ -483,6 +666,8 @@ impl TabManager {
                 t.url = default_url.to_string();
                 t.scroll_y = 0.0;
                 t.pinned = false;
+                t.group_id.clear();
+                self.groups.clear();
                 self.save();
                 return Ok(Some(default_url.to_string()));
             }
@@ -492,6 +677,7 @@ impl TabManager {
         let was_active = self.active_id == id;
         let pos = self.tabs.iter().position(|t| t.id == id);
         self.tabs.retain(|t| t.id != id);
+        self.prune_empty_groups();
 
         let res = if was_active {
             let next_idx = match pos {

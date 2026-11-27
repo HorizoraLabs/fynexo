@@ -23,6 +23,8 @@ pub struct AppState {
     pub chrome_extensions: Vec<ChromeExtensionEntry>,
     pub boot_hw_accel: bool,
     pub boot_chrome_ext_enabled: bool,
+    pub boot_proxy_mode: String,
+    pub boot_proxy_server: String,
     pub recent_downloads: Vec<DownloadEntry>,
     pub config_mtime: Option<SystemTime>,
     pub styles_mtime: Option<SystemTime>,
@@ -53,6 +55,9 @@ impl AppState {
         let boot_hw_accel = config.hw_accel;
         let boot_chrome_ext_enabled =
             cfg!(target_os = "windows") && config.chrome_extensions_enabled;
+        let boot_proxy_mode = AppConfig::normalize_proxy_mode(&config.proxy_mode).to_string();
+        let boot_proxy_server = AppConfig::sanitize_proxy_server(&config.proxy_server);
+        let recent_downloads = UserData::load_downloads();
 
         Self {
             config,
@@ -68,7 +73,9 @@ impl AppState {
             chrome_extensions,
             boot_hw_accel,
             boot_chrome_ext_enabled,
-            recent_downloads: Vec::new(),
+            boot_proxy_mode,
+            boot_proxy_server,
+            recent_downloads,
             config_mtime: AppConfig::mtime(),
             styles_mtime: ComponentStyles::mtime(),
             shortcuts_mtime: UserData::shortcuts_mtime(),
@@ -94,14 +101,17 @@ impl AppState {
         total_bytes: u64,
         speed_bps: u64,
         saved_path: Option<String>,
+        url: Option<String>,
     ) -> Option<String> {
         let now = now_unix_secs();
         let pos_opt = if id != 0 {
             self.recent_downloads.iter().position(|d| d.id == id)
         } else {
-            self.recent_downloads.iter().position(|d| d.name == name)
+            self.recent_downloads
+                .iter()
+                .position(|d| d.id == 0 && d.name == name && d.updated_at.abs_diff(now) <= 3)
         };
-        if let Some(pos) = pos_opt {
+        let transition = if let Some(pos) = pos_opt {
             let status_changed = self.recent_downloads[pos].status != status;
             self.recent_downloads[pos].name = name;
             self.recent_downloads[pos].status = status.clone();
@@ -112,6 +122,11 @@ impl AppState {
             if let Some(p) = saved_path {
                 if !p.is_empty() {
                     self.recent_downloads[pos].saved_path = p;
+                }
+            }
+            if let Some(u) = url {
+                if !u.is_empty() {
+                    self.recent_downloads[pos].url = u;
                 }
             }
             if status_changed && pos > 0 {
@@ -134,14 +149,63 @@ impl AppState {
                     bytes_received,
                     total_bytes,
                     speed_bps,
+                    url: url.unwrap_or_default(),
                     saved_path: saved_path.unwrap_or_default(),
                 },
             );
-            if self.recent_downloads.len() > 20 {
-                self.recent_downloads.truncate(20);
+            if self.recent_downloads.len() > 200 {
+                self.recent_downloads.truncate(200);
             }
             Some(status)
+        };
+        if transition.is_some() {
+            UserData::save_downloads(&self.recent_downloads);
         }
+        transition
+    }
+
+    pub fn delete_download_entry(&mut self, id: u64, name: &str, updated_at: u64) -> bool {
+        let before = self.recent_downloads.len();
+        if id != 0 {
+            self.recent_downloads.retain(|d| d.id != id);
+        } else {
+            let mut removed = false;
+            self.recent_downloads.retain(|d| {
+                if !removed && d.name == name && (updated_at == 0 || d.updated_at == updated_at) {
+                    removed = true;
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        let changed = self.recent_downloads.len() != before;
+        if changed {
+            UserData::save_downloads(&self.recent_downloads);
+        }
+        changed
+    }
+
+    pub fn clear_finished_downloads(&mut self) -> bool {
+        let before = self.recent_downloads.len();
+        self.recent_downloads
+            .retain(|d| d.status == "downloading" || d.status == "paused");
+        let changed = self.recent_downloads.len() != before;
+        if changed {
+            UserData::save_downloads(&self.recent_downloads);
+        }
+        changed
+    }
+
+    pub fn downloads_for_ui(&self) -> Vec<DownloadEntry> {
+        self.recent_downloads
+            .iter()
+            .map(|d| {
+                let mut cloned = d.clone();
+                cloned.saved_path.clear();
+                cloned
+            })
+            .collect()
     }
 
     pub fn resolve_download_path(&self, id: u64, filename: &str) -> Option<std::path::PathBuf> {
@@ -312,8 +376,10 @@ impl AppState {
             .iter()
             .map(HudChromeExtension::from)
             .collect();
+        let safe_cfg = self.config.redacted_for_external();
+        let safe_dls = self.downloads_for_ui();
         let slim = crate::config::HudBootPayload {
-            config: &self.config,
+            config: &safe_cfg,
             styles: &self.styles,
             active_theme,
             keybinds: &self.keybinds,
@@ -323,7 +389,7 @@ impl AppState {
             recent_searches: searches_slice,
             tabs,
             mode_themes: crate::config::collect_mode_themes(&self.config, &self.themes),
-            downloads: &self.recent_downloads,
+            downloads: &safe_dls[..safe_dls.len().min(30)],
             chrome_extensions,
             chrome_ext_engine_active: self.boot_chrome_ext_enabled,
             site_permissions: &self.site_permissions.origins,
@@ -347,8 +413,9 @@ impl AppState {
             .resolve_active_theme_ref()
             .unwrap_or_else(|| Self::default_theme_colors());
         let enabled_rules: Vec<&SiteRule> = self.site_rules.iter().filter(|r| r.enabled).collect();
+        let safe_cfg = self.config.redacted_for_external();
         let slim = crate::config::ContentBootPayload {
-            config: &self.config,
+            config: &safe_cfg,
             active_theme,
             keybinds: &self.keybinds,
             enabled_rules,
@@ -408,6 +475,25 @@ impl AppState {
         };
         crate::util::json_for_html_script(&slim)
     }
+
+    /// Serialize downloads manager boot JSON for `fynexo://downloads`.
+    pub fn downloads_boot_json(&self) -> String {
+        let active_theme = self
+            .resolve_active_theme_ref()
+            .unwrap_or_else(|| Self::default_theme_colors());
+        let safe_dls = self.downloads_for_ui();
+        let dir = crate::config::resolved_downloads_dir(&self.config.downloads_dir)
+            .to_string_lossy()
+            .to_string();
+        let slim = crate::config::DownloadsBootPayload {
+            config: &self.config,
+            styles: &self.styles,
+            active_theme,
+            downloads: &safe_dls,
+            downloads_dir: dir,
+        };
+        crate::util::json_for_html_script(&slim)
+    }
 }
 
 #[cfg(test)]
@@ -429,18 +515,19 @@ mod tests {
         crate::util::isolate_data_dir();
         let mut st = AppState::load();
         assert_eq!(
-            st.record_download(1, "a.zip".into(), "downloading".into(), 0, 1000, 0, None),
+            st.record_download(1, "a.zip".into(), "downloading".into(), 0, 1000, 0, None, Some("https://example.com/a.zip".into())),
             Some("downloading".to_string())
         );
         assert_eq!(
-            st.record_download(1, "a.zip".into(), "downloading".into(), 500, 1000, 250, None),
+            st.record_download(1, "a.zip".into(), "downloading".into(), 500, 1000, 250, None, None),
             None
         );
         assert_eq!(
-            st.record_download(1, "a.zip".into(), "completed".into(), 1000, 1000, 0, Some("C:/a.zip".into())),
+            st.record_download(1, "a.zip".into(), "completed".into(), 1000, 1000, 0, Some("C:/a.zip".into()), None),
             Some("completed".to_string())
         );
         assert_eq!(st.recent_downloads.len(), 1);
         assert_eq!(st.recent_downloads[0].saved_path, "C:/a.zip");
+        assert_eq!(st.recent_downloads[0].url, "https://example.com/a.zip");
     }
 }

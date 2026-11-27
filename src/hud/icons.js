@@ -491,6 +491,29 @@
                     ['path', { d: 'M3.2 8.8v3.3a1.4 1.4 0 0 0 1.4 1.4h6.8a1.4 1.4 0 0 0 1.4-1.4V8.8', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]
                 ]);
                 break;
+            case 'split':
+                svg = buildSvg(14, 14, '0 0 16 16', [
+                    ['rect', { x: '2.2', y: '2.6', width: '11.6', height: '10.8', rx: '1.8', stroke: 'currentColor', 'stroke-width': '1.35' }],
+                    ['path', { d: 'M8 2.8v10.4', stroke: 'currentColor', 'stroke-width': '1.35' }]
+                ]);
+                break;
+            case 'camera':
+                svg = buildSvg(14, 14, '0 0 16 16', [
+                    ['path', { d: 'M2.4 5.2A1.4 1.4 0 0 1 3.8 3.8h1.5l.9-1.4h3.6l.9 1.4h1.5a1.4 1.4 0 0 1 1.4 1.4v6.6a1.4 1.4 0 0 1-1.4 1.4H3.8a1.4 1.4 0 0 1-1.4-1.4V5.2z', stroke: 'currentColor', 'stroke-width': '1.35', 'stroke-linejoin': 'round' }],
+                    ['circle', { cx: '8', cy: '8.4', r: '2.2', stroke: 'currentColor', 'stroke-width': '1.35' }]
+                ]);
+                break;
+            case 'swap':
+                svg = buildSvg(13, 13, '0 0 16 16', [
+                    ['path', { d: 'M3 5.5h10M10.5 3L13 5.5 10.5 8M13 10.5H3M5.5 8L3 10.5 5.5 13', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'pip':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['rect', { x: '2', y: '3', width: '12', height: '10', rx: '1.6', stroke: 'currentColor', 'stroke-width': '1.35' }],
+                    ['rect', { x: '7.8', y: '7.4', width: '4.4', height: '3.6', rx: '0.8', fill: 'currentColor' }]
+                ]);
+                break;
             default:
                 return document.createElement('span');
         }

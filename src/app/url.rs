@@ -25,6 +25,11 @@ pub fn to_webview_url(url: &str) -> String {
         || base.eq_ignore_ascii_case("http://fynexo.localhost/bookmarks")
     {
         Some("bookmarks")
+    } else if base.eq_ignore_ascii_case("fynexo://downloads")
+        || base.starts_with("fynexo://downloads")
+        || base.eq_ignore_ascii_case("http://fynexo.localhost/downloads")
+    {
+        Some("downloads")
     } else {
         None
     };
@@ -63,6 +68,12 @@ pub fn normalize_logical_url(url: &str) -> String {
         || trimmed.contains("fynexo.bookmarks")
     {
         "fynexo://bookmarks".to_string()
+    } else if trimmed.starts_with("fynexo://downloads")
+        || trimmed.contains("fynexo.localhost/downloads")
+        || trimmed.contains("fynexo://localhost/downloads")
+        || trimmed.contains("fynexo.downloads")
+    {
+        "fynexo://downloads".to_string()
     } else if trimmed.starts_with("fynexo://newtab")
         || trimmed.contains("fynexo.localhost/newtab")
         || trimmed.contains("fynexo://localhost/newtab")
@@ -83,6 +94,7 @@ pub fn is_internal_url(url: &str) -> bool {
         || norm == "fynexo://settings"
         || norm == "fynexo://history"
         || norm == "fynexo://bookmarks"
+        || norm == "fynexo://downloads"
 }
 
 #[cfg(test)]

@@ -88,7 +88,9 @@ pub struct DownloadEntry {
     pub total_bytes: u64,
     #[serde(default)]
     pub speed_bps: u64,
-    #[serde(skip)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub url: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub saved_path: String,
 }
 
@@ -216,6 +218,16 @@ pub struct BookmarksBootPayload<'a> {
     pub styles: &'a ComponentStyles,
     pub active_theme: &'a ThemeColors,
     pub bookmarks: &'a [BookmarkItem],
+}
+
+/// Downloads manager boot payload for `fynexo://downloads`.
+#[derive(Serialize, Clone, Debug)]
+pub struct DownloadsBootPayload<'a> {
+    pub config: &'a AppConfig,
+    pub styles: &'a ComponentStyles,
+    pub active_theme: &'a ThemeColors,
+    pub downloads: &'a [DownloadEntry],
+    pub downloads_dir: String,
 }
 
 impl<'a> NewTabBootPayload<'a> {

@@ -393,14 +393,26 @@ pub fn effective_zoom_for_url(state: &AppState, raw_url: &str) -> f64 {
 }
 
 #[cfg(target_os = "windows")]
-pub fn windows_browser_args(hw_accel: bool) -> String {
+pub fn windows_browser_args(hw_accel: bool, proxy_mode: &str, proxy_server: &str) -> String {
     let gpu_args = if hw_accel {
         "--enable-gpu-rasterization --enable-zero-copy"
     } else {
         "--disable-gpu-rasterization --disable-gpu-compositing"
     };
+    let proxy_arg = match proxy_mode.trim().to_ascii_lowercase().as_str() {
+        "direct" => " --no-proxy-server".to_string(),
+        "custom" => {
+            let clean = crate::config::AppConfig::sanitize_proxy_server(proxy_server);
+            if clean.is_empty() {
+                String::new()
+            } else {
+                format!(" --proxy-server={}", clean)
+            }
+        }
+        _ => String::new(),
+    };
     format!(
-        "{} \
+        "{}{} \
         --enable-quic \
         --enable-smooth-scrolling \
         --disable-background-networking \
@@ -411,7 +423,7 @@ pub fn windows_browser_args(hw_accel: bool) -> String {
         --no-first-run \
         --disable-features=msWebOOUI,msPdfOOUI,Prerender2,TopicsAPI,Translate,MediaRouter,OptimizationHints \
         --enable-features=OverlayScrollbar,OverlayScrollbarWinStyle,OverlayScrollbarWinStyleAnimation,FluentOverlayScrollbar",
-        gpu_args
+        gpu_args, proxy_arg
     )
 }
 
@@ -431,18 +443,36 @@ pub fn build_tab_webview(
         (tm.get_state(), tm.is_incognito())
     };
     #[cfg(target_os = "windows")]
-    let (initial_script, boot_hw_accel, boot_chrome_ext, adblock_cfg, incognito, resolved_ua, default_zoom, allow_devtools) = {
+    let (
+        initial_script,
+        boot_hw_accel,
+        boot_chrome_ext,
+        boot_proxy_mode,
+        boot_proxy_server,
+        adblock_cfg,
+        incognito,
+        password_autosave,
+        general_autofill,
+        resolved_ua,
+        default_zoom,
+        allow_devtools,
+    ) = {
         let mut st = app_state.lock_safe();
         let _ = st.reload_if_changed();
         let role = hud::HudRole::ContentTab;
         let script = hud::generate_hud_script_for_role(&st, Some(&initial_tabs), role);
         let zoom = effective_zoom_for_url(&st, target_url);
+        let incog = st.config.incognito || tm_incog;
         (
             script,
             st.boot_hw_accel,
             st.boot_chrome_ext_enabled,
+            st.boot_proxy_mode.clone(),
+            st.boot_proxy_server.clone(),
             st.adblock.clone(),
-            st.config.incognito || tm_incog,
+            incog,
+            st.config.password_autosave && !incog,
+            st.config.general_autofill && !incog,
             st.config.resolved_user_agent(),
             zoom,
             cfg!(debug_assertions) || st.config.allow_page_eval,
@@ -475,7 +505,7 @@ pub fn build_tab_webview(
 
     #[cfg(target_os = "windows")]
     {
-        let args = windows_browser_args(boot_hw_accel);
+        let args = windows_browser_args(boot_hw_accel, &boot_proxy_mode, &boot_proxy_server);
         builder = builder
             .with_additional_browser_args(&args)
             .with_browser_extensions_enabled(boot_chrome_ext);
@@ -527,8 +557,12 @@ pub fn build_tab_webview(
     let page_host_for_nav = Arc::clone(&page_host);
     builder = builder.with_navigation_handler(move |url| {
         let lower = url.to_ascii_lowercase();
+        let is_view_source = lower
+            .strip_prefix("view-source:")
+            .is_some_and(|r| r.starts_with("http://") || r.starts_with("https://"));
         let is_standard = lower.starts_with("http://")
             || lower.starts_with("https://")
+            || is_view_source
             || lower.starts_with("fynexo://")
             || super::security::is_safe_chrome_extension_url(&url)
             || super::os_integration::is_safe_local_document_file_url(&url)
@@ -593,6 +627,7 @@ pub fn build_tab_webview(
                 total_bytes: 0,
                 speed_bps: 0,
                 saved_path: Some(saved_str),
+                url: Some(_url.to_string()),
             });
             true
         });
@@ -618,6 +653,7 @@ pub fn build_tab_webview(
                 total_bytes: 0,
                 speed_bps: 0,
                 saved_path,
+                url: None,
             });
         });
     }
@@ -671,8 +707,9 @@ pub fn build_tab_webview(
         let is_newtab = route == Some("newtab");
         let is_history = route == Some("history");
         let is_bookmarks = route == Some("bookmarks");
+        let is_downloads = route == Some("downloads");
 
-        if is_settings || is_newtab || is_history || is_bookmarks {
+        if is_settings || is_newtab || is_history || is_bookmarks || is_downloads {
             let html = {
                 let mut st = state_for_proto.lock_safe();
                 let _ = st.reload_if_changed();
@@ -688,6 +725,10 @@ pub fn build_tab_webview(
                     let boot_json = st.bookmarks_boot_json();
                     drop(st);
                     pages::bookmarks_html_from_json(&boot_json)
+                } else if is_downloads {
+                    let boot_json = st.downloads_boot_json();
+                    drop(st);
+                    pages::downloads_html_from_json(&boot_json)
                 } else {
                     let boot_json = st.newtab_boot_json();
                     drop(st);
@@ -794,7 +835,8 @@ pub fn build_tab_webview(
         }
         adblock::attach_windows_resilience(
             &webview,
-            incognito,
+            password_autosave,
+            general_autofill,
             win_id,
             tab_id_for_win,
             proxy_for_win.clone(),
@@ -828,13 +870,15 @@ pub fn build_extension_popup_webview(
     }
 
     #[cfg(target_os = "windows")]
-    let (boot_hw_accel, boot_chrome_ext);
+    let (boot_hw_accel, boot_chrome_ext, boot_proxy_mode, boot_proxy_server);
     let (incognito, resolved_ua, allow_devtools) = {
         let st = app_state.lock_safe();
         #[cfg(target_os = "windows")]
         {
             boot_hw_accel = st.boot_hw_accel;
             boot_chrome_ext = st.boot_chrome_ext_enabled;
+            boot_proxy_mode = st.boot_proxy_mode.clone();
+            boot_proxy_server = st.boot_proxy_server.clone();
         }
         (
             st.config.incognito,
@@ -854,7 +898,7 @@ pub fn build_extension_popup_webview(
 
     #[cfg(target_os = "windows")]
     {
-        let args = windows_browser_args(boot_hw_accel);
+        let args = windows_browser_args(boot_hw_accel, &boot_proxy_mode, &boot_proxy_server);
         builder = builder
             .with_additional_browser_args(&args)
             .with_browser_extensions_enabled(boot_chrome_ext);
@@ -925,7 +969,7 @@ pub fn build_hud_webview(
     event_proxy: &EventLoopProxy<UserEvent>,
 ) -> Result<(wry::WebView, Vec<HudRegionRectLogical>), Box<dyn Error>> {
     let initial_tabs = tab_manager.lock_safe().get_state();
-    let (incognito, boot_hw_accel, boot_chrome_ext, allow_devtools, hud_script) = {
+    let (incognito, boot_hw_accel, boot_chrome_ext, boot_proxy_mode, boot_proxy_server, allow_devtools, hud_script) = {
         let mut st = app_state.lock_safe();
         let _ = st.reload_if_changed();
         let script = hud::generate_hud_script_for_role(&st, Some(&initial_tabs), hud::HudRole::HudShell);
@@ -933,6 +977,8 @@ pub fn build_hud_webview(
             st.config.incognito || incognito_window,
             st.boot_hw_accel,
             st.boot_chrome_ext_enabled,
+            st.boot_proxy_mode.clone(),
+            st.boot_proxy_server.clone(),
             cfg!(debug_assertions) || st.config.allow_page_eval,
             script,
         )
@@ -944,7 +990,7 @@ pub fn build_hud_webview(
         .with_visible(true)
         .with_incognito(incognito);
 
-    let args = windows_browser_args(boot_hw_accel);
+    let args = windows_browser_args(boot_hw_accel, &boot_proxy_mode, &boot_proxy_server);
     builder = builder
         .with_additional_browser_args(&args)
         .with_browser_extensions_enabled(boot_chrome_ext);

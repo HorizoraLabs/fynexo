@@ -332,6 +332,44 @@ impl UserData {
         data_dir().join("fynexo_searches.json")
     }
 
+    pub fn downloads_path() -> PathBuf {
+        data_dir().join("fynexo_downloads.json")
+    }
+
+    pub fn load_downloads() -> Vec<super::payloads::DownloadEntry> {
+        let p = Self::downloads_path();
+        if !p.exists() {
+            return Vec::new();
+        }
+        let Ok(raw) = fs::read_to_string(&p) else {
+            return Vec::new();
+        };
+        let mut list = serde_json::from_str::<Vec<super::payloads::DownloadEntry>>(&raw)
+            .unwrap_or_default();
+        for item in &mut list {
+            if item.status == "downloading" || item.status == "paused" {
+                item.status = "interrupted".to_string();
+                item.speed_bps = 0;
+            }
+            item.id = 0;
+        }
+        if list.len() > 200 {
+            list.truncate(200);
+        }
+        list
+    }
+
+    pub fn save_downloads(list: &[super::payloads::DownloadEntry]) {
+        let slice = &list[..list.len().min(200)];
+        if let Ok(json) = serde_json::to_string(slice) {
+            crate::util::schedule_atomic_write(
+                Self::downloads_path(),
+                json.into_bytes(),
+                std::time::Duration::from_millis(300),
+            );
+        }
+    }
+
     pub fn load() -> Self {
         let legacy_path = data_dir().join("fynexo_userdata.json");
         let sc_path = Self::shortcuts_path();
@@ -620,6 +658,20 @@ impl UserData {
         true
     }
 
+    pub fn clear_history_since(&mut self, since_unix_secs: u64) -> usize {
+        let before = self.history.len();
+        if since_unix_secs == 0 {
+            self.history.clear();
+        } else {
+            self.history.retain(|h| h.visited_at < since_unix_secs);
+        }
+        let removed = before.saturating_sub(self.history.len());
+        if removed > 0 {
+            self.save_history();
+        }
+        removed
+    }
+
     pub fn remove_bookmark(&mut self, url: &str) -> bool {
         let key = normalize_url_key(url);
         let before = self.bookmarks.len();
@@ -630,6 +682,36 @@ impl UserData {
             self.save_shortcuts();
         }
         changed
+    }
+
+    pub fn reorder_bookmark(&mut self, from_url: &str, to_url: &str) -> bool {
+        let from_key = normalize_url_key(from_url);
+        let to_key = normalize_url_key(to_url);
+        if from_key.eq_ignore_ascii_case(to_key) {
+            return false;
+        }
+        let Some(from_idx) = self
+            .bookmarks
+            .iter()
+            .position(|b| normalize_url_key(&b.url).eq_ignore_ascii_case(from_key))
+        else {
+            return false;
+        };
+        let Some(to_idx) = self
+            .bookmarks
+            .iter()
+            .position(|b| normalize_url_key(&b.url).eq_ignore_ascii_case(to_key))
+        else {
+            return false;
+        };
+        if from_idx == to_idx {
+            return false;
+        }
+        let item = self.bookmarks.remove(from_idx);
+        let insert_at = to_idx.min(self.bookmarks.len());
+        self.bookmarks.insert(insert_at, item);
+        self.save_shortcuts();
+        true
     }
 
     pub fn record_visit(&mut self, title: &str, url: &str) -> bool {

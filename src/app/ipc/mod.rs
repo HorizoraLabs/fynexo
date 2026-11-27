@@ -96,6 +96,7 @@ pub(super) fn export_json_with_toast(
                 total_bytes: json.len() as u64,
                 speed_bps: 0,
                 saved_path: Some(saved_path.to_string_lossy().to_string()),
+                url: None,
             });
             let msg = if zh {
                 format!("{} {} 至下载目录", action_label, name_only)

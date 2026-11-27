@@ -5,9 +5,12 @@ pub mod memory;
 pub mod os_integration;
 pub mod scheduler;
 pub mod security;
+pub mod site_data;
 pub mod state;
 pub mod suggest;
+pub mod sync;
 pub mod tab_pool;
+pub mod translate;
 pub mod url;
 pub mod webview;
 
@@ -69,6 +72,10 @@ struct BrowserWindow {
     hud_layout_synced: bool,
     #[cfg(target_os = "windows")]
     content_bounds: ContentBounds,
+    #[cfg(target_os = "windows")]
+    split_tab_id: Option<usize>,
+    #[cfg(target_os = "windows")]
+    split_ratio: f64,
     incognito_window: bool,
     tab_manager: Arc<Mutex<TabManager>>,
     pool: TabPool,
@@ -79,7 +86,60 @@ struct BrowserWindow {
 }
 
 impl BrowserWindow {
+    #[cfg(target_os = "windows")]
+    fn split_pane_bounds(&self) -> (ContentBounds, ContentBounds) {
+        let cb = self.content_bounds;
+        let gap = 4u32;
+        if cb.width <= 320 {
+            return (cb, cb);
+        }
+        let ratio = self.split_ratio.clamp(0.25, 0.75);
+        let left_w = ((cb.width as f64) * ratio)
+            .round()
+            .clamp(160.0, (cb.width.saturating_sub(160 + gap)) as f64) as u32;
+        let right_w = cb.width.saturating_sub(left_w + gap);
+        let left = ContentBounds {
+            x: cb.x,
+            y: cb.y,
+            width: left_w,
+            height: cb.height,
+        };
+        let right = ContentBounds {
+            x: cb.x + (left_w + gap) as i32,
+            y: cb.y,
+            width: right_w,
+            height: cb.height,
+        };
+        (left, right)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn primary_content_bounds(&self) -> ContentBounds {
+        if self.split_tab_id.is_some_and(|sid| sid != self.active_tab_id) {
+            self.split_pane_bounds().0
+        } else {
+            self.content_bounds
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn sync_split_hud_state(&self, bridge_tok_js: &str) {
+        let active_split = self
+            .split_tab_id
+            .filter(|&sid| sid != self.active_tab_id)
+            .unwrap_or(0);
+        let ratio = self.split_ratio.clamp(0.25, 0.75);
+        let script = format!(
+            "window.__fynexo_set_split_state__ && window.__fynexo_set_split_state__({}, {:.4}, {});",
+            active_split, ratio, bridge_tok_js
+        );
+        let _ = self.hud_webview.evaluate_script(&script);
+    }
+
     fn reveal_tab_safe(&mut self, id: usize, bridge_tok_js: &str) {
+        #[cfg(target_os = "windows")]
+        let cbounds = self.primary_content_bounds();
+        #[cfg(not(target_os = "windows"))]
         let cbounds = self.content_bounds_val();
         let focus_tab = self.should_focus_content();
         #[cfg(target_os = "windows")]
@@ -88,13 +148,21 @@ impl BrowserWindow {
         let hud: Option<&wry::WebView> = None;
         self.pool
             .reveal_tab(id, cbounds, hud, focus_tab, bridge_tok_js);
+        #[cfg(target_os = "windows")]
+        if let Some(sid) = self.split_tab_id {
+            if sid != id && self.pool.contains(sid) {
+                let (_, right_b) = self.split_pane_bounds();
+                self.pool
+                    .show_secondary_tab(sid, right_b, Some(&self.hud_webview));
+            }
+        }
     }
 
     #[inline]
     fn content_bounds_val(&self) -> ContentBounds {
         #[cfg(target_os = "windows")]
         {
-            self.content_bounds
+            self.primary_content_bounds()
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -177,7 +245,20 @@ impl BrowserWindow {
         if let Some(vis) = self.pool.visible_webview() {
             place_behind_hud(vis, &self.hud_webview);
         }
-        self.pool.resize_all(self.content_bounds);
+        if let Some(sid) = self.split_tab_id {
+            if sid != self.active_tab_id && self.pool.contains(sid) {
+                let (left_b, right_b) = self.split_pane_bounds();
+                self.pool
+                    .show_secondary_tab(sid, right_b, Some(&self.hud_webview));
+                self.pool.resize_split(left_b, right_b);
+            } else {
+                self.pool.hide_secondary_tab();
+                self.pool.resize_all(self.content_bounds);
+            }
+        } else {
+            self.pool.hide_secondary_tab();
+            self.pool.resize_all(self.content_bounds);
+        }
     }
 }
 
@@ -310,6 +391,10 @@ fn spawn_browser_window(
         hud_layout_synced: false,
         #[cfg(target_os = "windows")]
         content_bounds: init_content_bounds,
+        #[cfg(target_os = "windows")]
+        split_tab_id: None,
+        #[cfg(target_os = "windows")]
+        split_ratio: 0.5,
         incognito_window,
         tab_manager,
         pool,
@@ -686,7 +771,18 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                                     script.push(' ');
                                     script.push_str(&nav_state_js(fg, &bridge_tok_js));
                                 }
+                                let dl_json_opt = {
+                                    let st = state_for_event.lock_safe();
+                                    serde_json::to_string(&st.downloads_for_ui()).ok()
+                                };
+                                if let Some(dl_json) = dl_json_opt {
+                                    script.push_str(&format!(
+                                        " window.__fynexo_set_downloads__ && window.__fynexo_set_downloads__({}, {});",
+                                        dl_json, bridge_tok_js
+                                    ));
+                                }
                                 let _ = bw.hud_webview.evaluate_script(&script);
+                                bw.sync_split_hud_state(&bridge_tok_js);
                             }
                         } else {
                             let rt_hash = crate::util::fnv1a_hash64(rt_json.as_bytes());
@@ -825,6 +921,15 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     bw.pool.prune_closed_tabs(&current_tabs);
+                    #[cfg(target_os = "windows")]
+                    if let Some(sid) = bw.split_tab_id {
+                        if !current_tabs.iter().any(|t| t.id == sid) || sid == bw.active_tab_id {
+                            bw.split_tab_id = None;
+                            bw.pool.hide_secondary_tab();
+                            bw.recompute_dual_layout();
+                            bw.sync_split_hud_state(&bridge_tok_js);
+                        }
+                    }
                     if bw.pool.visible_id() != Some(bw.active_tab_id)
                         && bw.pool.contains(bw.active_tab_id)
                         && bw.pool.pending_reveal_id() != Some(bw.active_tab_id)
@@ -933,6 +1038,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 total_bytes,
                 speed_bps,
                 saved_path,
+                url,
             }) => {
                 let (downloads_json, toast_msg) = {
                     let mut st = state_for_event.lock_safe();
@@ -944,6 +1050,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         total_bytes,
                         speed_bps,
                         saved_path,
+                        url,
                     );
                     let zh = crate::i18n::is_zh_locale(&st.config.language);
                     let msg = transition.map(|st_str| match st_str.as_str() {
@@ -952,6 +1059,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                                 format!("正在下载：{}", name)
                             } else {
                                 format!("Downloading {}", name)
+                            }
+                        }
+                        "paused" => {
+                            if zh {
+                                format!("已暂停下载：{}", name)
+                            } else {
+                                format!("Download paused: {}", name)
                             }
                         }
                         "completed" => {
@@ -976,15 +1090,15 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                             }
                         }
                     });
-                    (serde_json::to_string(&st.recent_downloads), msg)
+                    (serde_json::to_string(&st.downloads_for_ui()), msg)
                 };
                 if let Ok(dl_json) = &downloads_json {
                     let dl_script = format!(
-                        "window.__fynexo_set_downloads__ && window.__fynexo_set_downloads__({}, {});",
-                        dl_json, bridge_tok_js
+                        "window.__fynexo_set_downloads__ && window.__fynexo_set_downloads__({}, {}); window.__fynexo_on_downloads_update__ && window.__fynexo_on_downloads_update__({});",
+                        dl_json, bridge_tok_js, dl_json
                     );
                     for bw in windows.values() {
-                        bw.eval_hud(&dl_script);
+                        bw.eval_hud_and_tabs(&dl_script);
                     }
                 }
                 if let Some(msg) = toast_msg {
@@ -999,8 +1113,435 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
+            Event::UserEvent(UserEvent::PauseDownload(id)) => {
+                let _ = downloads::pause_download(id);
+            }
+            Event::UserEvent(UserEvent::ResumeDownload(id)) => {
+                let _ = downloads::resume_download(id);
+            }
             Event::UserEvent(UserEvent::CancelDownload(id)) => {
                 let _ = downloads::cancel_download(id);
+            }
+            Event::UserEvent(UserEvent::RetryDownload { win_id, url }) => {
+                if let Some(bw) = windows.get(&win_id) {
+                    if let Some(fg) = bw.pool.active_or_visible_webview(bw.active_tab_id) {
+                        let _ = fg.load_url(&url);
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::SyncDownloads) => {
+                let downloads_json = {
+                    let st = state_for_event.lock_safe();
+                    serde_json::to_string(&st.downloads_for_ui())
+                };
+                if let Ok(dl_json) = downloads_json {
+                    let dl_script = format!(
+                        "window.__fynexo_set_downloads__ && window.__fynexo_set_downloads__({}, {}); window.__fynexo_on_downloads_update__ && window.__fynexo_on_downloads_update__({});",
+                        dl_json, bridge_tok_js, dl_json
+                    );
+                    for bw in windows.values() {
+                        bw.eval_hud_and_tabs(&dl_script);
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::TranslateResult {
+                win_id,
+                tab_id,
+                req_id,
+                target_lang,
+                items,
+                error,
+            }) => {
+                if let Some(bw) = windows.get(&win_id) {
+                    let payload = serde_json::json!({
+                        "req_id": req_id,
+                        "target_lang": target_lang,
+                        "items": items.into_iter().map(|(id, text)| serde_json::json!({"id": id, "text": text})).collect::<Vec<_>>(),
+                        "error": error,
+                    });
+                    let script = format!(
+                        "window.__fynexo_on_translate_result__ && window.__fynexo_on_translate_result__({}, {});",
+                        payload, bridge_tok_js
+                    );
+                    if let Some(wv) = bw.pool.get_webview(tab_id).or_else(|| bw.pool.active_or_visible_webview(bw.active_tab_id)) {
+                        let _ = wv.evaluate_script(&script);
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::QuerySiteCookies {
+                win_id,
+                req_id,
+                uri,
+            }) => {
+                if let Some(bw) = windows.get(&win_id) {
+                    if let Some(fg) = bw.pool.active_or_visible_webview(bw.active_tab_id) {
+                        site_data::query_origin_cookies(
+                            fg,
+                            &uri,
+                            win_id,
+                            req_id,
+                            event_proxy_for_run.clone(),
+                        );
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::SiteCookiesResult {
+                win_id,
+                req_id,
+                uri,
+                cookies,
+            }) => {
+                if let Some(bw) = windows.get(&win_id) {
+                    let payload = serde_json::json!({
+                        "req_id": req_id,
+                        "uri": uri,
+                        "cookies": cookies,
+                    });
+                    let script = format!(
+                        "window.__fynexo_on_site_cookies__ && window.__fynexo_on_site_cookies__({}, {});",
+                        payload, bridge_tok_js
+                    );
+                    bw.eval_hud_and_tabs(&script);
+                }
+            }
+            Event::UserEvent(UserEvent::DeleteSiteCookie {
+                win_id,
+                name,
+                domain,
+                path,
+                uri,
+            }) => {
+                if let Some(bw) = windows.get(&win_id) {
+                    if let Some(fg) = bw.pool.active_or_visible_webview(bw.active_tab_id) {
+                        let _ = site_data::delete_site_cookie(fg, &name, &domain, &path);
+                        if !uri.is_empty() {
+                            site_data::query_origin_cookies(
+                                fg,
+                                &uri,
+                                win_id,
+                                0,
+                                event_proxy_for_run.clone(),
+                            );
+                        }
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::ClearOriginCookies { win_id, uri }) => {
+                let zh = crate::i18n::is_zh_locale(&state_for_event.lock_safe().config.language);
+                if let Some(bw) = windows.get(&win_id) {
+                    if let Some(fg) = bw.pool.active_or_visible_webview(bw.active_tab_id) {
+                        site_data::clear_origin_cookies(
+                            fg,
+                            &uri,
+                            win_id,
+                            event_proxy_for_run.clone(),
+                            zh,
+                        );
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::CaptureScreenshot(win_id)) => {
+                let (dl_dir, zh) = {
+                    let st = state_for_event.lock_safe();
+                    (
+                        crate::config::resolved_downloads_dir(&st.config.downloads_dir),
+                        crate::i18n::is_zh_locale(&st.config.language),
+                    )
+                };
+                if let Some(bw) = windows.get(&win_id) {
+                    let page_url = bw
+                        .tab_manager
+                        .lock_safe()
+                        .url_and_scroll_for(bw.active_tab_id)
+                        .0;
+                    if let Some(fg) = bw.pool.active_or_visible_webview(bw.active_tab_id) {
+                        site_data::capture_page_screenshot(
+                            fg,
+                            dl_dir,
+                            page_url,
+                            event_proxy_for_run.clone(),
+                            zh,
+                        );
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::SavePagePdf(win_id)) => {
+                let (dl_dir, zh) = {
+                    let st = state_for_event.lock_safe();
+                    (
+                        crate::config::resolved_downloads_dir(&st.config.downloads_dir),
+                        crate::i18n::is_zh_locale(&st.config.language),
+                    )
+                };
+                if let Some(bw) = windows.get(&win_id) {
+                    let (page_title, page_url) = {
+                        let tm = bw.tab_manager.lock_safe();
+                        let tab = tm.tabs.iter().find(|t| t.id == bw.active_tab_id);
+                        (
+                            tab.map(|t| t.title.clone()).unwrap_or_default(),
+                            tab.map(|t| t.url.clone()).unwrap_or_default(),
+                        )
+                    };
+                    if let Some(fg) = bw.pool.active_or_visible_webview(bw.active_tab_id) {
+                        site_data::print_page_to_pdf(
+                            fg,
+                            dl_dir,
+                            page_title,
+                            page_url,
+                            event_proxy_for_run.clone(),
+                            zh,
+                        );
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::SaveImageUrl { win_id: _, url }) => {
+                let (dl_dir, zh) = {
+                    let st = state_for_event.lock_safe();
+                    (
+                        crate::config::resolved_downloads_dir(&st.config.downloads_dir),
+                        crate::i18n::is_zh_locale(&st.config.language),
+                    )
+                };
+                site_data::save_image_url(url, dl_dir, event_proxy_for_run.clone(), zh);
+            }
+            Event::UserEvent(UserEvent::ClearBrowsingData {
+                win_id,
+                range_secs,
+                clear_history,
+                clear_cookies,
+                clear_cache,
+            }) => {
+                let zh = {
+                    let mut st = state_for_event.lock_safe();
+                    let is_zh = crate::i18n::is_zh_locale(&st.config.language);
+                    if clear_history {
+                        let since = if range_secs == 0 {
+                            0
+                        } else {
+                            crate::config::now_unix_secs().saturating_sub(range_secs)
+                        };
+                        st.userdata.clear_history_since(since);
+                    }
+                    is_zh
+                };
+                if clear_history {
+                    let _ = event_proxy_for_run.send_event(UserEvent::SyncConfig);
+                }
+                if clear_cookies || clear_cache {
+                    if let Some(bw) = windows.get(&win_id) {
+                        if let Some(fg) = bw.pool.active_or_visible_webview(bw.active_tab_id) {
+                            site_data::clear_browsing_data_in_range(
+                                fg,
+                                clear_cookies,
+                                clear_cache,
+                                range_secs,
+                                event_proxy_for_run.clone(),
+                                zh,
+                            );
+                        }
+                    }
+                } else if clear_history {
+                    let _ = event_proxy_for_run.send_event(UserEvent::Toast(if zh {
+                        "已按选定范围清理浏览历史".to_string()
+                    } else {
+                        "Cleared browsing history for selected range".to_string()
+                    }));
+                }
+            }
+            Event::UserEvent(UserEvent::ToggleSplitView { win_id, tab_id }) => {
+                #[cfg(target_os = "windows")]
+                if let Some(bw) = windows.get_mut(&win_id) {
+                    let desired_sid = match tab_id {
+                        Some(explicit_id) if explicit_id != bw.active_tab_id => Some(explicit_id),
+                        None if bw.split_tab_id.is_some() => None,
+                        _ => {
+                            let tm = bw.tab_manager.lock_safe();
+                            tm.tabs
+                                .iter()
+                                .find(|t| t.id != bw.active_tab_id)
+                                .map(|t| t.id)
+                        }
+                    };
+                    let target_sid = if let Some(sid) = desired_sid {
+                        Some(sid)
+                    } else if tab_id.is_none() && bw.split_tab_id.is_some() {
+                        None
+                    } else {
+                        let hp = state_for_event.lock_safe().config.homepage.clone();
+                        let (new_id, _) = bw.tab_manager.lock_safe().new_tab_with_focus(&hp, false);
+                        Some(new_id)
+                    };
+
+                    if let Some(sid) = target_sid {
+                        if !bw.pool.contains(sid) {
+                            let tab_url = bw.tab_manager.lock_safe().url_and_scroll_for(sid).0;
+                            let phys = to_webview_url(&tab_url);
+                            let (_, right_b) = bw.split_pane_bounds();
+                            if let Ok(new_tv) = build_tab_webview(
+                                &bw.window,
+                                &mut web_context,
+                                TabLaunch {
+                                    win_id: bw.win_id,
+                                    tab_id: sid,
+                                    url: &phys,
+                                    visible: true,
+                                    init_bounds: right_b,
+                                },
+                                &state_for_event,
+                                &bw.tab_manager,
+                                reveal_scheduler.proxy(),
+                            ) {
+                                bw.pool.insert_live(sid, new_tv);
+                            }
+                        }
+                        bw.split_tab_id = Some(sid);
+                        bw.recompute_dual_layout();
+                        bw.sync_split_hud_state(&bridge_tok_js);
+                        let _ = event_proxy_for_run.send_event(UserEvent::SyncTabs(win_id));
+                    } else {
+                        bw.split_tab_id = None;
+                        bw.pool.hide_secondary_tab();
+                        bw.recompute_dual_layout();
+                        bw.sync_split_hud_state(&bridge_tok_js);
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                let _ = (win_id, tab_id);
+            }
+            Event::UserEvent(UserEvent::SetSplitRatio { win_id, ratio }) => {
+                #[cfg(target_os = "windows")]
+                if let Some(bw) = windows.get_mut(&win_id) {
+                    if bw.split_tab_id.is_some() {
+                        bw.split_ratio = ratio.clamp(0.25, 0.75);
+                        let (left_b, right_b) = bw.split_pane_bounds();
+                        bw.pool.resize_split(left_b, right_b);
+                        bw.sync_split_hud_state(&bridge_tok_js);
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                let _ = (win_id, ratio);
+            }
+            Event::UserEvent(UserEvent::SwapSplitPanes(win_id)) => {
+                #[cfg(target_os = "windows")]
+                if let Some(bw) = windows.get_mut(&win_id) {
+                    if let Some(sid) = bw.split_tab_id {
+                        let old_active = bw.active_tab_id;
+                        if sid != old_active {
+                            bw.split_tab_id = Some(old_active);
+                            let next_url = bw
+                                .tab_manager
+                                .lock_safe()
+                                .switch_tab(sid)
+                                .unwrap_or_else(|| "fynexo://newtab".to_string());
+                            perform_switch_tab(
+                                bw,
+                                sid,
+                                &next_url,
+                                &mut web_context,
+                                &state_for_event,
+                                &reveal_scheduler,
+                                &bridge_tok_js,
+                            );
+                            bw.recompute_dual_layout();
+                            bw.sync_split_hud_state(&bridge_tok_js);
+                            let _ = event_proxy_for_run.send_event(UserEvent::SyncTabs(win_id));
+                        }
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                let _ = win_id;
+            }
+            Event::UserEvent(UserEvent::CloseSplitView(win_id)) => {
+                #[cfg(target_os = "windows")]
+                if let Some(bw) = windows.get_mut(&win_id) {
+                    if bw.split_tab_id.is_some() {
+                        bw.split_tab_id = None;
+                        bw.pool.hide_secondary_tab();
+                        bw.recompute_dual_layout();
+                        bw.sync_split_hud_state(&bridge_tok_js);
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                let _ = win_id;
+            }
+            Event::UserEvent(UserEvent::CloudSyncResult {
+                action,
+                ok,
+                message,
+                pulled_bundle,
+            }) => {
+                if ok {
+                    let mut st = state_for_event.lock_safe();
+                    st.config.sync_last_at = crate::config::now_unix_secs();
+                    if let Some(bundle) = pulled_bundle {
+                        if !bundle.bookmarks.is_empty() {
+                            st.userdata.bookmarks = bundle.bookmarks;
+                            st.userdata.save_shortcuts();
+                            st.shortcuts_mtime = crate::config::UserData::shortcuts_mtime();
+                        }
+                        if !bundle.site_rules.is_empty() {
+                            st.site_rules = bundle.site_rules;
+                            crate::config::SiteRulesStore::save(&st.site_rules);
+                            st.rules_mtime = crate::config::SiteRulesStore::mtime();
+                        }
+                        for th in bundle.custom_themes {
+                            if !th.builtin && !th.id.trim().is_empty() {
+                                let _ = crate::config::save_theme_preset(&th);
+                            }
+                        }
+                        st.themes = crate::config::load_all_themes();
+                        st.themes_stamp = crate::config::themes_stamp();
+                        if !bundle.theme.trim().is_empty() {
+                            st.config.theme = bundle.theme;
+                        }
+                        if !bundle.language.trim().is_empty() {
+                            st.config.language = bundle.language;
+                        }
+                        if !bundle.search_engine.trim().is_empty() {
+                            st.config.search_engine = bundle.search_engine;
+                        }
+                        if security::is_safe_navigation_target(&bundle.homepage) {
+                            st.config.homepage = bundle.homepage;
+                        }
+                        st.config.adblock = bundle.adblock;
+                        st.config.force_dark = bundle.force_dark;
+                        st.config.https_first = bundle.https_first;
+                        crate::adblock::set_enabled(st.config.adblock);
+                    }
+                    st.config.save();
+                    st.config_mtime = crate::config::AppConfig::mtime();
+                    drop(st);
+                    let _ = event_proxy_for_run.send_event(UserEvent::SyncConfig);
+                }
+                let _ = action;
+                let _ = event_proxy_for_run.send_event(UserEvent::Toast(message));
+            }
+            #[cfg(target_os = "android")]
+            Event::UserEvent(UserEvent::AndroidCloudSyncHttp {
+                action,
+                provider,
+                method,
+                url,
+                headers_json,
+                body,
+            }) => {
+                if let Some(bw) = windows.get(&focused_win_id).or_else(|| windows.values().next()) {
+                    let payload = serde_json::json!({
+                        "action": action,
+                        "provider": provider,
+                        "method": method,
+                        "url": url,
+                        "headers_json": headers_json,
+                        "body": body.unwrap_or_default(),
+                    });
+                    if let Ok(p_json) = serde_json::to_string(&payload) {
+                        let script = format!(
+                            "window.__fynexo_android_cloud_sync__ && window.__fynexo_android_cloud_sync__({}, {});",
+                            p_json, bridge_tok_js
+                        );
+                        bw.eval_hud_and_tabs(&script);
+                    }
+                }
             }
             Event::UserEvent(UserEvent::ExternalLaunch { url }) => {
                 let target_wid = if windows.contains_key(&focused_win_id) {
@@ -1122,6 +1663,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             Event::UserEvent(UserEvent::SyncAutofill(enabled)) => {
+                #[cfg(target_os = "windows")]
+                let (pw_save, gen_autofill) = {
+                    let st = state_for_event.lock_safe();
+                    (st.config.password_autosave, st.config.general_autofill)
+                };
                 for bw in windows.values() {
                     let global_incog = !enabled;
                     bw.tab_manager
@@ -1129,9 +1675,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         .set_incognito(global_incog || bw.incognito_window);
                     #[cfg(target_os = "windows")]
                     {
-                        let effective = enabled && !bw.incognito_window;
+                        let allow = enabled && !bw.incognito_window;
                         for wv in bw.pool.all_webviews() {
-                            adblock::apply_windows_autofill(wv, effective);
+                            adblock::apply_windows_autofill(
+                                wv,
+                                allow && pw_save,
+                                allow && gen_autofill,
+                            );
                         }
                     }
                 }
@@ -2534,7 +3084,7 @@ fn serialize_runtime_for_win(
             serde_json::to_string(&state.payload())
         }
     } else if win_incognito && !state.config.incognito {
-        let mut cfg = state.config.clone();
+        let mut cfg = state.config.redacted_for_external();
         cfg.incognito = true;
         let active_theme = state
             .resolve_active_theme_ref()
@@ -2564,6 +3114,7 @@ fn serialize_runtime_for_win(
                 .iter()
                 .map(HudChromeExtension::from)
                 .collect();
+            let ui_downloads = state.downloads_for_ui();
             let slim = crate::config::HudBootPayload {
                 config: &cfg,
                 styles: &state.styles,
@@ -2575,7 +3126,7 @@ fn serialize_runtime_for_win(
                 recent_searches: searches_slice,
                 tabs: None,
                 mode_themes: crate::config::collect_mode_themes(&cfg, &state.themes),
-                downloads: &state.recent_downloads,
+                downloads: &ui_downloads,
                 chrome_extensions,
                 chrome_ext_engine_active: state.boot_chrome_ext_enabled,
                 site_permissions: &state.site_permissions.origins,

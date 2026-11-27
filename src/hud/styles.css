@@ -2749,3 +2749,360 @@
                     height: calc(100vh - var(--fnx-topbar-live, 0px));
                     transition: none;
                 }
+
+                /* Colored Collapsible Tab Groups */
+                .fnx-tab-group-pill {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    height: 22px;
+                    padding: 0 8px;
+                    margin: 0 3px 0 2px;
+                    border-radius: 6px;
+                    border: 1px solid color-mix(in srgb, var(--fnx-grp-c, #7C86FF) 42%, transparent);
+                    background: color-mix(in srgb, var(--fnx-grp-c, #7C86FF) 16%, transparent);
+                    color: var(--fnx-fg);
+                    font-size: 11px;
+                    font-weight: 600;
+                    white-space: nowrap;
+                    cursor: pointer;
+                    flex-shrink: 0;
+                    align-self: center;
+                    transition: background 0.14s ease, border-color 0.14s ease;
+                }
+                .fnx-tab-group-pill:hover {
+                    background: color-mix(in srgb, var(--fnx-grp-c, #7C86FF) 26%, transparent);
+                    border-color: color-mix(in srgb, var(--fnx-grp-c, #7C86FF) 68%, transparent);
+                }
+                .fnx-tab-group-dot {
+                    width: 7px;
+                    height: 7px;
+                    border-radius: 50%;
+                    background: var(--fnx-grp-c, #7C86FF);
+                    flex-shrink: 0;
+                }
+                .fnx-tab-group-cnt {
+                    font-size: 10px;
+                    opacity: 0.72;
+                    font-variant-numeric: tabular-nums;
+                }
+                .fnx-tab-item.in-group {
+                    box-shadow: inset 0 -2px 0 var(--fnx-grp-c, #7C86FF);
+                }
+                .fnx-tab-item.in-split::after {
+                    content: '';
+                    width: 5px;
+                    height: 5px;
+                    border-radius: 50%;
+                    background: var(--fnx-accent);
+                    flex-shrink: 0;
+                    margin-right: 2px;
+                }
+
+                /* Dual-WebView Split Divider (Windows) */
+                #__fynexo_split_divider__ {
+                    position: fixed;
+                    top: var(--fnx-topbar-live, 82px);
+                    bottom: 0;
+                    width: 8px;
+                    margin-left: -4px;
+                    z-index: 2147483640;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: col-resize;
+                    user-select: none;
+                    pointer-events: auto;
+                }
+                #__fynexo_split_divider__::before {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    bottom: 0;
+                    left: 50%;
+                    width: 2px;
+                    transform: translateX(-50%);
+                    background: var(--fnx-border-hover);
+                    transition: background 0.14s ease, width 0.14s ease;
+                }
+                #__fynexo_split_divider__:hover::before,
+                #__fynexo_split_divider__.dragging::before {
+                    width: 3px;
+                    background: var(--fnx-accent);
+                }
+                .fnx-split-pill {
+                    position: relative;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 3px;
+                    padding: 4px 2px;
+                    border-radius: 99px;
+                    background: var(--fnx-panel);
+                    border: 1px solid var(--fnx-border-hover);
+                    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.36);
+                    opacity: 0.92;
+                    transition: opacity 0.14s ease, border-color 0.14s ease;
+                }
+                .fnx-split-pill:hover {
+                    opacity: 1;
+                    border-color: var(--fnx-accent);
+                }
+                .fnx-split-btn {
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 50%;
+                    border: none;
+                    background: transparent;
+                    color: var(--fnx-secondary);
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    padding: 0;
+                }
+                .fnx-split-btn:hover {
+                    background: var(--fnx-hover);
+                    color: var(--fnx-fg);
+                }
+
+                /* Site Info Cookie Inspector */
+                .fnx-cookie-box {
+                    display: none;
+                    flex-direction: column;
+                    gap: 4px;
+                    padding-top: 8px;
+                    border-top: 1px solid var(--fnx-border);
+                }
+                .fnx-cookie-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 3px;
+                    max-height: 118px;
+                    overflow-y: auto;
+                }
+                .fnx-cookie-row {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 6px;
+                    padding: 3px 6px;
+                    border-radius: 6px;
+                    background: var(--fnx-surface);
+                    border: 1px solid var(--fnx-border);
+                    font-size: 11px;
+                }
+                .fnx-cookie-name {
+                    color: var(--fnx-fg);
+                    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    min-width: 0;
+                    flex: 1;
+                }
+                .fnx-cookie-tag {
+                    font-size: 9.5px;
+                    padding: 1px 4px;
+                    border-radius: 4px;
+                    background: var(--fnx-elevated);
+                    color: var(--fnx-secondary);
+                    flex-shrink: 0;
+                }
+                .fnx-cookie-del {
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 4px;
+                    border: none;
+                    background: transparent;
+                    color: var(--fnx-secondary);
+                    cursor: pointer;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 0;
+                    flex-shrink: 0;
+                }
+                .fnx-cookie-del:hover {
+                    background: var(--fnx-hover);
+                    color: #f87171;
+                }
+
+                /* In-Place Page Translator Bar */
+                #__fynexo_tr_bar__ {
+                    position: fixed;
+                    top: 12px;
+                    right: 14px;
+                    z-index: 2147483645;
+                    display: none;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 6px 10px;
+                    border-radius: 10px;
+                    background: var(--fnx-panel);
+                    border: 1px solid var(--fnx-border-hover);
+                    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36);
+                    color: var(--fnx-fg);
+                    font-size: 12px;
+                    pointer-events: auto;
+                }
+                .fnx-tr-sel {
+                    height: 24px;
+                    padding: 0 6px;
+                    border-radius: 6px;
+                    border: 1px solid var(--fnx-border);
+                    background: var(--fnx-surface);
+                    color: var(--fnx-fg);
+                    font-size: 11.5px;
+                    outline: none;
+                    cursor: pointer;
+                }
+                .fnx-tr-btn {
+                    height: 24px;
+                    padding: 0 8px;
+                    border-radius: 6px;
+                    border: 1px solid var(--fnx-border);
+                    background: var(--fnx-surface);
+                    color: var(--fnx-fg);
+                    font-size: 11.5px;
+                    cursor: pointer;
+                }
+                .fnx-tr-btn:hover {
+                    border-color: var(--fnx-accent);
+                }
+
+                /* Link Hover Status Bar (Chrome-style bottom-left URL preview) */
+                #__fynexo_status_bar__ {
+                    position: fixed;
+                    left: 0;
+                    bottom: 0;
+                    z-index: 2147483642;
+                    display: none;
+                    max-width: min(480px, 72vw);
+                    padding: 3px 10px;
+                    border-top-right-radius: 7px;
+                    border-top: 1px solid var(--fnx-border);
+                    border-right: 1px solid var(--fnx-border);
+                    background: color-mix(in srgb, var(--fnx-panel) 94%, transparent);
+                    color: var(--fnx-secondary);
+                    font-size: 11.5px;
+                    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    pointer-events: none;
+                    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.22);
+                }
+                #__fynexo_status_bar__.right {
+                    left: auto;
+                    right: 0;
+                    border-top-right-radius: 0;
+                    border-top-left-radius: 7px;
+                    border-right: none;
+                    border-left: 1px solid var(--fnx-border);
+                }
+
+                /* Time-Range Clear Browsing Data Modal (Ctrl+Shift+Del) */
+                #__fynexo_clear_data_root__ {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 2147483646;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    background: rgba(0, 0, 0, 0.45);
+                    pointer-events: auto;
+                }
+                #__fynexo_shell__.fnx-role-hud #__fynexo_clear_data_root__ {
+                    background: transparent !important;
+                }
+                #__fynexo_clear_data_card__ {
+                    width: min(400px, calc(100vw - 28px));
+                    background: var(--fnx-panel);
+                    border: 1px solid var(--fnx-border-hover);
+                    border-radius: 14px;
+                    padding: 16px 18px;
+                    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.52);
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    color: var(--fnx-fg);
+                }
+                .fnx-cd-head {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 8px;
+                }
+                .fnx-cd-title {
+                    font-size: 14.5px;
+                    font-weight: 600;
+                }
+                .fnx-cd-seg {
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 4px;
+                    padding: 3px;
+                    border-radius: 9px;
+                    background: var(--fnx-surface);
+                    border: 1px solid var(--fnx-border);
+                }
+                .fnx-cd-seg-btn {
+                    height: 27px;
+                    border-radius: 6px;
+                    border: none;
+                    background: transparent;
+                    color: var(--fnx-secondary);
+                    font-size: 11.5px;
+                    font-weight: 500;
+                    cursor: pointer;
+                }
+                .fnx-cd-seg-btn.active {
+                    background: var(--fnx-accent);
+                    color: #ffffff;
+                }
+                .fnx-cd-checks {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                }
+                .fnx-cd-chk {
+                    display: flex;
+                    align-items: center;
+                    gap: 9px;
+                    padding: 8px 10px;
+                    border-radius: 9px;
+                    background: var(--fnx-surface);
+                    border: 1px solid var(--fnx-border);
+                    cursor: pointer;
+                    font-size: 12.5px;
+                }
+                .fnx-cd-chk input {
+                    accent-color: var(--fnx-accent);
+                    width: 14px;
+                    height: 14px;
+                    margin: 0;
+                    cursor: pointer;
+                }
+                .fnx-cd-actions {
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 8px;
+                    margin-top: 2px;
+                }
+                .fnx-cd-btn {
+                    height: 30px;
+                    padding: 0 14px;
+                    border-radius: 8px;
+                    border: 1px solid var(--fnx-border-hover);
+                    background: var(--fnx-surface);
+                    color: var(--fnx-fg);
+                    font-size: 12px;
+                    font-weight: 500;
+                    cursor: pointer;
+                }
+                .fnx-cd-btn.danger {
+                    background: #dc2626;
+                    border-color: #dc2626;
+                    color: #ffffff;
+                }

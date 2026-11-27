@@ -164,8 +164,14 @@ pub fn is_allowed_hud_action(action: &str) -> bool {
         "open_omnibox"
             | "open_command_palette"
             | "open_history"
+            | "open_downloads"
+            | "open_tab_search"
+            | "open_clear_data"
             | "toggle_downloads"
             | "toggle_side_panel"
+            | "toggle_split_view"
+            | "capture_screenshot"
+            | "toggle_translate"
             | "toggle_bookmark"
             | "copy_url"
             | "toggle_preferences"
@@ -206,6 +212,9 @@ fn is_content_tab_allowed_command(cmd: &str) -> bool {
             | "HUD_ACTION"
             | "CONTENT_POINTER_DOWN"
             | "CONTENT_PAGE_META"
+            | "TRANSLATE_BATCH"
+            | "SAVE_PAGE_PDF"
+            | "SAVE_IMAGE_URL"
     )
 }
 
@@ -245,6 +254,10 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
             | "TOGGLE_FULLSCREEN"
             | "SET_ZOOM"
             | "TOGGLE_BOOKMARK"
+            | "REORDER_BOOKMARK"
+            | "EDIT_BOOKMARK"
+            | "SET_BOOKMARK_FOLDER"
+            | "REMOVE_BOOKMARK"
             | "RECORD_SEARCH"
             | "REMOVE_SEARCH"
             | "DELETE_HISTORY_ITEM"
@@ -252,6 +265,31 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
             | "OPEN_DOWNLOADS_DIR"
             | "OPEN_DOWNLOAD_FILE"
             | "REVEAL_DOWNLOAD_FILE"
+            | "PAUSE_DOWNLOAD"
+            | "RESUME_DOWNLOAD"
+            | "CANCEL_DOWNLOAD"
+            | "RETRY_DOWNLOAD"
+            | "DELETE_DOWNLOAD_ENTRY"
+            | "CLEAR_DOWNLOADS_HISTORY"
+            | "CREATE_TAB_GROUP"
+            | "SET_TAB_GROUP"
+            | "UPDATE_TAB_GROUP"
+            | "TOGGLE_TAB_GROUP_COLLAPSE"
+            | "UNGROUP_TABS"
+            | "CLOSE_TAB_GROUP"
+            | "TOGGLE_SPLIT_VIEW"
+            | "SET_SPLIT_TAB"
+            | "SET_SPLIT_RATIO"
+            | "SWAP_SPLIT_PANES"
+            | "CLOSE_SPLIT_VIEW"
+            | "CAPTURE_SCREENSHOT"
+            | "SAVE_PAGE_PDF"
+            | "SAVE_IMAGE_URL"
+            | "CLEAR_BROWSING_DATA"
+            | "TRANSLATE_BATCH"
+            | "GET_SITE_COOKIES"
+            | "DELETE_SITE_COOKIE"
+            | "CLEAR_ORIGIN_COOKIES"
             | "GET_TABS"
             | "PATCH_HUD_PREFS"
             | "GET_CONFIG"
@@ -359,6 +397,7 @@ fn is_exact_internal_target(lower: &str) -> bool {
         "fynexo://settings",
         "fynexo://history",
         "fynexo://bookmarks",
+        "fynexo://downloads",
     ] {
         if let Some(rest) = lower.strip_prefix(prefix) {
             if rest.is_empty()
@@ -381,8 +420,12 @@ pub fn is_safe_navigation_target(url: &str) -> bool {
         return false;
     }
     let lower = trimmed.to_ascii_lowercase();
+    let is_view_source = lower
+        .strip_prefix("view-source:")
+        .is_some_and(|rest| rest.starts_with("http://") || rest.starts_with("https://"));
     lower.starts_with("http://")
         || lower.starts_with("https://")
+        || is_view_source
         || is_exact_internal_target(&lower)
         || lower == "about:blank"
 }
@@ -437,6 +480,7 @@ pub fn resolve_internal_route(host: &str, path: &str) -> Option<&'static str> {
         "settings" => Some("settings"),
         "history" => Some("history"),
         "bookmarks" => Some("bookmarks"),
+        "downloads" => Some("downloads"),
         "" | "newtab" => Some("newtab"),
         "hud" => Some("hud"),
         _ => None,

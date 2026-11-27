@@ -96,6 +96,16 @@
       typeof window.__fynexo_android__.syncNavState === 'function'
          ? window.__fynexo_android__.syncNavState.bind(window.__fynexo_android__)
          : null;
+   const __fnxAndroidTranslateBatch =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.translateBatch === 'function'
+         ? window.__fynexo_android__.translateBatch.bind(window.__fynexo_android__)
+         : null;
+   const __fnxAndroidCloudSync =
+      window.__fynexo_android__ &&
+      typeof window.__fynexo_android__.cloudSyncRequest === 'function'
+         ? window.__fynexo_android__.cloudSyncRequest.bind(window.__fynexo_android__)
+         : null;
    let lastAndroidBarThemeSig = '';
 
    function triggerAndroidHaptic(kind) {
@@ -1241,6 +1251,11 @@
             )
                return 'bookmarks';
             if (
+               host === 'downloads' ||
+               (host === 'localhost' && path === 'downloads')
+            )
+               return 'downloads';
+            if (
                host === 'newtab' ||
                (host === 'localhost' && (path === '' || path === 'newtab'))
             )
@@ -1254,6 +1269,7 @@
             if (path === 'settings') return 'settings';
             if (path === 'history') return 'history';
             if (path === 'bookmarks') return 'bookmarks';
+            if (path === 'downloads') return 'downloads';
             if (path === '' || path === 'newtab') return 'newtab';
          }
       } catch (_) {}
@@ -1272,6 +1288,10 @@
       return parseInternalRoute(rawUrl) === 'bookmarks';
    }
 
+   function isInternalDownloads(rawUrl) {
+      return parseInternalRoute(rawUrl) === 'downloads';
+   }
+
    function isInternalNewtab(rawUrl) {
       return parseInternalRoute(rawUrl) === 'newtab';
    }
@@ -1281,6 +1301,7 @@
          isInternalSettings(rawUrl) ||
          isInternalHistory(rawUrl) ||
          isInternalBookmarks(rawUrl) ||
+         isInternalDownloads(rawUrl) ||
          isInternalNewtab(rawUrl)
       );
    }
@@ -1291,12 +1312,14 @@
          if (isInternalSettings(raw)) return 'fynexo://settings';
          if (isInternalHistory(raw)) return 'fynexo://history';
          if (isInternalBookmarks(raw)) return 'fynexo://bookmarks';
+         if (isInternalDownloads(raw)) return 'fynexo://downloads';
          if (isInternalNewtab(raw)) return 'fynexo://newtab';
          return raw || 'fynexo://newtab';
       }
       if (isInternalSettings()) return 'fynexo://settings';
       if (isInternalHistory()) return 'fynexo://history';
       if (isInternalBookmarks()) return 'fynexo://bookmarks';
+      if (isInternalDownloads()) return 'fynexo://downloads';
       if (isInternalNewtab()) return 'fynexo://newtab';
       return window.location.href || '';
    }
@@ -1332,14 +1355,17 @@
       const prefTxt = zh ? '偏好设置' : 'Preferences';
       const histTxt = zh ? '浏览历史' : 'History';
       const bmTxt = zh ? '书签管理' : 'Bookmarks';
+      const dlTxt = zh ? '下载管理' : 'Downloads';
       if (!rawUrl && isInternalNewtab()) return ntTxt;
       if (!rawUrl && isInternalSettings()) return prefTxt;
       if (!rawUrl && isInternalHistory()) return histTxt;
       if (!rawUrl && isInternalBookmarks()) return bmTxt;
+      if (!rawUrl && isInternalDownloads()) return dlTxt;
       if (isInternalNewtab(rawUrl)) return ntTxt;
       if (isInternalSettings(rawUrl)) return prefTxt;
       if (isInternalHistory(rawUrl)) return histTxt;
       if (isInternalBookmarks(rawUrl)) return bmTxt;
+      if (isInternalDownloads(rawUrl)) return dlTxt;
       if (!rawUrl || rawUrl === 'about:blank') return ntTxt;
       try {
          const parsed = new URL(rawUrl);
@@ -1356,6 +1382,7 @@
       if (isInternalNewtab(rawUrl)) return 'F';
       if (isInternalHistory(rawUrl)) return 'H';
       if (isInternalBookmarks(rawUrl)) return 'B';
+      if (isInternalDownloads(rawUrl)) return 'D';
       if (!rawUrl || isInternalSettings(rawUrl)) return 'S';
       try {
          const parsed = new URL(rawUrl);
@@ -2191,11 +2218,22 @@
         `
          : '';
 
+      const cleanFont = !isInt ? String(config.page_font_family || '').replace(/[<>{};]/g, '').trim() : '';
+      const minFs = !isInt ? Number(config.min_font_size) || 0 : 0;
+      const customTypographyCss =
+         (cleanFont
+            ? `body,p,article,main,section,li,td,th,dd,dt,blockquote,h1,h2,h3,h4,h5,h6{font-family:${cleanFont}!important;}`
+            : '') +
+         (minFs >= 10 && minFs <= 24
+            ? `html{font-size:max(100%,${minFs}px)!important;}body,p,li,td,th,dd,dt,blockquote{font-size:max(1em,${minFs}px);}`
+            : '');
+
       const nextCss =
          highlightCss +
          perfCss +
          forceDarkCss +
          adblockCss +
+         customTypographyCss +
          deskOffsetCss +
          mobOffsetCss;
       if (pageRulesEl.textContent !== nextCss) {
@@ -2721,12 +2759,15 @@
          activeHudBmFolder = '';
       }
 
+      let draggingBmUrl = '';
+
       function createBookmarkPill(b) {
          const pill = document.createElement('button');
          pill.type = 'button';
          pill.className = 'fnx-bm-pill';
+         pill.draggable = true;
          const label = b.title || formatHostLabel(b.url);
-         pill.title = `${label}\n${b.url} (Middle-click for new tab · Right-click to remove)`;
+         pill.title = `${label}\n${b.url}`;
 
          const iconBadge = document.createElement('span');
          iconBadge.className = 'fnx-bm-icon';
@@ -2738,6 +2779,41 @@
 
          pill.appendChild(iconBadge);
          pill.appendChild(textSpan);
+
+         pill.ondragstart = (e) => {
+            draggingBmUrl = b.url;
+            pill.style.opacity = '0.5';
+            if (e.dataTransfer) {
+               e.dataTransfer.effectAllowed = 'move';
+               try { e.dataTransfer.setData('text/plain', b.url); } catch (_) {}
+            }
+         };
+         pill.ondragover = (e) => {
+            if (draggingBmUrl && draggingBmUrl !== b.url) {
+               e.preventDefault();
+               pill.style.boxShadow = 'inset 2px 0 0 var(--fnx-accent)';
+            }
+         };
+         pill.ondragleave = () => {
+            pill.style.boxShadow = '';
+         };
+         pill.ondrop = (e) => {
+            e.preventDefault();
+            pill.style.boxShadow = '';
+            if (draggingBmUrl && draggingBmUrl !== b.url) {
+               sendIpc({
+                  type: 'REORDER_BOOKMARK',
+                  from_url: draggingBmUrl,
+                  to_url: b.url,
+               });
+            }
+            draggingBmUrl = '';
+         };
+         pill.ondragend = () => {
+            draggingBmUrl = '';
+            pill.style.opacity = '';
+            pill.style.boxShadow = '';
+         };
 
          pill.onclick = (e) => {
             flushScrollSync();
@@ -2761,8 +2837,85 @@
          pill.oncontextmenu = (e) => {
             e.preventDefault();
             e.stopPropagation();
-            sendIpc({ type: 'TOGGLE_BOOKMARK', title: label, url: b.url });
-            showHudToast((zh ? '已移除快捷方式：' : 'Removed shortcut: ') + label);
+            const bmEntries = [
+               {
+                  label: zh ? '在新标签页打开' : 'Open in new tab',
+                  icon: 'externalLink',
+                  onClick: () => sendIpc({ type: 'NEW_TAB', url: b.url, title: label, background: true }),
+               },
+               {
+                  label: zh ? '重命名书签...' : 'Rename bookmark...',
+                  icon: 'edit',
+                  onClick: () => {
+                     if (!openPromptModalRef) return;
+                     openPromptModalRef(
+                        {
+                           title: zh ? '重命名书签' : 'Rename bookmark',
+                           badge: zh ? '书签' : 'Bookmark',
+                           placeholder: zh ? '输入新标题…' : 'Bookmark title...',
+                           defaultValue: label,
+                           confirmText: zh ? '保存' : 'Save',
+                        },
+                        (val) => {
+                           const nextTitle = String(val || '').trim();
+                           if (nextTitle) {
+                              sendIpc({
+                                 type: 'EDIT_BOOKMARK',
+                                 orig_url: b.url,
+                                 url: b.url,
+                                 title: nextTitle,
+                                 folder: b.folder || '',
+                              });
+                           }
+                        },
+                     );
+                  },
+               },
+               { sep: true },
+               {
+                  label: zh ? '移入新建文件夹...' : 'Move to new folder...',
+                  icon: 'folder',
+                  onClick: () => {
+                     if (!openPromptModalRef) return;
+                     openPromptModalRef(
+                        {
+                           title: zh ? '移动到新文件夹' : 'Move to new folder',
+                           badge: zh ? '文件夹' : 'Folder',
+                           placeholder: zh ? '输入文件夹名称…' : 'Folder name...',
+                           confirmText: zh ? '移动' : 'Move',
+                        },
+                        (val) => {
+                           const fn = String(val || '').trim();
+                           if (fn) sendIpc({ type: 'SET_BOOKMARK_FOLDER', url: b.url, folder: fn });
+                        },
+                     );
+                  },
+               },
+            ];
+            folderOrder.forEach((fn) => {
+               if (fn && fn !== (b.folder || '')) {
+                  bmEntries.push({
+                     label: (zh ? '移至文件夹：' : 'Move to: ') + fn,
+                     onClick: () => sendIpc({ type: 'SET_BOOKMARK_FOLDER', url: b.url, folder: fn }),
+                  });
+               }
+            });
+            if (b.folder) {
+               bmEntries.push({
+                  label: zh ? '移出文件夹（根目录）' : 'Move to root bar',
+                  onClick: () => sendIpc({ type: 'SET_BOOKMARK_FOLDER', url: b.url, folder: '' }),
+               });
+            }
+            bmEntries.push(
+               { sep: true },
+               {
+                  label: zh ? '移除书签' : 'Remove bookmark',
+                  danger: true,
+                  icon: 'close',
+                  onClick: () => sendIpc({ type: 'REMOVE_BOOKMARK', url: b.url }),
+               },
+            );
+            renderContextMenu(e && e.clientX, e && e.clientY, bmEntries);
          };
          return pill;
       }
@@ -3736,14 +3889,36 @@
       }
    }
 
+   const TAB_GROUP_COLORS = {
+      blue: '#3B82F6',
+      purple: '#8B5CF6',
+      emerald: '#10B981',
+      amber: '#F59E0B',
+      rose: '#F43F5E',
+      cyan: '#06B6D4',
+   };
+   const TAB_GROUP_COLOR_KEYS = ['blue', 'purple', 'emerald', 'amber', 'rose', 'cyan'];
+   let splitTabId = 0;
+   let splitRatio = 0.5;
+   let syncSplitUiRef = null;
+   let onSiteCookiesCb = null;
+
    function computeTabsSig() {
       let s =
          String(tabState.active_id) +
          ':' +
          String(tabState.closed_count || 0) +
          ':' +
+         String(splitTabId || 0) +
+         ':' +
          (isZh() ? 'zh' : 'en') +
          '|';
+      const grps = Array.isArray(tabState.groups) ? tabState.groups : [];
+      for (let g = 0; g < grps.length; g++) {
+         const gr = grps[g];
+         s += 'G' + gr.id + ':' + (gr.title || '') + ':' + (gr.color || '') + ':' + (gr.collapsed ? '1' : '0') + ',';
+      }
+      s += '|';
       for (let i = 0; i < tabState.tabs.length; i++) {
          const t = tabState.tabs[i];
          s +=
@@ -3758,6 +3933,8 @@
             (t.playing_audio ? '1' : '0') +
             ':' +
             (t.suspended ? '1' : '0') +
+            ':' +
+            (t.group_id || 0) +
             ':' +
             (t.title || '') +
             ':' +
@@ -4146,8 +4323,104 @@
       renderContextMenu(cx, cy, entries);
    }
 
+   function showGroupContextMenu(e, grp) {
+      const zh = isZh();
+      const colorNames = zh
+         ? { blue: '蓝色', purple: '紫色', emerald: '翠绿', amber: '琥珀', rose: '玫红', cyan: '青色' }
+         : { blue: 'Blue', purple: 'Purple', emerald: 'Emerald', amber: 'Amber', rose: 'Rose', cyan: 'Cyan' };
+      const entries = [
+         {
+            label: grp.collapsed ? (zh ? '展开标签组' : 'Expand group') : (zh ? '折叠标签组' : 'Collapse group'),
+            onClick: () => sendIpc({ type: 'TOGGLE_TAB_GROUP_COLLAPSE', id: grp.id }),
+         },
+         {
+            label: zh ? '重命名标签组...' : 'Rename group...',
+            icon: 'edit',
+            onClick: () => {
+               if (!openPromptModalRef) return;
+               openPromptModalRef(
+                  {
+                     title: zh ? '重命名标签组' : 'Rename tab group',
+                     badge: zh ? '标签组' : 'Group',
+                     placeholder: zh ? '输入分组名称…' : 'Group name...',
+                     defaultValue: grp.title || '',
+                     confirmText: zh ? '保存' : 'Save',
+                  },
+                  (val) => {
+                     if (val !== null && val !== undefined) {
+                        sendIpc({ type: 'UPDATE_TAB_GROUP', id: grp.id, title: String(val).trim() });
+                     }
+                  },
+               );
+            },
+         },
+         { sep: true },
+      ];
+      TAB_GROUP_COLOR_KEYS.forEach((ck) => {
+         entries.push({
+            label: (grp.color === ck ? '● ' : '○ ') + (zh ? '颜色：' : 'Color: ') + colorNames[ck],
+            onClick: () => sendIpc({ type: 'UPDATE_TAB_GROUP', id: grp.id, color: ck }),
+         });
+      });
+      entries.push(
+         { sep: true },
+         {
+            label: zh ? '解散标签组' : 'Ungroup tabs',
+            onClick: () => sendIpc({ type: 'UNGROUP_TABS', id: grp.id }),
+         },
+         {
+            label: zh ? '关闭组内全部标签页' : 'Close group tabs',
+            danger: true,
+            icon: 'close',
+            onClick: () => sendIpc({ type: 'CLOSE_TAB_GROUP', id: grp.id }),
+         },
+      );
+      renderContextMenu(e && e.clientX, e && e.clientY, entries);
+   }
+
    function showTabContextMenu(e, tab, idx) {
       const zh = isZh();
+      const existingGroups = Array.isArray(tabState.groups) ? tabState.groups : [];
+      const groupEntries = [
+         {
+            label: zh ? '新建标签组...' : 'Add tab to new group...',
+            icon: 'folder',
+            onClick: () => {
+               if (!openPromptModalRef) {
+                  sendIpc({ type: 'CREATE_TAB_GROUP', tab_id: tab.id, title: zh ? '分组' : 'Group', color: 'blue' });
+                  return;
+               }
+               openPromptModalRef(
+                  {
+                     title: zh ? '新建标签组' : 'New tab group',
+                     badge: zh ? '标签组' : 'Group',
+                     description: zh ? '给标签组命名，将相关页面收纳在同一彩色标签组中。' : 'Organize related tabs into a collapsible colored group.',
+                     placeholder: zh ? '如：工作、调研、文档…' : 'e.g. Work, Research, Docs...',
+                     confirmText: zh ? '创建分组' : 'Create group',
+                  },
+                  (val) => {
+                     const title = String(val || '').trim() || (zh ? '分组' : 'Group');
+                     const color = TAB_GROUP_COLOR_KEYS[existingGroups.length % TAB_GROUP_COLOR_KEYS.length];
+                     sendIpc({ type: 'CREATE_TAB_GROUP', tab_id: tab.id, title, color });
+                  },
+               );
+            },
+         },
+      ];
+      existingGroups.forEach((g) => {
+         if (g && g.id !== tab.group_id) {
+            groupEntries.push({
+               label: (zh ? '加入分组：' : 'Add to group: ') + (g.title || ('#' + g.id)),
+               onClick: () => sendIpc({ type: 'SET_TAB_GROUP', tab_id: tab.id, group_id: g.id }),
+            });
+         }
+      });
+      if (tab.group_id) {
+         groupEntries.push({
+            label: zh ? '移出标签组' : 'Remove from group',
+            onClick: () => sendIpc({ type: 'SET_TAB_GROUP', tab_id: tab.id, group_id: null }),
+         });
+      }
       const entries = [
          {
             label: zh ? '重新加载标签页' : 'Reload tab',
@@ -4167,6 +4440,19 @@
             icon: 'copy',
             onClick: () => sendIpc({ type: 'DUPLICATE_TAB', id: tab.id }),
          },
+         !isMobilePlatform()
+            ? {
+                 label:
+                    splitTabId === tab.id
+                       ? (zh ? '关闭分屏视图' : 'Close split view')
+                       : (zh ? '在右侧分屏打开' : 'Open in split view'),
+                 icon: 'split',
+                 onClick: () =>
+                    splitTabId === tab.id
+                       ? sendIpc({ type: 'CLOSE_SPLIT_VIEW' })
+                       : sendIpc({ type: 'TOGGLE_SPLIT_VIEW', tab_id: tab.id }),
+              }
+            : null,
          !isMobilePlatform() && config.window_mode !== 'single'
             ? {
                  label: zh ? '移至新窗口' : 'Move tab to new window',
@@ -4174,6 +4460,9 @@
                  onClick: () => sendIpc({ type: 'DETACH_TAB', id: tab.id }),
               }
             : null,
+         { sep: true },
+         ...groupEntries,
+         { sep: true },
          {
             label: tab.pinned ? (zh ? '取消固定标签页' : 'Unpin tab') : (zh ? '固定标签页' : 'Pin tab'),
             icon: 'pin',
@@ -4385,10 +4674,44 @@
          entries.push({ sep: true });
       }
 
-      // 2. Image actions
+      // 2. Image & Video actions
       if (imgEl) {
          const imgSrc = imgEl.currentSrc || imgEl.src || '';
          if (imgSrc) {
+            if (/^(https?:|data:image\/)/i.test(imgSrc)) {
+               entries.push({
+                  label: zh ? '图片另存为...' : 'Save image as...',
+                  icon: 'download',
+                  onClick: () => sendIpc({ type: 'SAVE_IMAGE_URL', url: imgSrc }),
+               });
+            }
+            if (!isMobilePlatform() && typeof ClipboardItem !== 'undefined' && navigator.clipboard && navigator.clipboard.write) {
+               entries.push({
+                  label: zh ? '复制图片' : 'Copy image',
+                  icon: 'copy',
+                  onClick: () => {
+                     try {
+                        const c = document.createElement('canvas');
+                        c.width = imgEl.naturalWidth || imgEl.width || 1;
+                        c.height = imgEl.naturalHeight || imgEl.height || 1;
+                        const ctx2d = c.getContext('2d');
+                        ctx2d.drawImage(imgEl, 0, 0);
+                        c.toBlob((blob) => {
+                           if (!blob) {
+                              copyTextToClipboard(imgSrc, zh ? '图片地址已复制' : 'Image URL copied');
+                              return;
+                           }
+                           navigator.clipboard
+                              .write([new ClipboardItem({ 'image/png': blob })])
+                              .then(() => showHudToast(zh ? '图片已复制到剪贴板' : 'Image copied to clipboard'))
+                              .catch(() => copyTextToClipboard(imgSrc, zh ? '跨域受限，已复制图片地址' : 'Copied image URL'));
+                        }, 'image/png');
+                     } catch (_) {
+                        copyTextToClipboard(imgSrc, zh ? '跨域受限，已复制图片地址' : 'Copied image URL');
+                     }
+                  },
+               });
+            }
             if (/^https?:/i.test(imgSrc)) {
                entries.push({
                   label: zh ? '在新标签页打开图片' : 'Open image in new tab',
@@ -4403,12 +4726,23 @@
             }
             entries.push({
                label: zh ? '复制图片地址' : 'Copy image URL',
-               icon: 'copy',
+               icon: 'link',
                onClick: () =>
                   copyTextToClipboard(imgSrc, zh ? '图片地址已复制' : 'Image URL copied'),
             });
             entries.push({ sep: true });
          }
+      }
+      const vidEl = targetEl && targetEl.closest ? targetEl.closest('video') : null;
+      if (vidEl && typeof vidEl.requestPictureInPicture === 'function') {
+         entries.push({
+            label: document.pictureInPictureElement
+               ? (zh ? '退出视频画中画' : 'Exit Picture-in-Picture')
+               : (zh ? '视频画中画播放 (PiP)' : 'Picture-in-Picture'),
+            icon: 'pip',
+            onClick: () => triggerPictureInPicture(vidEl),
+         });
+         entries.push({ sep: true });
       }
 
       // 3. Editable input or text selection actions
@@ -4592,6 +4926,27 @@
             }, 30);
          },
       });
+      if (!isMobilePlatform()) {
+         entries.push({
+            label: zh ? '另存为 PDF...' : 'Save page as PDF...',
+            shortcut: 'Ctrl+S',
+            icon: 'fileText',
+            onClick: () => sendIpc({ type: 'SAVE_PAGE_PDF' }),
+         });
+         entries.push({
+            label: zh ? '截取当前页面' : 'Capture screenshot',
+            icon: 'camera',
+            onClick: () => sendIpc({ type: 'CAPTURE_SCREENSHOT' }),
+         });
+         if (/^https?:\/\//i.test(curUrl)) {
+            entries.push({
+               label: zh ? '查看网页源代码' : 'View page source',
+               shortcut: 'Ctrl+U',
+               icon: 'code',
+               onClick: () => sendIpc({ type: 'NEW_TAB', url: 'view-source:' + curUrl }),
+            });
+         }
+      }
       entries.push({
          label: isZh() ? '开发者调试抽屉' : 'Developer Drawer',
          shortcut: keybinds.dev_drawer || 'Ctrl+Shift+J',
@@ -4762,12 +5117,64 @@
                container.textContent = '';
                const frag = document.createDocumentFragment();
                let activeTabEl = null;
+               const groupById = Object.create(null);
+               const groupCounts = Object.create(null);
+               const rawGroups = Array.isArray(tabState.groups) ? tabState.groups : [];
+               for (let g = 0; g < rawGroups.length; g++) {
+                  const gr = rawGroups[g];
+                  if (gr && gr.id) groupById[gr.id] = gr;
+               }
+               for (let ti = 0; ti < tabState.tabs.length; ti++) {
+                  const gid = tabState.tabs[ti] && tabState.tabs[ti].group_id;
+                  if (gid && groupById[gid]) {
+                     groupCounts[gid] = (groupCounts[gid] || 0) + 1;
+                  }
+               }
+               const renderedGroups = Object.create(null);
 
                tabState.tabs.forEach((tab, idx) => {
                   const isActive = tab.id === tabState.active_id;
+                  const grp = tab.group_id ? groupById[tab.group_id] : null;
+                  if (grp && !renderedGroups[grp.id]) {
+                     renderedGroups[grp.id] = true;
+                     const pill = document.createElement('button');
+                     pill.type = 'button';
+                     pill.className = 'fnx-tab-group-pill';
+                     const hex = TAB_GROUP_COLORS[grp.color] || TAB_GROUP_COLORS.blue;
+                     pill.style.setProperty('--fnx-grp-c', hex);
+                     pill.title = isZh()
+                        ? '左键折叠/展开 · 右键管理标签组'
+                        : 'Click to collapse/expand · Right-click to manage group';
+                     const dot = document.createElement('span');
+                     dot.className = 'fnx-tab-group-dot';
+                     pill.appendChild(dot);
+                     const lbl = document.createElement('span');
+                     lbl.textContent = grp.title || (isZh() ? '分组' : 'Group');
+                     pill.appendChild(lbl);
+                     if (grp.collapsed) {
+                        const cnt = document.createElement('span');
+                        cnt.className = 'fnx-tab-group-cnt';
+                        cnt.textContent = String(groupCounts[grp.id] || 0);
+                        pill.appendChild(cnt);
+                     }
+                     pill.onclick = (ev) => {
+                        ev.stopPropagation();
+                        sendIpc({ type: 'TOGGLE_TAB_GROUP_COLLAPSE', id: grp.id });
+                     };
+                     pill.oncontextmenu = (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        showGroupContextMenu(ev, grp);
+                     };
+                     frag.appendChild(pill);
+                  }
+                  if (grp && grp.collapsed && !isActive && tab.id !== splitTabId) {
+                     return;
+                  }
                   const isSet = isInternalSettings(tab.url);
                   const isHist = isInternalHistory(tab.url);
                   const isBm = isInternalBookmarks(tab.url);
+                  const isDl = isInternalDownloads(tab.url);
                   const isNt = isInternalNewtab(tab.url);
                   const zh = isZh();
                   const cleanTitle = isSet
@@ -4776,15 +5183,22 @@
                        ? (zh ? '浏览历史' : 'History')
                        : isBm
                          ? (zh ? '书签管理' : 'Bookmarks')
-                         : isNt
-                           ? (zh ? '起始页' : 'Start page')
-                           : tab.title || (zh ? '新标签页' : 'New tab');
+                         : isDl
+                           ? (zh ? '下载管理' : 'Downloads')
+                           : isNt
+                             ? (zh ? '起始页' : 'Start page')
+                             : tab.title || (zh ? '新标签页' : 'New tab');
 
                   const el = document.createElement('div');
                   let cls = isActive ? 'fnx-tab-item active' : 'fnx-tab-item';
                   if (isActive && isPageLoading) cls += ' is-loading';
                   if (tab.pinned) cls += ' pinned';
                   if (tab.suspended && !isActive) cls += ' suspended';
+                  if (grp) {
+                     cls += ' in-group';
+                     el.style.setProperty('--fnx-grp-c', TAB_GROUP_COLORS[grp.color] || TAB_GROUP_COLORS.blue);
+                  }
+                  if (splitTabId && tab.id === splitTabId) cls += ' in-split';
                   el.className = cls;
                   el.setAttribute('role', 'tab');
                   el.setAttribute('aria-selected', isActive ? 'true' : 'false');
@@ -5064,6 +5478,15 @@
          { zh: '释放浏览器闲置内存', en: 'Flush idle browser RAM', kw: 'ram memory trim flush 内存 释放 清理', run: () => sendIpc({ type: 'FORCE_TRIM_MEMORY' }) },
          { zh: '打开性能与内存设置', en: 'Open Performance & Memory Settings', kw: 'performance ram memory eco preset 性能 内存 设置', run: () => sendIpc({ type: 'NAVIGATE', url: 'fynexo://settings#sec-performance' }) },
          { zh: '硬刷新并清理缓存', en: 'Hard reload & clear cache', kw: 'reload refresh cache 刷新 缓存', run: () => performHardCacheBustReload() },
+         { zh: '打开下载管理中心', en: 'Open Downloads Manager', kw: 'downloads manager files 下载 管理 文件', run: () => sendIpc({ type: 'NEW_TAB', url: 'fynexo://downloads' }) },
+         { zh: '搜索打开的标签页 (Ctrl+Shift+A)', en: 'Search Open Tabs (Ctrl+Shift+A)', kw: 'tabs search switch 标签 搜索 切换', run: () => { if (typeof openModalHudRef === 'function') openModalHudRef('tabs'); } },
+         { zh: '原地翻译当前网页', en: 'Translate Page In-Place', kw: 'translate page language 翻译 网页 双语', run: () => triggerPageTranslate() },
+         { zh: '切换双栏分屏视图', en: 'Toggle Split View', kw: 'split view dual pane 分屏 双栏', run: () => sendIpc({ type: 'TOGGLE_SPLIT_VIEW' }) },
+         { zh: '截取当前页面为 PNG', en: 'Capture Page Screenshot (PNG)', kw: 'screenshot capture png 截图 截屏', run: () => sendIpc({ type: 'CAPTURE_SCREENSHOT' }) },
+         { zh: '导出当前网页为 PDF (Ctrl+S)', en: 'Save Page as PDF (Ctrl+S)', kw: 'pdf save export print 保存 导出 网页', run: () => sendIpc({ type: 'SAVE_PAGE_PDF' }) },
+         { zh: '视频画中画 (PiP)', en: 'Toggle Video Picture-in-Picture', kw: 'pip video picture in picture 画中画 视频', run: () => triggerPictureInPicture() },
+         { zh: '按时间范围清除浏览数据', en: 'Clear Browsing Data (Ctrl+Shift+Del)', kw: 'clear browsing data history cookies cache 清除 清理 历史 缓存', run: () => { if (typeof openClearDataModalRef === 'function') openClearDataModalRef(); } },
+         { zh: '查看当前网页源代码 (Ctrl+U)', en: 'View Page Source (Ctrl+U)', kw: 'view source html 源码 源代码', run: () => { const u = canonicalCurrentUrl(); if (/^https?:\/\//i.test(u)) sendIpc({ type: 'NEW_TAB', url: 'view-source:' + u }); } },
          { zh: '打开偏好设置', en: 'Open Preferences', kw: 'settings preferences 设置 偏好', run: () => togglePreferences() },
       );
       return cmds.map((c) => ({ kind: 'cmd', title: '> ' + (zh ? c.zh : c.en), kw: (c.zh + ' ' + c.en + ' ' + c.kw).toLowerCase(), hint: zh ? '回车执行' : 'Enter to run', badge: zh ? '命令' : 'Command', run: c.run }));
@@ -5367,19 +5790,37 @@
          // 3. Open Tabs
          if (scope === 'all' || scope === 'tabs') {
             let tabCount = 0;
-            const tabMax = scope === 'tabs' ? 8 : !q ? 2 : 2;
+            const tabMax = scope === 'tabs' ? 16 : !q ? 2 : 2;
+            const grpMap = Object.create(null);
+            if (Array.isArray(tabState.groups)) {
+               tabState.groups.forEach((g) => {
+                  if (g && g.id) grpMap[g.id] = g;
+               });
+            }
             for (let i = 0; i < tabState.tabs.length && tabCount < tabMax; i++) {
                const t = tabState.tabs[i];
-               if (t.id === tabState.active_id || isInternalAny(t.url)) continue;
+               if (scope !== 'tabs' && (t.id === tabState.active_id || isInternalAny(t.url))) continue;
                const title = t.title || formatHostLabel(t.url);
                const url = t.url || '';
-               if (!q || title.toLowerCase().includes(q) || url.toLowerCase().includes(q)) {
+               const grpObj = t.group_id ? grpMap[t.group_id] : null;
+               const grpName = grpObj ? (grpObj.title || '') : '';
+               const hit =
+                  !q ||
+                  title.toLowerCase().includes(q) ||
+                  url.toLowerCase().includes(q) ||
+                  (grpName && grpName.toLowerCase().includes(q));
+               if (hit) {
+                  const badgeTxt = grpName
+                     ? grpName
+                     : t.id === tabState.active_id
+                       ? (zh ? '当前标签' : 'Current')
+                       : (zh ? '切换标签' : 'Switch tab');
                   pushCandidate({
                      kind: 'tab',
                      tabId: t.id,
                      title: title,
                      url: url,
-                     badge: zh ? '切换标签' : 'Switch tab',
+                     badge: badgeTxt,
                   });
                   tabCount++;
                }
@@ -6381,6 +6822,286 @@
       }
    });
 
+   exposeBridge('__fynexo_set_split_state__', function (sid, ratio) {
+      splitTabId = Number(sid) || 0;
+      if (typeof ratio === 'number' && Number.isFinite(ratio)) {
+         splitRatio = Math.max(0.25, Math.min(0.75, ratio));
+      }
+      if (typeof syncSplitUiRef === 'function') {
+         syncSplitUiRef();
+      }
+      renderTabs(true);
+      if (typeof syncHudLayoutRef === 'function') {
+         syncHudLayoutRef();
+      }
+   });
+
+   exposeBridge('__fynexo_on_site_cookies__', function (payload) {
+      if (typeof onSiteCookiesCb === 'function') {
+         onSiteCookiesCb(payload);
+      }
+   });
+
+   let openModalHudRef = null;
+   let openClearDataModalRef = null;
+   let isClearDataOpenRef = null;
+   let closeClearDataModalRef = null;
+
+   function triggerPictureInPicture(explicitVideo) {
+      const zh = isZh();
+      if (IS_HUD_SHELL) {
+         sendIpc({ type: 'CONTENT_ACTION', action: 'toggle_pip', payload: {} });
+         return;
+      }
+      try {
+         if (document.pictureInPictureElement) {
+            document.exitPictureInPicture().catch(() => {});
+            showHudToast(zh ? '已退出画中画' : 'Exited Picture-in-Picture');
+            return;
+         }
+         const videos = Array.from(document.querySelectorAll('video')).filter((v) => v && v.readyState > 0);
+         const target =
+            explicitVideo ||
+            (currentMediaEl && currentMediaEl.tagName === 'VIDEO' ? currentMediaEl : null) ||
+            videos.find((v) => !v.paused && !v.ended) ||
+            videos[0];
+         if (!target || typeof target.requestPictureInPicture !== 'function') {
+            showHudToast(zh ? '当前页面未检测到可画中画的视频' : 'No playable video found for Picture-in-Picture');
+            return;
+         }
+         target.removeAttribute('disablepictureinpicture');
+         target.disablePictureInPicture = false;
+         target.requestPictureInPicture()
+            .then(() => showHudToast(zh ? '已开启视频画中画' : 'Picture-in-Picture active'))
+            .catch(() => showHudToast(zh ? '该视频暂不支持画中画' : 'Picture-in-Picture unavailable'));
+      } catch (_) {
+         showHudToast(zh ? '该视频暂不支持画中画' : 'Picture-in-Picture unavailable');
+      }
+   }
+   const trLocalMap = new Map();
+   let trLocalActive = false;
+   let trLocalMode = 'bilingual';
+   let trLocalReqSeq = 1;
+   let trLocalReqIds = new Set();
+   let trLocalBarEl = null;
+   let trLocalStatusEl = null;
+   let trLocalModeBtn = null;
+   let trLocalLangSel = null;
+
+   function restoreLocalTranslate(silent) {
+      trLocalActive = false;
+      trLocalReqIds.clear();
+      trLocalMap.forEach((rec, el) => {
+         try {
+            if (!el || !el.isConnected) return;
+            if (rec.biEl && rec.biEl.parentNode) rec.biEl.remove();
+            if (rec.replaced) el.textContent = rec.origText;
+            el.removeAttribute('data-fnx-tr-id');
+         } catch (_) {}
+      });
+      trLocalMap.clear();
+      if (trLocalBarEl) trLocalBarEl.style.display = 'none';
+      if (!silent) showHudToast(isZh() ? '已还原网页原文' : 'Restored original page');
+   }
+
+   function applyLocalTranslateMode() {
+      const zh = isZh();
+      if (trLocalModeBtn) {
+         trLocalModeBtn.textContent =
+            trLocalMode === 'bilingual' ? (zh ? '双语' : 'Bilingual') : (zh ? '仅译文' : 'Replace');
+      }
+      trLocalMap.forEach((rec, el) => {
+         if (!el || !el.isConnected || !rec.translated) return;
+         if (trLocalMode === 'replace') {
+            if (rec.biEl && rec.biEl.parentNode) rec.biEl.remove();
+            rec.biEl = null;
+            el.textContent = rec.translated;
+            rec.replaced = true;
+         } else {
+            if (rec.replaced) {
+               el.textContent = rec.origText;
+               rec.replaced = false;
+            }
+            if (!rec.biEl || !rec.biEl.isConnected) {
+               const sp = document.createElement('span');
+               sp.className = 'fnx-tr-bi';
+               sp.textContent = rec.translated;
+               el.appendChild(sp);
+               rec.biEl = sp;
+            } else {
+               rec.biEl.textContent = rec.translated;
+            }
+         }
+      });
+   }
+
+   function startLocalTranslate(targetLang) {
+      if (IS_HUD_SHELL || isInternalAny()) return;
+      restoreLocalTranslate(true);
+      if (!document.getElementById('__fynexo_tr_css__')) {
+         const st = document.createElement('style');
+         st.id = '__fynexo_tr_css__';
+         st.textContent =
+            '.fnx-tr-bi{display:block;margin-top:3px;padding-left:8px;border-left:2px solid #7c86ff;opacity:0.9;font-size:0.94em;line-height:1.5;}';
+         (document.head || document.documentElement).appendChild(st);
+      }
+      const lang = String(targetLang || (isZh() ? 'zh-CN' : 'en'));
+      trLocalActive = true;
+      if (shadowRoot) {
+         const sh = shadowRoot.getElementById('__fynexo_shell__') || shadowRoot;
+         if (!trLocalBarEl || !trLocalBarEl.isConnected) {
+            trLocalBarEl = document.createElement('div');
+            trLocalBarEl.id = '__fynexo_tr_bar__';
+            trLocalStatusEl = document.createElement('span');
+            trLocalStatusEl.style.fontWeight = '600';
+            trLocalLangSel = document.createElement('select');
+            trLocalLangSel.className = 'fnx-tr-sel';
+            [['zh-CN', '简体中文'], ['zh-TW', '繁體中文'], ['en', 'English'], ['ja', '日本語'], ['ko', '한국어']].forEach(([v, l]) => {
+               const o = document.createElement('option');
+               o.value = v;
+               o.textContent = l;
+               trLocalLangSel.appendChild(o);
+            });
+            trLocalLangSel.onchange = () => startLocalTranslate(trLocalLangSel.value);
+            trLocalModeBtn = document.createElement('button');
+            trLocalModeBtn.type = 'button';
+            trLocalModeBtn.className = 'fnx-tr-btn';
+            trLocalModeBtn.onclick = () => {
+               trLocalMode = trLocalMode === 'bilingual' ? 'replace' : 'bilingual';
+               applyLocalTranslateMode();
+            };
+            const btnRest = document.createElement('button');
+            btnRest.type = 'button';
+            btnRest.className = 'fnx-tr-btn';
+            btnRest.textContent = isZh() ? '还原' : 'Restore';
+            btnRest.onclick = () => restoreLocalTranslate(false);
+            trLocalBarEl.appendChild(trLocalStatusEl);
+            trLocalBarEl.appendChild(trLocalLangSel);
+            trLocalBarEl.appendChild(trLocalModeBtn);
+            trLocalBarEl.appendChild(btnRest);
+            sh.appendChild(trLocalBarEl);
+         }
+         trLocalBarEl.style.display = 'inline-flex';
+         trLocalLangSel.value = lang;
+         trLocalStatusEl.textContent = isZh() ? '正在翻译…' : 'Translating...';
+         trLocalModeBtn.textContent =
+            trLocalMode === 'bilingual' ? (isZh() ? '双语' : 'Bilingual') : (isZh() ? '仅译文' : 'Replace');
+      }
+      const skip = /^(SCRIPT|STYLE|NOSCRIPT|CODE|PRE|TEXTAREA|INPUT|SELECT|OPTION|SVG|MATH)$/;
+      const nodes = document.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,td,th,blockquote,figcaption,dt,dd');
+      const segs = [];
+      for (let i = 0; i < nodes.length && segs.length < 200; i++) {
+         const el = nodes[i];
+         if (!el || el.closest('#__fynexo_host__,code,pre,nav,footer,script,style')) continue;
+         if (el.querySelector('p,h1,h2,h3,h4,h5,h6,blockquote,ul,ol,table')) continue;
+         let bad = false;
+         let p = el;
+         while (p && p !== document.body) {
+            if (skip.test(p.tagName || '')) { bad = true; break; }
+            p = p.parentElement;
+         }
+         if (bad) continue;
+         const txt = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+         if (txt.length < 3 || txt.length > 1600) continue;
+         const id = segs.length + 1;
+         el.setAttribute('data-fnx-tr-id', String(id));
+         trLocalMap.set(el, { id, origText: txt, translated: '', biEl: null, replaced: false });
+         segs.push({ id, text: txt });
+      }
+      if (!segs.length) {
+         if (trLocalStatusEl) trLocalStatusEl.textContent = isZh() ? '无可翻译正文' : 'No text found';
+         return;
+      }
+      for (let i = 0; i < segs.length; i += 24) {
+         const rid = trLocalReqSeq++;
+         trLocalReqIds.add(rid);
+         const batch = segs.slice(i, i + 24);
+         if (__fnxAndroidTranslateBatch) {
+            try {
+               __fnxAndroidTranslateBatch(rid, lang, __fnxJsonStringify(batch), __FNX_BRIDGE_TOKEN);
+            } catch (_) {}
+         } else {
+            sendIpc({ type: 'TRANSLATE_BATCH', req_id: rid, target_lang: lang, segments: batch });
+         }
+      }
+   }
+
+   exposeBridge('__fynexo_android_cloud_sync__', function (req) {
+      if (!req || !__fnxAndroidCloudSync) return;
+      try {
+         __fnxAndroidCloudSync(
+            String(req.action || 'push'),
+            String(req.provider || 'webdav'),
+            String(req.method || 'GET'),
+            String(req.url || ''),
+            String(req.headers_json || '{}'),
+            String(req.body || ''),
+            __FNX_BRIDGE_TOKEN,
+         );
+      } catch (_) {}
+   });
+
+   exposeBridge('__fynexo_on_android_sync_http__', function (res) {
+      if (!res) return;
+      sendIpc({
+         type: 'ANDROID_CLOUD_SYNC_CALLBACK',
+         action: String(res.action || 'push'),
+         provider: String(res.provider || 'webdav'),
+         status: Number(res.status) || 0,
+         body: String(res.body || ''),
+         error: String(res.error || ''),
+      });
+   });
+
+   exposeBridge('__fynexo_on_translate_result__', function (payload) {
+      if (!trLocalActive || !payload || !trLocalReqIds.has(Number(payload.req_id))) return;
+      trLocalReqIds.delete(Number(payload.req_id));
+      if (payload.error) {
+         if (trLocalStatusEl) trLocalStatusEl.textContent = isZh() ? '翻译失败' : 'Failed';
+         showHudToast(String(payload.error));
+         return;
+      }
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      for (let i = 0; i < items.length; i++) {
+         const it = items[i];
+         if (!it || !it.id || !it.text) continue;
+         const el = document.querySelector('[data-fnx-tr-id="' + String(it.id) + '"]');
+         const rec = el ? trLocalMap.get(el) : null;
+         if (rec && String(it.text).trim().toLowerCase() !== rec.origText.trim().toLowerCase()) {
+            rec.translated = String(it.text);
+         }
+      }
+      applyLocalTranslateMode();
+      if (trLocalStatusEl) {
+         trLocalStatusEl.textContent = trLocalReqIds.size > 0
+            ? (isZh() ? '翻译中…' : 'Translating...')
+            : (isZh() ? '已翻译' : 'Translated');
+      }
+   });
+
+   function triggerPageTranslate() {
+      const cur = canonicalCurrentUrl();
+      if (!cur || isInternalAny(cur) || !/^https?:\/\//i.test(cur)) {
+         showHudToast(
+            isZh()
+               ? '当前页面无需翻译（仅支持外网网页）'
+               : 'Translate is available for web pages only',
+         );
+         return;
+      }
+      const targetLang = isZh() ? 'zh-CN' : 'en';
+      if (IS_HUD_SHELL) {
+         sendIpc({
+            type: 'CONTENT_ACTION',
+            action: 'toggle_translate',
+            payload: { target_lang: targetLang },
+         });
+         return;
+      }
+      if (trLocalActive) restoreLocalTranslate(false);
+      else startLocalTranslate(targetLang);
+   }
+
    exposeBridge('__fynexo_restore_scroll__', function (targetY) {
       const y = Number(targetY) || 0;
       if (y <= 24 || isInternalAny()) return;
@@ -7012,8 +7733,21 @@
             }
          };
 
+         const btnTabSearch = makeDesktopIconBtn(
+            'search',
+            isZh() ? '搜索打开的标签页 (Ctrl+Shift+A)' : 'Search open tabs (Ctrl+Shift+A)',
+            (e) => {
+               if (e && e.stopPropagation) e.stopPropagation();
+               openModalHud('tabs');
+            },
+         );
+         btnTabSearch.id = '__fynexo_btn_tab_search__';
+         btnTabSearch.style.cssText =
+            'width: 26px; height: 26px; margin: 0 2px; border-radius: 7px; align-self: center; flex-shrink: 0;';
+
          tabsDeckCluster.appendChild(tabsContainer);
          tabsDeckCluster.appendChild(btnAddTab);
+         tabsDeckCluster.appendChild(btnTabSearch);
          tabsDeckCluster.appendChild(dragRegion);
          tabRow.appendChild(tabsDeckCluster);
 
@@ -7409,6 +8143,19 @@
          btnSidePanel.id = '__fynexo_btn_sidepanel__';
          btnSidePanel.style.display = config.ext_side_panel ? '' : 'none';
          rightZone.appendChild(btnSidePanel);
+
+         // 4.6 Dual-WebView Split View Toggle (Windows Desktop)
+         const btnSplitView = makeDesktopIconBtn(
+            'split',
+            isZh() ? '双栏分屏视图' : 'Split View',
+            (e) => {
+               if (e && e.stopPropagation) e.stopPropagation();
+               sendIpc({ type: 'TOGGLE_SPLIT_VIEW' });
+            },
+         );
+         btnSplitView.id = '__fynexo_btn_split__';
+         btnSplitView.style.display = isMobilePlatform() ? 'none' : '';
+         rightZone.appendChild(btnSplitView);
 
          // 5. Main Menu 3-Dots Button (Always visible)
          const btnMore = makeDesktopIconBtn('more', isZh() ? '主菜单' : 'Menu', (e) => {
@@ -8262,47 +9009,62 @@
             '打印当前页面...',
          );
 
-         // One-Click Translate Page
+         // One-Click In-Place Translate Page
          addMenuItem(
             'translate',
-            'Translate this page',
+            'Translate page in-place',
             '',
             () => {
-               const cur = canonicalCurrentUrl();
-               if (!cur || isInternalAny(cur) || !/^https?:\/\//i.test(cur)) {
-                  showHudToast(
-                     isZh()
-                        ? '当前页面无需翻译（仅支持外网网页）'
-                        : 'Translate is available for web pages only',
-                  );
-                  return;
-               }
-               const provider = String(config.translate_provider || 'google').toLowerCase();
-               const targetLang = isZh() ? 'zh-CN' : 'en';
-               const enc = encodeURIComponent(cur);
-               let transUrl =
-                  'https://translate.google.com/translate?sl=auto&tl=' +
-                  targetLang +
-                  '&u=' +
-                  enc;
-               if (provider === 'bing') {
-                  const bingLang = isZh() ? 'zh-Hans' : 'en';
-                  transUrl =
-                     'https://www.bing.com/translator?from=auto&to=' +
-                     bingLang +
-                     '&url=' +
-                     enc;
-               } else if (provider === 'youdao') {
-                  transUrl =
-                     'https://fanyi.youdao.com/web2/#/index?url=' + enc;
-               }
-               sendIpc({
-                  type: 'NEW_TAB',
-                  url: transUrl,
-                  title: (isZh() ? '翻译: ' : 'Translate: ') + formatHostLabel(cur),
-               });
+               triggerPageTranslate();
             },
-            '一键翻译此网页',
+            '原地翻译此网页（双语）',
+         );
+
+         // Split View (Desktop)
+         const splitMenuItem = addMenuItem(
+            'split',
+            'Split View (Side-by-Side)',
+            '',
+            () => {
+               sendIpc({ type: 'TOGGLE_SPLIT_VIEW' });
+            },
+            '双栏分屏视图',
+         );
+         splitMenuItem.classList.add('fnx-desktop-only-row');
+
+         // Capture Screenshot (Desktop)
+         const screenshotMenuItem = addMenuItem(
+            'camera',
+            'Capture page screenshot',
+            '',
+            () => {
+               sendIpc({ type: 'CAPTURE_SCREENSHOT' });
+            },
+            '截取当前页面 (PNG)',
+         );
+         screenshotMenuItem.classList.add('fnx-desktop-only-row');
+
+         // Save Page as PDF (Ctrl+S)
+         const savePdfMenuItem = addMenuItem(
+            'fileText',
+            'Save page as PDF',
+            'Ctrl+S',
+            () => {
+               sendIpc({ type: 'SAVE_PAGE_PDF' });
+            },
+            '导出当前网页为 PDF',
+         );
+         savePdfMenuItem.classList.add('fnx-desktop-only-row');
+
+         // Clear Browsing Data (Ctrl+Shift+Del)
+         addMenuItem(
+            'broom',
+            'Clear browsing data...',
+            'Ctrl+Shift+Del',
+            () => {
+               if (typeof openClearDataModalRef === 'function') openClearDataModalRef();
+            },
+            '按时间范围清除浏览数据…',
          );
 
          // Reader Mode
@@ -8316,6 +9078,17 @@
             '纯净阅读模式',
          );
          readerMenuItem.style.display = config.ext_reader_mode ? '' : 'none';
+
+         // Downloads Manager (fynexo://downloads)
+         addMenuItem(
+            'download',
+            'Downloads manager',
+            'Ctrl+J',
+            () => {
+               sendIpc({ type: 'NEW_TAB', url: 'fynexo://downloads' });
+            },
+            '下载管理中心',
+         );
 
          // Downloads Folder (Desktop OS)
          const downloadsDirMenuItem = addMenuItem(
@@ -8626,6 +9399,16 @@
             }
             toggleLocalMediaPlayPause();
          };
+         const btnPip = document.createElement('button');
+         btnPip.type = 'button';
+         btnPip.className = 'fnx-pop-icon-circle';
+         btnPip.title = isZh() ? '视频画中画 (PiP)' : 'Picture-in-Picture';
+         btnPip.appendChild(createIcon('pip'));
+         btnPip.onclick = (e) => {
+            e.stopPropagation();
+            triggerPictureInPicture();
+         };
+         mediaBtnGroup.appendChild(btnPip);
          mediaBtnGroup.appendChild(btnMute);
          mediaBtnGroup.appendChild(btnPlayPause);
          mediaTrackRow.appendChild(mediaMetaWrap);
@@ -9288,6 +10071,97 @@
          sitePermsWrap.appendChild(sitePermsList);
          siteOvSection.appendChild(sitePermsWrap);
 
+         // Per-Origin Native Cookie Inspector (WebView2 CookieManager)
+         const siteCookieBox = document.createElement('div');
+         siteCookieBox.className = 'fnx-cookie-box';
+         const siteCookieHead = document.createElement('div');
+         siteCookieHead.className = 'fnx-pop-row';
+         siteCookieHead.style.padding = '0';
+         const siteCookieTitle = document.createElement('span');
+         siteCookieTitle.className = 'fnx-pop-sub';
+         siteCookieTitle.style.cssText = 'font-size: 11px; font-weight: 600; color: var(--fnx-secondary);';
+         const siteCookieToggleBtn = document.createElement('button');
+         siteCookieToggleBtn.type = 'button';
+         siteCookieToggleBtn.className = 'fnx-pop-link';
+         siteCookieToggleBtn.style.fontSize = '10.5px';
+         siteCookieHead.appendChild(siteCookieTitle);
+         siteCookieHead.appendChild(siteCookieToggleBtn);
+         const siteCookieList = document.createElement('div');
+         siteCookieList.className = 'fnx-cookie-list';
+         siteCookieList.style.display = 'none';
+         siteCookieBox.appendChild(siteCookieHead);
+         siteCookieBox.appendChild(siteCookieList);
+         siteOvSection.appendChild(siteCookieBox);
+
+         let siteCookiesExpanded = false;
+         let siteCookiesReqSeq = 1;
+         let siteCookiesCache = [];
+
+         function renderSiteCookiesList() {
+            const zh = isZh();
+            siteCookieTitle.textContent =
+               (zh ? '本站 Cookies' : 'Site Cookies') + ' (' + siteCookiesCache.length + ')';
+            siteCookieToggleBtn.textContent = siteCookiesExpanded
+               ? (zh ? '收起' : 'Hide')
+               : (zh ? '查看 / 删除' : 'Manage');
+            siteCookieList.style.display = siteCookiesExpanded ? 'flex' : 'none';
+            siteCookieList.textContent = '';
+            if (!siteCookiesExpanded) return;
+            if (!siteCookiesCache.length) {
+               const emp = document.createElement('div');
+               emp.className = 'fnx-pop-sub';
+               emp.style.cssText = 'font-size: 11px; padding: 4px 2px;';
+               emp.textContent = zh ? '当前站点无 Cookie' : 'No cookies stored for this site';
+               siteCookieList.appendChild(emp);
+               return;
+            }
+            const curUri = canonicalCurrentUrl();
+            siteCookiesCache.slice(0, 60).forEach((ck) => {
+               const row = document.createElement('div');
+               row.className = 'fnx-cookie-row';
+               const nm = document.createElement('span');
+               nm.className = 'fnx-cookie-name';
+               nm.textContent = ck.name || '(cookie)';
+               nm.title = (ck.name || '') + ' · ' + (ck.domain || '') + (ck.path || '/');
+               row.appendChild(nm);
+               if (ck.is_http_only) {
+                  const tg = document.createElement('span');
+                  tg.className = 'fnx-cookie-tag';
+                  tg.textContent = 'HttpOnly';
+                  row.appendChild(tg);
+               }
+               const del = document.createElement('button');
+               del.type = 'button';
+               del.className = 'fnx-cookie-del';
+               del.title = zh ? '删除此 Cookie' : 'Delete cookie';
+               del.appendChild(createIcon('closeSmall'));
+               del.onclick = (ev) => {
+                  ev.stopPropagation();
+                  sendIpc({
+                     type: 'DELETE_SITE_COOKIE',
+                     name: ck.name,
+                     domain: ck.domain,
+                     path: ck.path || '/',
+                     uri: curUri,
+                  });
+               };
+               row.appendChild(del);
+               siteCookieList.appendChild(row);
+            });
+         }
+
+         siteCookieToggleBtn.onclick = (ev) => {
+            ev.stopPropagation();
+            siteCookiesExpanded = !siteCookiesExpanded;
+            renderSiteCookiesList();
+         };
+
+         onSiteCookiesCb = function (payload) {
+            if (!payload || !Array.isArray(payload.cookies)) return;
+            siteCookiesCache = payload.cookies;
+            renderSiteCookiesList();
+         };
+
          const btnClearSiteData = document.createElement('button');
          btnClearSiteData.type = 'button';
          btnClearSiteData.className = 'fnx-pop-btn';
@@ -9347,7 +10221,11 @@
 
          btnClearSiteData.onclick = (e) => {
             e.stopPropagation();
-            if (isInternalAny()) return;
+            const curUri = canonicalCurrentUrl();
+            if (isInternalAny(curUri)) return;
+            if (/^https?:\/\//i.test(curUri)) {
+               sendIpc({ type: 'CLEAR_ORIGIN_COOKIES', uri: curUri });
+            }
             if (IS_HUD_SHELL) {
                closeAllNavPopovers();
                sendIpc({
@@ -9357,8 +10235,8 @@
                });
                showHudToast(
                   isZh()
-                     ? '已清理本站 Cookie 与本地存储数据'
-                     : 'Cleared cookies & local storage for this site',
+                     ? '已清理本站 Cookie（含 HttpOnly）与本地存储'
+                     : 'Cleared cookies (incl. HttpOnly) & local storage',
                );
                return;
             }
@@ -10187,9 +11065,12 @@
          btnClearDlList.textContent = isZh() ? '清空' : 'Clear';
          btnClearDlList.onclick = (ev) => {
             if (ev && ev.stopPropagation) ev.stopPropagation();
-            recentDownloads.length = 0;
+            sendIpc({ type: 'CLEAR_DOWNLOADS_HISTORY' });
+            recentDownloads = recentDownloads.filter(
+               (d) => d && (d.status === 'downloading' || d.status === 'paused'),
+            );
             syncDownloadsUI();
-            closeAllNavPopovers();
+            if (recentDownloads.length === 0) closeAllNavPopovers();
          };
          const btnOpenDlFolder = document.createElement('button');
          btnOpenDlFolder.type = 'button';
@@ -10215,6 +11096,22 @@
             'display: flex; flex-direction: column; gap: 2px; padding: 6px; max-height: 224px; overflow-y: auto;';
          downloadsPopoverEl.appendChild(dlListContainer);
 
+         const btnOpenAllDownloads = document.createElement('button');
+         btnOpenAllDownloads.type = 'button';
+         btnOpenAllDownloads.className = 'fnx-pop-footer-row';
+         const allDlLabel = document.createElement('span');
+         allDlLabel.textContent = isZh() ? '全部下载管理' : 'All downloads';
+         const allDlArrow = document.createElement('span');
+         allDlArrow.style.cssText = 'opacity: 0.65; font-size: 12px;';
+         allDlArrow.textContent = '→';
+         btnOpenAllDownloads.appendChild(allDlLabel);
+         btnOpenAllDownloads.appendChild(allDlArrow);
+         btnOpenAllDownloads.onclick = () => {
+            closeAllNavPopovers();
+            sendIpc({ type: 'NEW_TAB', url: 'fynexo://downloads' });
+         };
+         downloadsPopoverEl.appendChild(btnOpenAllDownloads);
+
          function formatDlTime(dl) {
             if (dl.updated_at) {
                try {
@@ -10232,11 +11129,12 @@
             dlHTxt.textContent = zh ? '下载管理' : 'Downloads';
             btnClearDlList.textContent = zh ? '清空' : 'Clear';
             btnOpenDlFolder.textContent = zh ? '打开文件夹' : 'Open folder';
-            btnDownloads.title = zh ? '下载管理' : 'Downloads';
+            allDlLabel.textContent = zh ? '查看全部下载' : 'All downloads';
+            btnDownloads.title = zh ? '下载管理 (Ctrl+J)' : 'Downloads (Ctrl+J)';
             if (recentDownloads.length > 0) {
                btnDownloads.style.display = 'flex';
                const activeCount = recentDownloads.filter(
-                  (d) => d && d.status === 'downloading',
+                  (d) => d && (d.status === 'downloading' || d.status === 'paused'),
                ).length;
                dlBadge.textContent = String(
                   activeCount > 0 ? activeCount : recentDownloads.length,
@@ -10306,12 +11204,18 @@
                           : (zh ? '准备中...' : 'Starting...');
                   const spdPart = spd > 0 ? ' · ' + formatBytesShort(spd) + '/s' : '';
                   metaLine = sizePart + spdPart;
+               } else if (st === 'paused') {
+                  const sizePart =
+                     total > 0
+                        ? formatBytesShort(recv) + ' / ' + formatBytesShort(total) + ' (' + pct + '%)'
+                        : formatBytesShort(recv);
+                  metaLine = sizePart + ' · ' + (zh ? '已暂停' : 'Paused');
                } else if (st === 'cancelled') {
                   const ts = formatDlTime(dl);
                   metaLine = (ts ? ts + ' · ' : '') + (zh ? '已取消' : 'Cancelled');
-               } else if (st === 'failed') {
+               } else if (st === 'failed' || st === 'interrupted') {
                   const ts = formatDlTime(dl);
-                  metaLine = (ts ? ts + ' · ' : '') + (zh ? '下载失败' : 'Failed');
+                  metaLine = (ts ? ts + ' · ' : '') + (zh ? '下载中断' : 'Interrupted');
                } else {
                   const ts = formatDlTime(dl);
                   const sz = total > 0 ? formatBytesShort(total) : (recv > 0 ? formatBytesShort(recv) : '');
@@ -10325,13 +11229,15 @@
                nameWrap.appendChild(nameSpan);
                nameWrap.appendChild(timeSpan);
 
-               if (st === 'downloading') {
+               if (st === 'downloading' || st === 'paused') {
                   const track = document.createElement('div');
                   track.style.cssText =
                      'width: 100%; height: 3px; border-radius: 99px; background: var(--fnx-border); overflow: hidden; margin-top: 2px;';
                   const fill = document.createElement('div');
                   fill.style.cssText =
-                     'height: 100%; border-radius: 99px; background: var(--fnx-accent); transition: width 0.18s ease; width: ' +
+                     'height: 100%; border-radius: 99px; background: ' +
+                     (st === 'paused' ? '#F59E0B' : 'var(--fnx-accent)') +
+                     '; transition: width 0.18s ease; width: ' +
                      (total > 0 ? pct : 32) +
                      '%;';
                   track.appendChild(fill);
@@ -10341,7 +11247,28 @@
                rowLeft.appendChild(nameWrap);
                row.appendChild(rowLeft);
 
-               if (st === 'downloading' && Number(dl.id) > 0) {
+               if ((st === 'downloading' || st === 'paused') && Number(dl.id) > 0) {
+                  const actWrap = document.createElement('div');
+                  actWrap.style.cssText =
+                     'display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;';
+                  const btnPauseResume = document.createElement('button');
+                  btnPauseResume.type = 'button';
+                  btnPauseResume.className = 'fnx-icon-btn';
+                  btnPauseResume.style.cssText =
+                     'width: 22px; height: 22px; border-radius: 5px; color: var(--fnx-secondary); flex-shrink: 0;';
+                  btnPauseResume.title =
+                     st === 'paused'
+                        ? (zh ? '继续下载' : 'Resume download')
+                        : (zh ? '暂停下载' : 'Pause download');
+                  btnPauseResume.appendChild(createIcon(st === 'paused' ? 'play' : 'pause'));
+                  btnPauseResume.onclick = (ev) => {
+                     ev.stopPropagation();
+                     if (ev.isTrusted === false && !isInternalAny()) return;
+                     sendIpc({
+                        type: st === 'paused' ? 'RESUME_DOWNLOAD' : 'PAUSE_DOWNLOAD',
+                        id: Number(dl.id),
+                     });
+                  };
                   const btnCancel = document.createElement('button');
                   btnCancel.type = 'button';
                   btnCancel.className = 'fnx-icon-btn';
@@ -10354,7 +11281,9 @@
                      if (ev.isTrusted === false && !isInternalAny()) return;
                      sendIpc({ type: 'CANCEL_DOWNLOAD', id: Number(dl.id) });
                   };
-                  row.appendChild(btnCancel);
+                  actWrap.appendChild(btnPauseResume);
+                  actWrap.appendChild(btnCancel);
+                  row.appendChild(actWrap);
                } else if (st === 'completed') {
                   const actWrap = document.createElement('div');
                   actWrap.style.cssText =
@@ -10655,6 +11584,19 @@
             } else {
                closeAllNavPopovers();
                syncSiteInfoPopoverUI();
+               const curUri = canonicalCurrentUrl();
+               if (!isMobilePlatform() && /^https?:\/\//i.test(curUri) && !isInternalAny(curUri)) {
+                  siteCookieBox.style.display = 'flex';
+                  siteCookiesCache = [];
+                  renderSiteCookiesList();
+                  sendIpc({
+                     type: 'GET_SITE_COOKIES',
+                     req_id: siteCookiesReqSeq++,
+                     uri: curUri,
+                  });
+               } else {
+                  siteCookieBox.style.display = 'none';
+               }
                positionNavPopover(
                   anchorBtn || addrIcon,
                   siteInfoPopoverEl,
@@ -15100,10 +16042,11 @@
             });
          }
 
-         function openModalHud() {
+         function openModalHud(initialScope) {
             if (isInlineActive) deactivateInlineAddressBar();
+            const wantScope = initialScope === 'tabs' ? 'tabs' : 'all';
             const existingInp = shadowRoot.getElementById('__fynexo_input__');
-            if (isModalActive && existingInp) {
+            if (isModalActive && existingInp && wantScope === 'all') {
                existingInp.focus();
                if (existingInp.value) existingInp.select();
                return;
@@ -15116,7 +16059,10 @@
             engineBadge.type = 'button';
             engineBadge.id = '__fynexo_hud_engine__';
             engineBadge.title = 'Click to switch search engine';
-            engineBadge.textContent = currentEngineObj().name || 'Google';
+            engineBadge.textContent =
+               wantScope === 'tabs'
+                  ? (isZh() ? '标签搜索' : 'Tabs')
+                  : (currentEngineObj().name || 'Google');
             engineBadge.style.cssText =
                'font-size: 11.5px; font-weight: 500; color: var(--fnx-fg); background: var(--fnx-surface); border: 1px solid var(--fnx-border-hover); padding: 5px 9px; border-radius: 8px; cursor: pointer; white-space: nowrap; flex-shrink: 0;';
             engineBadge.onmousedown = (e) => e.preventDefault();
@@ -15128,7 +16074,10 @@
             input.autocomplete = 'off';
             input.setAttribute('autocapitalize', 'off');
             input.setAttribute('enterkeyhint', 'go');
-            input.placeholder = omniboxPlaceholder(currentEngineObj().name);
+            input.placeholder =
+               wantScope === 'tabs'
+                  ? (isZh() ? '搜索所有已打开的标签页（标题、网址、分组名）…' : 'Search all open tabs (title, URL, group)...')
+                  : omniboxPlaceholder(currentEngineObj().name);
             input.style.cssText =
                'flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--fnx-fg); letter-spacing: -0.01em; user-select: auto;';
 
@@ -15149,6 +16098,7 @@
 
             const href = canonicalCurrentUrl();
             if (
+               wantScope !== 'tabs' &&
                !isInternalAny(href) &&
                !href.startsWith('data:') &&
                href !== 'about:blank'
@@ -15234,7 +16184,7 @@
             modalBar.appendChild(btnClear);
             modalBar.appendChild(btnGo);
 
-            omniFilterScope = 'all';
+            omniFilterScope = wantScope;
             renderHudQuickBar(hudQuick, deactivateModalHud);
             renderOmniboxSuggestions('', hudSuggest, input, deactivateModalHud);
             hudRoot.style.display = 'flex';
@@ -15245,6 +16195,7 @@
                if (input.value) input.select();
             });
          }
+         openModalHudRef = openModalHud;
 
          function openHud() {
             const useInline =
@@ -15698,6 +16649,63 @@
                      sendIpc({ type: 'HUD_ACTION', action: 'toggle_downloads' });
                   } else if (typeof toggleDownloadsPopover === 'function') {
                      toggleDownloadsPopover();
+                  }
+                  return;
+               }
+               if (
+                  (e.ctrlKey || e.metaKey) &&
+                  e.shiftKey &&
+                  !e.altKey &&
+                  (e.key || '').toLowerCase() === 'a'
+               ) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (IS_CONTENT_TAB) {
+                     sendIpc({ type: 'HUD_ACTION', action: 'open_tab_search' });
+                  } else {
+                     openModalHud('tabs');
+                  }
+                  return;
+               }
+               if (
+                  (e.ctrlKey || e.metaKey) &&
+                  !e.altKey &&
+                  !e.shiftKey &&
+                  (e.key || '').toLowerCase() === 's'
+               ) {
+                  if (!isInternalAny()) {
+                     e.preventDefault();
+                     e.stopPropagation();
+                     sendIpc({ type: 'SAVE_PAGE_PDF' });
+                     return;
+                  }
+               }
+               if (
+                  (e.ctrlKey || e.metaKey) &&
+                  !e.altKey &&
+                  !e.shiftKey &&
+                  (e.key || '').toLowerCase() === 'u'
+               ) {
+                  const cur = canonicalCurrentUrl();
+                  if (/^https?:\/\//i.test(cur)) {
+                     e.preventDefault();
+                     e.stopPropagation();
+                     sendIpc({ type: 'NEW_TAB', url: 'view-source:' + cur });
+                     return;
+                  }
+               }
+               if (
+                  (e.ctrlKey || e.metaKey) &&
+                  e.shiftKey &&
+                  !e.altKey &&
+                  (e.key === 'Delete' || e.key === 'Backspace')
+               ) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (IS_CONTENT_TAB) {
+                     sendIpc({ type: 'HUD_ACTION', action: 'open_clear_data' });
+                  } else if (typeof openClearDataModalRef === 'function') {
+                     openClearDataModalRef();
                   }
                   return;
                }
@@ -17456,6 +18464,7 @@
                   '__fynexo_hud_card__',
                   '__fynexo_history_card__',
                   '__fynexo_prompt_card__',
+                  '__fynexo_clear_data_card__',
                ];
                for (let i = 0; i < modalCardIds.length; i++) {
                   const cr = measureVisibleRect(modalCardIds[i], 0, -1, false);
@@ -17489,7 +18498,8 @@
                   isInlineActive ||
                   isModalActive ||
                   (typeof isHistoryOpenRef === 'function' && isHistoryOpenRef()) ||
-                  (typeof isPromptOpenRef === 'function' && isPromptOpenRef())
+                  (typeof isPromptOpenRef === 'function' && isPromptOpenRef()) ||
+                  (typeof isClearDataOpenRef === 'function' && isClearDataOpenRef())
                ) {
                   has_overlay = true;
                }
@@ -17497,6 +18507,7 @@
                const passiveWidgetIds = [
                   '__fynexo_tab_hover_card__',
                   '__fynexo_store_pill__',
+                  '__fynexo_split_divider__',
                ];
                for (let i = 0; i < passiveWidgetIds.length; i++) {
                   const wr = measureVisibleRect(passiveWidgetIds[i], 0, -1, false);
@@ -17516,6 +18527,98 @@
                lastHudLayoutJson = json;
                sendIpc(payload);
             }
+
+            // Dual-WebView Split Divider (Windows HUD shell)
+            const splitDividerEl = document.createElement('div');
+            splitDividerEl.id = '__fynexo_split_divider__';
+            const splitPillEl = document.createElement('div');
+            splitPillEl.className = 'fnx-split-pill';
+            const btnSplitSwap = document.createElement('button');
+            btnSplitSwap.type = 'button';
+            btnSplitSwap.className = 'fnx-split-btn';
+            btnSplitSwap.title = isZh() ? '交换左右分屏' : 'Swap split panes';
+            btnSplitSwap.appendChild(createIcon('swap'));
+            btnSplitSwap.onpointerdown = (ev) => ev.stopPropagation();
+            btnSplitSwap.onclick = (ev) => {
+               ev.stopPropagation();
+               sendIpc({ type: 'SWAP_SPLIT_PANES' });
+            };
+            const btnSplitClose = document.createElement('button');
+            btnSplitClose.type = 'button';
+            btnSplitClose.className = 'fnx-split-btn';
+            btnSplitClose.title = isZh() ? '关闭分屏' : 'Close split view';
+            btnSplitClose.appendChild(createIcon('closeSmall'));
+            btnSplitClose.onpointerdown = (ev) => ev.stopPropagation();
+            btnSplitClose.onclick = (ev) => {
+               ev.stopPropagation();
+               sendIpc({ type: 'CLOSE_SPLIT_VIEW' });
+            };
+            splitPillEl.appendChild(btnSplitSwap);
+            splitPillEl.appendChild(btnSplitClose);
+            splitDividerEl.appendChild(splitPillEl);
+            shell.appendChild(splitDividerEl);
+
+            let splitDragging = false;
+            let splitDragLastSend = 0;
+            function updateSplitDividerPos() {
+               const btnSp = shadowRoot ? shadowRoot.getElementById('__fynexo_btn_split__') : null;
+               if (btnSp) {
+                  btnSp.style.color = splitTabId > 0 ? 'var(--fnx-accent)' : '';
+                  btnSp.style.background = splitTabId > 0 ? 'var(--fnx-accent-bg)' : '';
+               }
+               if (!splitTabId) {
+                  splitDividerEl.style.display = 'none';
+                  return;
+               }
+               const tbR = measureVisibleRect('__fynexo_topbar__', 0, 0, false);
+               const layoutMode = ((styles && styles.topbar && styles.topbar.layout) || 'deck').toLowerCase();
+               const vertR = layoutMode === 'vertical' ? measureVisibleRect('__fynexo_tab_row__', 0, 0, false) : null;
+               const leftInset = isFullscreen ? 0 : (vertR && vertR.w > 10 ? vertR.x + vertR.w : 0);
+               const topInset = isFullscreen ? 0 : (tbR ? tbR.y + tbR.h : 0);
+               const spR = isSidePanelOpen ? measureVisibleRect('__fynexo_side_panel__', 0, 0, false) : null;
+               const rightInset = isFullscreen ? 0 : (spR ? spR.w : 0);
+               const availW = Math.max(200, (window.innerWidth || 1024) - leftInset - rightInset);
+               const divLeft = Math.round(leftInset + availW * splitRatio);
+               splitDividerEl.style.top = topInset + 'px';
+               splitDividerEl.style.left = divLeft + 'px';
+               splitDividerEl.style.display = 'flex';
+            }
+            syncSplitUiRef = updateSplitDividerPos;
+
+            splitDividerEl.addEventListener('pointerdown', (ev) => {
+               if (ev.button !== 0 || !splitTabId) return;
+               ev.preventDefault();
+               splitDragging = true;
+               splitDividerEl.classList.add('dragging');
+               try { splitDividerEl.setPointerCapture(ev.pointerId); } catch (_) {}
+            });
+            splitDividerEl.addEventListener('pointermove', (ev) => {
+               if (!splitDragging || !splitTabId) return;
+               const layoutMode = ((styles && styles.topbar && styles.topbar.layout) || 'deck').toLowerCase();
+               const vertR = layoutMode === 'vertical' ? measureVisibleRect('__fynexo_tab_row__', 0, 0, false) : null;
+               const leftInset = isFullscreen ? 0 : (vertR && vertR.w > 10 ? vertR.x + vertR.w : 0);
+               const spR = isSidePanelOpen ? measureVisibleRect('__fynexo_side_panel__', 0, 0, false) : null;
+               const rightInset = isFullscreen ? 0 : (spR ? spR.w : 0);
+               const availW = Math.max(200, (window.innerWidth || 1024) - leftInset - rightInset);
+               splitRatio = Math.max(0.25, Math.min(0.75, (ev.clientX - leftInset) / availW));
+               updateSplitDividerPos();
+               const now = Date.now();
+               if (now - splitDragLastSend >= 32) {
+                  splitDragLastSend = now;
+                  sendIpc({ type: 'SET_SPLIT_RATIO', ratio: splitRatio });
+               }
+            });
+            const endSplitDrag = (ev) => {
+               if (!splitDragging) return;
+               splitDragging = false;
+               splitDividerEl.classList.remove('dragging');
+               try { splitDividerEl.releasePointerCapture(ev.pointerId); } catch (_) {}
+               sendIpc({ type: 'SET_SPLIT_RATIO', ratio: splitRatio });
+               scheduleSyncHudLayout();
+            };
+            splitDividerEl.addEventListener('pointerup', endSplitDrag);
+            splitDividerEl.addEventListener('pointercancel', endSplitDrag);
+            window.addEventListener('resize', updateSplitDividerPos, { passive: true });
 
             function scheduleSyncHudLayout() {
                if (hudLayoutRaf) return;
@@ -17556,9 +18659,15 @@
                   case 'open_command_palette':
                      openModalHud();
                      break;
+                  case 'open_tab_search':
+                     openModalHud('tabs');
+                     break;
+                  case 'open_clear_data':
+                     if (typeof openClearDataModalRef === 'function') openClearDataModalRef();
+                     break;
                   case 'open_history':
                      closeAnyOmnibox();
-                     sendIpc({ type: 'NEW_TAB', url: 'fynexo://settings#sec-privacy' });
+                     sendIpc({ type: 'NEW_TAB', url: 'fynexo://history' });
                      break;
                   case 'toggle_downloads':
                      if (typeof toggleDownloadsPopover === 'function') {
@@ -17619,6 +18728,9 @@
                      }
                      if (isPromptOpenRef && isPromptOpenRef() && closePromptModalRef) {
                         closePromptModalRef();
+                     }
+                     if (isClearDataOpenRef && isClearDataOpenRef() && closeClearDataModalRef) {
+                        closeClearDataModalRef();
                      }
                      scheduleSyncHudLayout();
                      break;
@@ -17844,6 +18956,159 @@
 
             sendContentPageMetaNow(true);
          }
+
+         // Time-Range Clear Browsing Data Modal (#__fynexo_clear_data_root__) + Single-WebView Link Status Bar
+         (() => {
+            if (!IS_CONTENT_TAB) {
+               const cdRoot = document.createElement('div');
+               cdRoot.id = '__fynexo_clear_data_root__';
+               const cdCard = document.createElement('div');
+               cdCard.id = '__fynexo_clear_data_card__';
+               const cdHead = document.createElement('div');
+               cdHead.className = 'fnx-cd-head';
+               const cdTitle = document.createElement('span');
+               cdTitle.className = 'fnx-cd-title';
+               const cdClose = document.createElement('button');
+               cdClose.type = 'button';
+               cdClose.className = 'fnx-icon-btn';
+               cdClose.style.cssText = 'width:26px;height:26px;border-radius:6px;';
+               cdClose.appendChild(createIcon('close'));
+               cdHead.appendChild(cdTitle);
+               cdHead.appendChild(cdClose);
+
+               let selectedRange = '24h';
+               const seg = document.createElement('div');
+               seg.className = 'fnx-cd-seg';
+               const rangeDefs = [
+                  ['1h', '近 1 小时', 'Last hour'],
+                  ['24h', '近 24 小时', '24 hours'],
+                  ['7d', '近 7 天', 'Last 7 days'],
+                  ['all', '全部时间', 'All time'],
+               ];
+               const rangeBtns = [];
+               rangeDefs.forEach(([key]) => {
+                  const b = document.createElement('button');
+                  b.type = 'button';
+                  b.className = 'fnx-cd-seg-btn';
+                  b.dataset.r = key;
+                  b.onclick = () => {
+                     selectedRange = key;
+                     rangeBtns.forEach((x) => x.classList.toggle('active', x.dataset.r === selectedRange));
+                  };
+                  rangeBtns.push(b);
+                  seg.appendChild(b);
+               });
+
+               const checks = document.createElement('div');
+               checks.className = 'fnx-cd-checks';
+               const makeChk = (checked) => {
+                  const lbl = document.createElement('label');
+                  lbl.className = 'fnx-cd-chk';
+                  const inp = document.createElement('input');
+                  inp.type = 'checkbox';
+                  inp.checked = checked;
+                  const sp = document.createElement('span');
+                  lbl.appendChild(inp);
+                  lbl.appendChild(sp);
+                  checks.appendChild(lbl);
+                  return { inp, sp };
+               };
+               const chkHist = makeChk(true);
+               const chkCookies = makeChk(false);
+               const chkCache = makeChk(true);
+
+               const actions = document.createElement('div');
+               actions.className = 'fnx-cd-actions';
+               const btnCancel = document.createElement('button');
+               btnCancel.type = 'button';
+               btnCancel.className = 'fnx-cd-btn';
+               const btnConfirm = document.createElement('button');
+               btnConfirm.type = 'button';
+               btnConfirm.className = 'fnx-cd-btn danger';
+               actions.appendChild(btnCancel);
+               actions.appendChild(btnConfirm);
+
+               cdCard.appendChild(cdHead);
+               cdCard.appendChild(seg);
+               cdCard.appendChild(checks);
+               cdCard.appendChild(actions);
+               cdRoot.appendChild(cdCard);
+               shell.appendChild(cdRoot);
+
+               const closeCd = () => {
+                  cdRoot.style.display = 'none';
+                  if (typeof syncHudLayoutRef === 'function') syncHudLayoutRef();
+               };
+               cdClose.onclick = closeCd;
+               btnCancel.onclick = closeCd;
+               cdRoot.onclick = (ev) => { if (ev.target === cdRoot) closeCd(); };
+               btnConfirm.onclick = () => {
+                  const h = !!chkHist.inp.checked;
+                  const c = !!chkCookies.inp.checked;
+                  const ca = !!chkCache.inp.checked;
+                  if (!h && !c && !ca) {
+                     showHudToast(isZh() ? '请至少勾选一项清理内容' : 'Select at least one item to clear');
+                     return;
+                  }
+                  sendIpc({
+                     type: 'CLEAR_BROWSING_DATA',
+                     range: selectedRange,
+                     history: h,
+                     cookies: c,
+                     cache: ca,
+                  });
+                  closeCd();
+               };
+               openClearDataModalRef = () => {
+                  closeAllNavPopovers();
+                  const zh = isZh();
+                  cdTitle.textContent = zh ? '按时间范围清除浏览数据' : 'Clear browsing data';
+                  rangeDefs.forEach(([k, z, e], i) => {
+                     rangeBtns[i].textContent = zh ? z : e;
+                     rangeBtns[i].classList.toggle('active', k === selectedRange);
+                  });
+                  chkHist.sp.textContent = zh ? '浏览历史记录' : 'Browsing history';
+                  chkCookies.sp.textContent = zh ? 'Cookie 与网站登录状态' : 'Cookies & site data';
+                  chkCache.sp.textContent = zh ? '缓存的图片与文件' : 'Cached images & files';
+                  btnCancel.textContent = zh ? '取消' : 'Cancel';
+                  btnConfirm.textContent = zh ? '立即清理' : 'Clear data';
+                  cdRoot.style.display = 'flex';
+                  if (typeof syncHudLayoutRef === 'function') syncHudLayoutRef();
+               };
+               isClearDataOpenRef = () => cdRoot.style.display === 'flex';
+               closeClearDataModalRef = closeCd;
+            }
+
+            if (!IS_HUD_SHELL && !isInternalAny() && !isMobilePlatform()) {
+               const sb = document.createElement('div');
+               sb.id = '__fynexo_status_bar__';
+               shell.appendChild(sb);
+               let sbTimer = null;
+               let hoverA = null;
+               document.addEventListener('mouseover', (e) => {
+                  const a = e && e.target && e.target.closest ? e.target.closest('a[href]') : null;
+                  if (!a || !a.href || a.closest('#__fynexo_host__')) {
+                     if (hoverA) { hoverA = null; sb.style.display = 'none'; }
+                     return;
+                  }
+                  hoverA = a;
+                  if (sbTimer) { clearTimeout(sbTimer); sbTimer = null; }
+                  const dodge = (e.clientX || 0) < 500 && (e.clientY || 0) > (window.innerHeight || 700) - 90;
+                  sb.classList.toggle('right', dodge);
+                  const h = String(a.href);
+                  sb.textContent = h.length > 180 ? h.slice(0, 177) + '...' : h;
+                  sb.style.display = 'block';
+               }, true);
+               document.addEventListener('mouseout', (e) => {
+                  if (!hoverA) return;
+                  const rel = e && e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('a[href]') : null;
+                  if (!rel) {
+                     hoverA = null;
+                     sbTimer = setTimeout(() => { sb.style.display = 'none'; }, 90);
+                  }
+               }, true);
+            }
+         })();
 
          // Frame-0 Immediate Style & Layout Synchronization (0ms paint, zero overlap)
          syncAllStyles();

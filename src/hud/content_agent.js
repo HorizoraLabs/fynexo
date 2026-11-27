@@ -368,6 +368,9 @@
          if (/^https?:\/\/fynexo\.localhost(?::\d+)?\/bookmarks/i.test(href)) {
             return 'fynexo://bookmarks';
          }
+         if (/^https?:\/\/fynexo\.localhost(?::\d+)?\/downloads/i.test(href)) {
+            return 'fynexo://downloads';
+         }
          if (/^https?:\/\/fynexo\.localhost(?::\d+)?(?:\/newtab|\/?$)/i.test(href)) {
             return 'fynexo://newtab';
          }
@@ -706,6 +709,20 @@
       if (config.adblock !== false && !isLocalDev && !isCurrentHostWhitelisted()) {
          chunks.push(
             'ins.adsbygoogle,[id^="div-gpt-ad"],[id^="google_ads_iframe"],iframe[src*="doubleclick.net"],iframe[src*="googlesyndication.com"],.taboola-placeholder,.OUTBRAIN,ytd-ad-slot-renderer,ytd-in-feed-ad-layout-renderer,ytd-banner-promo-renderer,ytd-statement-banner-renderer,#player-ads,#masthead-ad,[data-ad-slot]{display:none!important;}',
+         );
+      }
+      const cleanFont = String(config.page_font_family || '').replace(/[<>{};]/g, '').trim();
+      if (cleanFont) {
+         chunks.push(
+            'body,p,article,main,section,li,td,th,dd,dt,blockquote,h1,h2,h3,h4,h5,h6{font-family:' +
+               cleanFont +
+               '!important;}',
+         );
+      }
+      const minFs = Number(config.min_font_size) || 0;
+      if (minFs >= 10 && minFs <= 24) {
+         chunks.push(
+            'html{font-size:max(100%,' + minFs + 'px)!important;}body,p,li,td,th,dd,dt,blockquote{font-size:max(1em,' + minFs + 'px);}',
          );
       }
       const next = chunks.join('\n');
@@ -1857,6 +1874,35 @@
             sendIpc({ type: 'HUD_ACTION', action: 'toggle_downloads' });
             return;
          }
+         if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key || '').toLowerCase() === 'a') {
+            e.preventDefault();
+            e.stopPropagation();
+            sendIpc({ type: 'HUD_ACTION', action: 'open_tab_search' });
+            return;
+         }
+         if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key || '').toLowerCase() === 's') {
+            if (!isInternalAny()) {
+               e.preventDefault();
+               e.stopPropagation();
+               sendIpc({ type: 'SAVE_PAGE_PDF' });
+               return;
+            }
+         }
+         if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key || '').toLowerCase() === 'u') {
+            const cur = canonicalCurrentUrl();
+            if (/^https?:\/\//i.test(cur)) {
+               e.preventDefault();
+               e.stopPropagation();
+               sendIpc({ type: 'NEW_TAB', url: 'view-source:' + cur });
+               return;
+            }
+         }
+         if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key === 'Delete' || e.key === 'Backspace')) {
+            e.preventDefault();
+            e.stopPropagation();
+            sendIpc({ type: 'HUD_ACTION', action: 'open_clear_data' });
+            return;
+         }
          if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key || '').toLowerCase() === 'c') {
             const sel = window.getSelection ? String(window.getSelection()) : '';
             if (!sel) {
@@ -1956,9 +2002,318 @@
          window.__fynexo_on_newtab_suggestions__(payload);
       }
    });
+   // In-Place Page Translator (CORS-free via Rust WinInet backend, bilingual or replace)
+   const trOriginals = new Map();
+   let trActive = false;
+   let trMode = 'bilingual';
+   let trTargetLang = '';
+   let trReqSeq = 1;
+   let trActiveReqIds = new Set();
+   let trPendingBatches = 0;
+   let trBarEl = null;
+   let trStatusEl = null;
+   let trModeBtn = null;
+   let trLangSel = null;
+
+   function ensureTranslateStyle() {
+      if (document.getElementById('__fynexo_tr_css__')) return;
+      const st = document.createElement('style');
+      st.id = '__fynexo_tr_css__';
+      st.textContent =
+         '.fnx-tr-bi{display:block;margin-top:3px;padding-left:8px;border-left:2px solid #7c86ff;opacity:0.9;font-size:0.94em;line-height:1.5;}';
+      (document.head || document.documentElement).appendChild(st);
+   }
+
+   function restoreTranslatedPage(silent) {
+      trActive = false;
+      trActiveReqIds.clear();
+      trPendingBatches = 0;
+      trOriginals.forEach((rec, el) => {
+         try {
+            if (!el || !el.isConnected) return;
+            if (rec.biEl && rec.biEl.parentNode) rec.biEl.remove();
+            if (rec.replaced) el.textContent = rec.origText;
+            el.removeAttribute('data-fnx-tr-id');
+         } catch (_) {}
+      });
+      trOriginals.clear();
+      if (trBarEl) trBarEl.style.display = 'none';
+      if (!silent) showHudToast(isZh() ? '已还原网页原文' : 'Restored original page');
+   }
+
+   function ensureTranslateBar() {
+      const sr = ensureShadowHost();
+      if (!sr || !shellEl) return null;
+      if (trBarEl && trBarEl.isConnected) return trBarEl;
+      const bar = document.createElement('div');
+      bar.id = '__fynexo_tr_bar__';
+      bar.style.cssText =
+         'position:fixed;top:12px;right:14px;z-index:2147483645;display:none;align-items:center;gap:6px;padding:6px 10px;border-radius:10px;background:var(--fnx-panel);border:1px solid var(--fnx-border-hover);box-shadow:0 10px 28px rgba(0,0,0,0.36);color:var(--fnx-fg);font-size:12px;font-family:system-ui,sans-serif;pointer-events:auto;';
+      const status = document.createElement('span');
+      status.style.cssText = 'font-weight:600;white-space:nowrap;';
+      const sel = document.createElement('select');
+      sel.style.cssText =
+         'height:24px;padding:0 6px;border-radius:6px;border:1px solid var(--fnx-border);background:var(--fnx-surface);color:var(--fnx-fg);font-size:11.5px;cursor:pointer;';
+      [
+         ['zh-CN', '简体中文'],
+         ['zh-TW', '繁體中文'],
+         ['en', 'English'],
+         ['ja', '日本語'],
+         ['ko', '한국어'],
+      ].forEach(([v, lbl]) => {
+         const o = document.createElement('option');
+         o.value = v;
+         o.textContent = lbl;
+         sel.appendChild(o);
+      });
+      sel.onchange = () => {
+         trTargetLang = sel.value;
+         startInPlaceTranslate(trTargetLang);
+      };
+      const btnStyle =
+         'height:24px;padding:0 8px;border-radius:6px;border:1px solid var(--fnx-border);background:var(--fnx-surface);color:var(--fnx-fg);font-size:11.5px;cursor:pointer;';
+      const modeBtn = document.createElement('button');
+      modeBtn.type = 'button';
+      modeBtn.style.cssText = btnStyle;
+      modeBtn.onclick = () => {
+         trMode = trMode === 'bilingual' ? 'replace' : 'bilingual';
+         applyTranslatedMode();
+      };
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.style.cssText = btnStyle;
+      closeBtn.textContent = isZh() ? '还原' : 'Restore';
+      closeBtn.onclick = () => restoreTranslatedPage(false);
+      bar.appendChild(status);
+      bar.appendChild(sel);
+      bar.appendChild(modeBtn);
+      bar.appendChild(closeBtn);
+      shellEl.appendChild(bar);
+      trBarEl = bar;
+      trStatusEl = status;
+      trModeBtn = modeBtn;
+      trLangSel = sel;
+      return bar;
+   }
+
+   function applyTranslatedMode() {
+      const zh = isZh();
+      if (trModeBtn) {
+         trModeBtn.textContent = trMode === 'bilingual' ? (zh ? '双语' : 'Bilingual') : (zh ? '仅译文' : 'Replace');
+      }
+      trOriginals.forEach((rec, el) => {
+         if (!el || !el.isConnected || !rec.translated) return;
+         if (trMode === 'replace') {
+            if (rec.biEl && rec.biEl.parentNode) rec.biEl.remove();
+            rec.biEl = null;
+            el.textContent = rec.translated;
+            rec.replaced = true;
+         } else {
+            if (rec.replaced) {
+               el.textContent = rec.origText;
+               rec.replaced = false;
+            }
+            if (!rec.biEl || !rec.biEl.isConnected) {
+               const sp = document.createElement('span');
+               sp.className = 'fnx-tr-bi';
+               sp.textContent = rec.translated;
+               el.appendChild(sp);
+               rec.biEl = sp;
+            } else {
+               rec.biEl.textContent = rec.translated;
+            }
+         }
+      });
+   }
+
+   function collectTranslatableBlocks() {
+      const skip = /^(SCRIPT|STYLE|NOSCRIPT|CODE|PRE|TEXTAREA|INPUT|SELECT|OPTION|SVG|MATH|KBD|SAMP)$/;
+      const nodes = document.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,td,th,blockquote,figcaption,dt,dd');
+      const out = [];
+      for (let i = 0; i < nodes.length && out.length < 220; i++) {
+         const el = nodes[i];
+         if (!el || el.closest('#__fynexo_host__,code,pre,nav,footer,script,style')) continue;
+         if (el.querySelector('p,h1,h2,h3,h4,h5,h6,blockquote,ul,ol,table')) continue;
+         let bad = false;
+         let p = el;
+         while (p && p !== document.body) {
+            if (skip.test(p.tagName || '')) { bad = true; break; }
+            p = p.parentElement;
+         }
+         if (bad) continue;
+         const txt = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+         if (txt.length < 3 || txt.length > 1600) continue;
+         if (/^[\d\s.,:%$€£¥+\-*/=<>()[\]{}|\\/_#@!?~`^&]+$/.test(txt)) continue;
+         out.push([el, txt]);
+      }
+      return out;
+   }
+
+   function startInPlaceTranslate(targetLang) {
+      if (isInternalAny()) return;
+      restoreTranslatedPage(true);
+      ensureTranslateStyle();
+      const lang = String(targetLang || (isZh() ? 'zh-CN' : 'en'));
+      trTargetLang = lang;
+      trActive = true;
+      const bar = ensureTranslateBar();
+      if (bar) {
+         bar.style.display = 'inline-flex';
+         if (trLangSel) trLangSel.value = lang;
+         if (trStatusEl) trStatusEl.textContent = isZh() ? '正在翻译…' : 'Translating...';
+         if (trModeBtn) trModeBtn.textContent = trMode === 'bilingual' ? (isZh() ? '双语' : 'Bilingual') : (isZh() ? '仅译文' : 'Replace');
+      }
+      const blocks = collectTranslatableBlocks();
+      if (blocks.length === 0) {
+         if (trStatusEl) trStatusEl.textContent = isZh() ? '无可翻译正文' : 'No text found';
+         return;
+      }
+      const idMap = [];
+      for (let i = 0; i < blocks.length; i++) {
+         const id = i + 1;
+         const [el, txt] = blocks[i];
+         el.setAttribute('data-fnx-tr-id', String(id));
+         trOriginals.set(el, { id, origText: txt, translated: '', biEl: null, replaced: false });
+         idMap.push({ id, text: txt });
+      }
+      const chunkSize = 24;
+      trPendingBatches = Math.ceil(idMap.length / chunkSize);
+      for (let i = 0; i < idMap.length; i += chunkSize) {
+         const rid = trReqSeq++;
+         trActiveReqIds.add(rid);
+         sendIpc({
+            type: 'TRANSLATE_BATCH',
+            req_id: rid,
+            target_lang: lang,
+            segments: idMap.slice(i, i + chunkSize),
+         });
+      }
+   }
+
+   function handleTranslateResult(payload) {
+      if (!trActive || !payload || !trActiveReqIds.has(Number(payload.req_id))) return;
+      trActiveReqIds.delete(Number(payload.req_id));
+      trPendingBatches = Math.max(0, trPendingBatches - 1);
+      if (payload.error) {
+         if (trStatusEl) trStatusEl.textContent = isZh() ? '翻译失败' : 'Translate failed';
+         showHudToast(String(payload.error));
+         return;
+      }
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      for (let i = 0; i < items.length; i++) {
+         const it = items[i];
+         if (!it || !it.id || !it.text) continue;
+         const el = document.querySelector('[data-fnx-tr-id="' + String(it.id) + '"]');
+         if (!el) continue;
+         const rec = trOriginals.get(el);
+         if (!rec) continue;
+         if (String(it.text).trim().toLowerCase() === rec.origText.trim().toLowerCase()) continue;
+         rec.translated = String(it.text);
+      }
+      applyTranslatedMode();
+      if (trStatusEl) {
+         trStatusEl.textContent =
+            trPendingBatches > 0
+               ? (isZh() ? '翻译中…' : 'Translating...')
+               : (isZh() ? '已翻译' : 'Translated');
+      }
+   }
+
+   // Chrome-style Link Hover Status Bar (bottom-left URL preview, dodges cursor to bottom-right)
+   let statusBarEl = null;
+   let statusHideTimer = null;
+   let activeHoverLink = null;
+   function ensureStatusBar() {
+      const sr = ensureShadowHost();
+      if (!sr || !shellEl) return null;
+      if (statusBarEl && statusBarEl.isConnected) return statusBarEl;
+      const el = document.createElement('div');
+      el.id = '__fynexo_status_bar__';
+      el.style.cssText =
+         'position:fixed;left:0;bottom:0;z-index:2147483642;display:none;max-width:min(480px,72vw);padding:3px 10px;border-top-right-radius:7px;border-top:1px solid var(--fnx-border);border-right:1px solid var(--fnx-border);background:var(--fnx-panel);color:var(--fnx-secondary);font-size:11.5px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:0 -2px 10px rgba(0,0,0,0.22);';
+      shellEl.appendChild(el);
+      statusBarEl = el;
+      return el;
+   }
+   function showLinkStatus(href, clientX, clientY) {
+      if (statusHideTimer) { clearTimeout(statusHideTimer); statusHideTimer = null; }
+      const bar = ensureStatusBar();
+      if (!bar) return;
+      const dodgeRight = clientX < 500 && clientY > (window.innerHeight || 700) - 90;
+      bar.style.left = dodgeRight ? 'auto' : '0';
+      bar.style.right = dodgeRight ? '0' : 'auto';
+      bar.style.borderTopRightRadius = dodgeRight ? '0' : '7px';
+      bar.style.borderTopLeftRadius = dodgeRight ? '7px' : '0';
+      bar.textContent = href.length > 180 ? href.slice(0, 177) + '...' : href;
+      bar.style.display = 'block';
+   }
+   function hideLinkStatus() {
+      activeHoverLink = null;
+      if (!statusBarEl) return;
+      if (statusHideTimer) clearTimeout(statusHideTimer);
+      statusHideTimer = setTimeout(() => {
+         statusHideTimer = null;
+         if (statusBarEl) statusBarEl.style.display = 'none';
+      }, 90);
+   }
+   if (!isInternalAny()) {
+      document.addEventListener('mouseover', (e) => {
+         const t = e && e.target && e.target.closest ? e.target.closest('a[href]') : null;
+         if (!t || !t.href || t.closest('#__fynexo_host__')) {
+            if (activeHoverLink) hideLinkStatus();
+            return;
+         }
+         activeHoverLink = t;
+         showLinkStatus(String(t.href), e.clientX || 0, e.clientY || 0);
+      }, true);
+      document.addEventListener('mouseout', (e) => {
+         if (!activeHoverLink) return;
+         const rel = e && e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('a[href]') : null;
+         if (!rel) hideLinkStatus();
+      }, true);
+      window.addEventListener('blur', hideLinkStatus, { passive: true });
+   }
+
+   // Video Picture-in-Picture helper
+   function toggleLocalPictureInPicture() {
+      const zh = isZh();
+      try {
+         if (document.pictureInPictureElement) {
+            document.exitPictureInPicture().catch(() => {});
+            showHudToast(zh ? '已退出画中画' : 'Exited Picture-in-Picture');
+            return;
+         }
+         const videos = Array.from(document.querySelectorAll('video')).filter((v) => v && v.readyState > 0);
+         const target =
+            (currentMediaEl && currentMediaEl.tagName === 'VIDEO' ? currentMediaEl : null) ||
+            videos.find((v) => !v.paused && !v.ended) ||
+            videos[0];
+         if (!target || typeof target.requestPictureInPicture !== 'function') {
+            showHudToast(zh ? '当前页面未检测到可画中画的视频' : 'No playable video found for Picture-in-Picture');
+            return;
+         }
+         target.removeAttribute('disablepictureinpicture');
+         target.disablePictureInPicture = false;
+         target.requestPictureInPicture()
+            .then(() => showHudToast(zh ? '已开启视频画中画' : 'Picture-in-Picture active'))
+            .catch(() => showHudToast(zh ? '该视频暂不支持画中画' : 'Picture-in-Picture unavailable for this video'));
+      } catch (_) {
+         showHudToast(zh ? '该视频暂不支持画中画' : 'Picture-in-Picture unavailable');
+      }
+   }
+
+   exposeBridge('__fynexo_on_translate_result__', handleTranslateResult);
+
    exposeBridge('__fynexo_content_action__', function (action, payload) {
       const data = payload || {};
       switch (action) {
+         case 'toggle_translate':
+            if (trActive && !data.force) restoreTranslatedPage(false);
+            else startInPlaceTranslate(data.target_lang || (isZh() ? 'zh-CN' : 'en'));
+            break;
+         case 'toggle_pip':
+            toggleLocalPictureInPicture();
+            break;
          case 'open_find':
             openFindBar();
             break;

@@ -217,6 +217,35 @@ __FNX_SETTINGS_CSS__
                         </div>
                     </div>
 
+                    <div class="set-row align-top">
+                        <div class="set-meta">
+                            <div class="set-label" id="lblPageFont">Web page font &amp; minimum size</div>
+                            <div class="set-hint" id="hintPageFont">Override site body font family or enforce a readable minimum font size (preserves code blocks).</div>
+                        </div>
+                        <div class="set-ctrl-col" style="max-width: 340px; width: 100%;">
+                            <div style="display: flex; gap: 6px; width: 100%;">
+                                <select id="selPageFontPreset" class="select-input" style="flex: 1;" aria-label="Web page font">
+                                    <option value="">Site default</option>
+                                    <option value="system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif">System Sans (Modern)</option>
+                                    <option value="'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif">Clean CJK Sans</option>
+                                    <option value="'Noto Serif SC', 'Songti SC', Georgia, serif">Reading Serif</option>
+                                    <option value="'JetBrains Mono', Consolas, monospace">Monospace</option>
+                                    <option value="__custom__">Custom font...</option>
+                                </select>
+                                <select id="selMinFontSize" class="select-input" style="width: 106px;" aria-label="Minimum font size">
+                                    <option value="0">Min: Off</option>
+                                    <option value="12">12 px</option>
+                                    <option value="13">13 px</option>
+                                    <option value="14">14 px</option>
+                                    <option value="15">15 px</option>
+                                    <option value="16">16 px</option>
+                                    <option value="18">18 px</option>
+                                </select>
+                            </div>
+                            <input type="text" id="inputCustomPageFont" class="text-input mono" spellcheck="false" placeholder="'LXGW WenKai', sans-serif" style="display: none;">
+                        </div>
+                    </div>
+
                     <div class="set-row desktop-only-sec">
                         <div class="set-meta">
                             <div class="set-label">Window architecture</div>
@@ -717,17 +746,102 @@ __FNX_SETTINGS_CSS__
                         </div>
                     </div>
 
+                    <div class="set-row desktop-only-sec">
+                        <div class="set-meta">
+                            <div class="set-label" id="lblPwAutosave">Offer to save passwords</div>
+                            <div class="set-hint" id="hintPwAutosave">Use WebView2 native password autosave when signing into websites (always disabled in Private mode).</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnPwAutosaveToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Password autosave"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row desktop-only-sec">
+                        <div class="set-meta">
+                            <div class="set-label" id="lblGenAutofill">Form &amp; address autofill</div>
+                            <div class="set-hint" id="hintGenAutofill">Automatically fill saved emails, addresses, and web forms via WebView2 native autofill.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnGenAutofillToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Form autofill"></button>
+                        </div>
+                    </div>
+
                     <div class="set-row align-top" style="border-bottom: none;">
                         <div class="set-meta">
                             <div class="set-label">Profile storage &amp; cache</div>
                             <div class="set-hint">Modular JSON config, browsing history, cookies, and WebView cache.</div>
                             <div class="storage-path" id="dataDirLabel" style="margin-top: 8px;">—</div>
                         </div>
-                        <div class="set-ctrl" style="max-width: 310px; justify-content: flex-end;">
+                        <div class="set-ctrl" style="max-width: 340px; justify-content: flex-end;">
+                            <button type="button" class="action-btn" id="btnOpenClearData">Clear by range...</button>
                             <button type="button" class="action-btn" id="btnClearHistory">Clear history</button>
                             <button type="button" class="action-btn danger" id="btnClearSiteData">Clear cache &amp; cookies</button>
                             <button type="button" class="action-btn desktop-only-inline" id="btnOpenDataDir">Profile folder</button>
                             <button type="button" class="action-btn desktop-only-inline" id="btnOpenDownloadsDir">Downloads</button>
+                        </div>
+                    </div>
+
+                    <div class="set-block" id="cloudSyncBlock" style="border-top: 1px solid var(--fnx-hairline); margin-top: 10px; padding-top: 14px;">
+                        <div class="set-block-head">
+                            <div>
+                                <div class="set-label" id="lblCloudSync">Cloud Sync (WebDAV / GitHub Gist)</div>
+                                <div class="set-hint" id="hintCloudSync">Sync bookmarks, themes, site rules, and preferences across devices via your own WebDAV server or private GitHub Gist.</div>
+                            </div>
+                            <div class="seg-group" id="syncProviderGroup">
+                                <button type="button" class="seg-btn active" data-sp="off" id="btnSyncProvOff">Off</button>
+                                <button type="button" class="seg-btn" data-sp="webdav">WebDAV</button>
+                                <button type="button" class="seg-btn" data-sp="gist">GitHub Gist</button>
+                            </div>
+                        </div>
+                        <div id="syncFieldsWrap" style="display: none; flex-direction: column; gap: 10px; margin-top: 10px;">
+                            <div class="editor-2col">
+                                <div class="field-box">
+                                    <label class="field-label" for="inputSyncUrl"><span id="lblSyncUrl">WebDAV File URL / Gist ID</span></label>
+                                    <input type="text" id="inputSyncUrl" class="text-input mono" spellcheck="false" placeholder="https://dav.example.com/fynexo-sync.json">
+                                </div>
+                                <div class="field-box" id="syncUserField">
+                                    <label class="field-label" for="inputSyncUser"><span id="lblSyncUser">Username</span></label>
+                                    <input type="text" id="inputSyncUser" class="text-input mono" spellcheck="false" placeholder="username">
+                                </div>
+                            </div>
+                            <div class="editor-2col">
+                                <div class="field-box">
+                                    <label class="field-label" for="inputSyncToken"><span id="lblSyncToken">App Password / GitHub PAT</span></label>
+                                    <input type="password" id="inputSyncToken" class="text-input mono" spellcheck="false" placeholder="Token / Password">
+                                </div>
+                                <div class="field-box" style="justify-content: flex-end;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 34px;">
+                                        <span class="field-label" id="lblSyncAuto" style="margin: 0;">Auto-sync on startup</span>
+                                        <button type="button" id="btnSyncAutoToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Auto-sync"></button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                                <span class="set-hint mono" id="syncStatusMeta" style="font-size: 11px;">Not synced yet</span>
+                                <div class="sec-actions">
+                                    <button type="button" class="action-btn compact" id="btnSyncSave">Save</button>
+                                    <button type="button" class="action-btn compact" id="btnSyncPull">Pull from cloud</button>
+                                    <button type="button" class="action-btn compact" id="btnSyncPush">Push to cloud</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="set-block desktop-only-sec" id="proxyBlock" style="border-top: 1px solid var(--fnx-hairline); margin-top: 10px; padding-top: 14px;">
+                        <div class="set-block-head">
+                            <div>
+                                <div class="set-label" id="lblProxy">Network Proxy (HTTP / SOCKS5)</div>
+                                <div class="set-hint" id="hintProxy">Route Fynexo traffic through the system proxy, direct connection, or a custom proxy server (applies on restart).</div>
+                            </div>
+                            <div class="seg-group" id="proxyModeGroup">
+                                <button type="button" class="seg-btn active" data-pm="system" id="btnProxySystem">System</button>
+                                <button type="button" class="seg-btn" data-pm="direct" id="btnProxyDirect">Direct</button>
+                                <button type="button" class="seg-btn" data-pm="custom" id="btnProxyCustom">Custom</button>
+                            </div>
+                        </div>
+                        <div id="proxyCustomWrap" style="display: none; align-items: center; gap: 8px; margin-top: 10px;">
+                            <input type="text" id="inputProxyServer" class="text-input mono" spellcheck="false" placeholder="http://127.0.0.1:7890 or socks5://127.0.0.1:1080" style="flex: 1;">
+                            <button type="button" class="action-btn compact" id="btnSaveProxy">Save proxy</button>
                         </div>
                     </div>
 

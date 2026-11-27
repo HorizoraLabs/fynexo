@@ -123,6 +123,10 @@ fn default_translate_provider() -> String {
     "google".to_string()
 }
 
+fn default_proxy_mode() -> String {
+    "system".to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct BrowserModeProfile {
@@ -376,6 +380,30 @@ pub struct AppConfig {
     pub ask_download_location: bool,
     #[serde(default = "default_translate_provider")]
     pub translate_provider: String,
+    #[serde(default)]
+    pub sync_provider: String,
+    #[serde(default)]
+    pub sync_url: String,
+    #[serde(default)]
+    pub sync_username: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sync_token: String,
+    #[serde(default)]
+    pub sync_auto: bool,
+    #[serde(default)]
+    pub sync_last_at: u64,
+    #[serde(default = "default_true")]
+    pub password_autosave: bool,
+    #[serde(default = "default_true")]
+    pub general_autofill: bool,
+    #[serde(default = "default_proxy_mode")]
+    pub proxy_mode: String,
+    #[serde(default)]
+    pub proxy_server: String,
+    #[serde(default)]
+    pub page_font_family: String,
+    #[serde(default)]
+    pub min_font_size: u32,
     #[serde(default = "default_search_engines")]
     pub search_engines: Vec<SearchEngineItem>,
     #[serde(default = "default_bangs")]
@@ -421,6 +449,18 @@ impl Default for AppConfig {
             downloads_dir: String::new(),
             ask_download_location: false,
             translate_provider: default_translate_provider(),
+            sync_provider: String::new(),
+            sync_url: String::new(),
+            sync_username: String::new(),
+            sync_token: String::new(),
+            sync_auto: false,
+            sync_last_at: 0,
+            password_autosave: true,
+            general_autofill: true,
+            proxy_mode: default_proxy_mode(),
+            proxy_server: String::new(),
+            page_font_family: String::new(),
+            min_font_size: 0,
             search_engines: default_search_engines(),
             bangs: default_bangs(),
         }
@@ -428,6 +468,46 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// Clone config with sensitive sync/proxy credentials stripped for external-origin payloads.
+    pub fn redacted_for_external(&self) -> Self {
+        let mut c = self.clone();
+        c.sync_token.clear();
+        c.sync_username.clear();
+        c.sync_url.clear();
+        c.proxy_server.clear();
+        c
+    }
+
+    pub fn normalize_proxy_mode(raw: &str) -> &'static str {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "direct" | "none" => "direct",
+            "custom" | "manual" => "custom",
+            _ => "system",
+        }
+    }
+
+    /// Sanitise a Chromium `--proxy-server` value (rejects whitespace, quotes, or switch injection).
+    pub fn sanitize_proxy_server(raw: &str) -> String {
+        let s = raw.trim();
+        if s.is_empty()
+            || s.len() > 256
+            || s.starts_with('-')
+            || s.bytes().any(|b| b <= 0x20 || b == 0x7f || b == b'"' || b == b'\'' || b == b'\\')
+        {
+            return String::new();
+        }
+        s.to_string()
+    }
+
+    pub fn sanitize_page_font_family(raw: &str) -> String {
+        let cleaned: String = raw
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control() && !matches!(c, '<' | '>' | '{' | '}' | ';'))
+            .take(120)
+            .collect();
+        cleaned.trim().to_string()
+    }
     pub fn is_multi_window(&self) -> bool {
         !self.window_mode.trim().eq_ignore_ascii_case("single")
     }
