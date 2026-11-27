@@ -112,6 +112,15 @@
                 dirEl.textContent = (zh ? '保存位置：' : 'Folder: ') + downloadsDir;
                 dirEl.title = downloadsDir;
             }
+            const tInp = document.getElementById('dlTurboInput');
+            const tBtn = document.getElementById('btnTurboDownload');
+            const tBadge = document.getElementById('dlTurboThreadsBadge');
+            if (tInp) tInp.placeholder = zh ? '粘贴直链 http(s):// 地址，使用多线程分片高速下载…' : 'Paste direct http(s):// file URL for multi-threaded turbo download...';
+            if (tBtn) tBtn.textContent = zh ? '高速下载' : 'Turbo Download';
+            if (tBadge) {
+                const th = config.parallel_downloads !== false ? Math.max(1, Math.min(16, Number(config.download_threads) || 8)) : 1;
+                tBadge.textContent = zh ? (th + ' 线程') : (th + 'x');
+            }
         }
 
         function statusMeta(st, zh) {
@@ -310,6 +319,24 @@
 
         document.getElementById('btnOpenFolder').onclick = () => sendIpc({ type: 'OPEN_DOWNLOADS_DIR' });
         document.getElementById('btnClearFinished').onclick = () => sendIpc({ type: 'CLEAR_DOWNLOADS_HISTORY' });
+        const turboInp = document.getElementById('dlTurboInput');
+        const turboBtn = document.getElementById('btnTurboDownload');
+        const fireTurbo = () => {
+            if (!turboInp) return;
+            const u = turboInp.value.trim();
+            if (!/^https?:\/\//i.test(u)) return;
+            sendIpc({ type: 'START_TURBO_DOWNLOAD', url: u });
+            turboInp.value = '';
+        };
+        if (turboBtn) turboBtn.onclick = fireTurbo;
+        if (turboInp) {
+            turboInp.onkeydown = (ev) => {
+                if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    fireTurbo();
+                }
+            };
+        }
 
         window.__fynexo_on_settings_runtime__ = (payload) => {
             if (!payload) return;

@@ -393,7 +393,12 @@ pub fn effective_zoom_for_url(state: &AppState, raw_url: &str) -> f64 {
 }
 
 #[cfg(target_os = "windows")]
-pub fn windows_browser_args(hw_accel: bool, proxy_mode: &str, proxy_server: &str) -> String {
+pub fn windows_browser_args(
+    hw_accel: bool,
+    proxy_mode: &str,
+    proxy_server: &str,
+    parallel_downloads: bool,
+) -> String {
     let gpu_args = if hw_accel {
         "--enable-gpu-rasterization --enable-zero-copy"
     } else {
@@ -411,6 +416,11 @@ pub fn windows_browser_args(hw_accel: bool, proxy_mode: &str, proxy_server: &str
         }
         _ => String::new(),
     };
+    let parallel_feat = if parallel_downloads {
+        ",ParallelDownloading"
+    } else {
+        ""
+    };
     format!(
         "{}{} \
         --enable-quic \
@@ -422,8 +432,8 @@ pub fn windows_browser_args(hw_accel: bool, proxy_mode: &str, proxy_server: &str
         --no-default-browser-check \
         --no-first-run \
         --disable-features=msWebOOUI,msPdfOOUI,Prerender2,TopicsAPI,Translate,MediaRouter,OptimizationHints \
-        --enable-features=OverlayScrollbar,OverlayScrollbarWinStyle,OverlayScrollbarWinStyleAnimation,FluentOverlayScrollbar",
-        gpu_args, proxy_arg
+        --enable-features=OverlayScrollbar,OverlayScrollbarWinStyle,OverlayScrollbarWinStyleAnimation,FluentOverlayScrollbar{}",
+        gpu_args, proxy_arg, parallel_feat
     )
 }
 
@@ -449,6 +459,7 @@ pub fn build_tab_webview(
         boot_chrome_ext,
         boot_proxy_mode,
         boot_proxy_server,
+        boot_parallel_downloads,
         adblock_cfg,
         incognito,
         password_autosave,
@@ -469,6 +480,7 @@ pub fn build_tab_webview(
             st.boot_chrome_ext_enabled,
             st.boot_proxy_mode.clone(),
             st.boot_proxy_server.clone(),
+            st.boot_parallel_downloads,
             st.adblock.clone(),
             incog,
             st.config.password_autosave && !incog,
@@ -505,7 +517,7 @@ pub fn build_tab_webview(
 
     #[cfg(target_os = "windows")]
     {
-        let args = windows_browser_args(boot_hw_accel, &boot_proxy_mode, &boot_proxy_server);
+        let args = windows_browser_args(boot_hw_accel, &boot_proxy_mode, &boot_proxy_server, boot_parallel_downloads);
         builder = builder
             .with_additional_browser_args(&args)
             .with_browser_extensions_enabled(boot_chrome_ext);
@@ -517,6 +529,7 @@ pub fn build_tab_webview(
     // - Convert normal target="_blank" links into internal Fynexo tabs
     let proxy_for_new_window = event_proxy.clone();
     let tabs_for_new_window = Arc::clone(tab_manager);
+    let state_for_new_window = Arc::clone(app_state);
     builder = builder.with_new_window_req_handler(move |url, features| {
         #[cfg(target_os = "windows")]
         if adblock::launch_external_scheme_windows(&url) {
@@ -532,7 +545,11 @@ pub fn build_tab_webview(
             }
             NewWindowAction::AllowPopup => wry::NewWindowResponse::Allow,
             NewWindowAction::OpenInTab => {
-                let logical = normalize_logical_url(&url);
+                let clean_urls = state_for_new_window.lock_safe().config.clean_urls;
+                let logical = super::url::sanitize_and_clean_url(
+                    &normalize_logical_url(&url),
+                    clean_urls,
+                );
                 let (new_id, nav_url) = tabs_for_new_window.lock_safe().new_tab(&logical);
                 let _ = proxy_for_new_window.send_event(UserEvent::SwitchTab {
                     win_id,
@@ -551,10 +568,13 @@ pub fn build_tab_webview(
             .unwrap_or_default(),
     ));
 
-    // Main-Frame Navigation Guard: Block Ad Redirects, Data-URI Phishing & Route External Schemes Safely
+    // Main-Frame Navigation Guard: Block Ad Redirects, Data-URI Phishing, Skip Outbound Interstitials & Route External Schemes Safely
     #[allow(unused_variables)]
     let proxy_for_nav = event_proxy.clone();
     let page_host_for_nav = Arc::clone(&page_host);
+    let state_for_nav = Arc::clone(app_state);
+    let tab_id_for_nav = Arc::clone(&bound_tab_id);
+    let tabs_for_nav = Arc::clone(tab_manager);
     builder = builder.with_navigation_handler(move |url| {
         let lower = url.to_ascii_lowercase();
         let is_view_source = lower
@@ -585,6 +605,25 @@ pub fn build_tab_webview(
         if adblock::should_block_url_for_page(&url, Some(&nav_host)) {
             adblock::record_block();
             return false;
+        }
+
+        if (lower.starts_with("http://") || lower.starts_with("https://"))
+            && state_for_nav.lock_safe().config.clean_urls
+        {
+            let tid = tab_id_for_nav.load(Ordering::Acquire);
+            let is_active_pane = tid == 0 || tabs_for_nav.lock_safe().active_id == tid;
+            if is_active_pane {
+                if let Some(unwrapped) = super::url::unwrap_redirect_url(&url) {
+                    let cleaned = super::url::sanitize_and_clean_url(&unwrapped, true);
+                    if cleaned != url && super::security::is_safe_navigation_target(&cleaned) {
+                        let _ = proxy_for_nav.send_event(UserEvent::Navigate {
+                            win_id,
+                            url: cleaned,
+                        });
+                        return false;
+                    }
+                }
+            }
         }
 
         if lower.starts_with("http://")
@@ -870,7 +909,7 @@ pub fn build_extension_popup_webview(
     }
 
     #[cfg(target_os = "windows")]
-    let (boot_hw_accel, boot_chrome_ext, boot_proxy_mode, boot_proxy_server);
+    let (boot_hw_accel, boot_chrome_ext, boot_proxy_mode, boot_proxy_server, boot_parallel_downloads);
     let (incognito, resolved_ua, allow_devtools) = {
         let st = app_state.lock_safe();
         #[cfg(target_os = "windows")]
@@ -879,6 +918,7 @@ pub fn build_extension_popup_webview(
             boot_chrome_ext = st.boot_chrome_ext_enabled;
             boot_proxy_mode = st.boot_proxy_mode.clone();
             boot_proxy_server = st.boot_proxy_server.clone();
+            boot_parallel_downloads = st.boot_parallel_downloads;
         }
         (
             st.config.incognito,
@@ -898,7 +938,7 @@ pub fn build_extension_popup_webview(
 
     #[cfg(target_os = "windows")]
     {
-        let args = windows_browser_args(boot_hw_accel, &boot_proxy_mode, &boot_proxy_server);
+        let args = windows_browser_args(boot_hw_accel, &boot_proxy_mode, &boot_proxy_server, boot_parallel_downloads);
         builder = builder
             .with_additional_browser_args(&args)
             .with_browser_extensions_enabled(boot_chrome_ext);
@@ -969,7 +1009,7 @@ pub fn build_hud_webview(
     event_proxy: &EventLoopProxy<UserEvent>,
 ) -> Result<(wry::WebView, Vec<HudRegionRectLogical>), Box<dyn Error>> {
     let initial_tabs = tab_manager.lock_safe().get_state();
-    let (incognito, boot_hw_accel, boot_chrome_ext, boot_proxy_mode, boot_proxy_server, allow_devtools, hud_script) = {
+    let (incognito, boot_hw_accel, boot_chrome_ext, boot_proxy_mode, boot_proxy_server, boot_parallel_downloads, allow_devtools, hud_script) = {
         let mut st = app_state.lock_safe();
         let _ = st.reload_if_changed();
         let script = hud::generate_hud_script_for_role(&st, Some(&initial_tabs), hud::HudRole::HudShell);
@@ -979,6 +1019,7 @@ pub fn build_hud_webview(
             st.boot_chrome_ext_enabled,
             st.boot_proxy_mode.clone(),
             st.boot_proxy_server.clone(),
+            st.boot_parallel_downloads,
             cfg!(debug_assertions) || st.config.allow_page_eval,
             script,
         )
@@ -990,7 +1031,7 @@ pub fn build_hud_webview(
         .with_visible(true)
         .with_incognito(incognito);
 
-    let args = windows_browser_args(boot_hw_accel, &boot_proxy_mode, &boot_proxy_server);
+    let args = windows_browser_args(boot_hw_accel, &boot_proxy_mode, &boot_proxy_server, boot_parallel_downloads);
     builder = builder
         .with_additional_browser_args(&args)
         .with_browser_extensions_enabled(boot_chrome_ext);
@@ -1317,6 +1358,7 @@ mod tests {
             crate::config::SiteOverride {
                 zoom: Some(1.3),
                 dark_mode: String::new(),
+                ..Default::default()
             },
         );
         assert!((effective_zoom_for_url(&st, "https://example.com/path") - 1.3).abs() < 1e-6);

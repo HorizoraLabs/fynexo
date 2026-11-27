@@ -15,20 +15,20 @@ use std::time::Instant;
 use tao::event_loop::EventLoopProxy;
 #[cfg(target_os = "windows")]
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2DownloadOperation, ICoreWebView2_4,
-    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED,
-    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_PAUSED,
-    COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED, COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS,
-    COREWEBVIEW2_DOWNLOAD_STATE_INTERRUPTED, COREWEBVIEW2_PERMISSION_KIND_CAMERA,
-    COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ, COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION,
-    COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
-    COREWEBVIEW2_PERMISSION_STATE_ALLOW, COREWEBVIEW2_PERMISSION_STATE_DEFAULT,
-    COREWEBVIEW2_PERMISSION_STATE_DENY,
+    ICoreWebView2Deferral, ICoreWebView2DownloadOperation, ICoreWebView2DownloadStartingEventArgs,
+    ICoreWebView2_2, ICoreWebView2_4, COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED,
+    COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_PAUSED, COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED,
+    COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS, COREWEBVIEW2_DOWNLOAD_STATE_INTERRUPTED,
+    COREWEBVIEW2_PERMISSION_KIND_CAMERA, COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ,
+    COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
+    COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+    COREWEBVIEW2_PERMISSION_STATE_DEFAULT, COREWEBVIEW2_PERMISSION_STATE_DENY,
 };
 #[cfg(target_os = "windows")]
 use webview2_com::{
     take_pwstr, BytesReceivedChangedEventHandler, ContainsFullScreenElementChangedEventHandler,
-    DownloadStartingEventHandler, PermissionRequestedEventHandler, StateChangedEventHandler,
+    DownloadStartingEventHandler, GetCookiesCompletedHandler, PermissionRequestedEventHandler,
+    StateChangedEventHandler,
 };
 #[cfg(target_os = "windows")]
 use windows::core::{Interface, HSTRING, PWSTR};
@@ -45,18 +45,42 @@ use super::events::UserEvent;
 #[cfg(target_os = "windows")]
 use super::state::AppState;
 
+static NEXT_DOWNLOAD_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+pub fn next_download_id() -> u64 {
+    NEXT_DOWNLOAD_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(target_os = "windows")]
-static NEXT_DOWNLOAD_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_PROBE_ID: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(target_os = "windows")]
+struct PendingDownloadProbe {
+    args: ICoreWebView2DownloadStartingEventArgs,
+    deferral: ICoreWebView2Deferral,
+    op: ICoreWebView2DownloadOperation,
+    dest_path: PathBuf,
+    display_name: String,
+    saved_path_str: String,
+    source_url: String,
+    total_u64: u64,
+    threads: u8,
+}
 
 #[cfg(target_os = "windows")]
 thread_local! {
     static ACTIVE_DOWNLOADS: RefCell<HashMap<u64, ICoreWebView2DownloadOperation>> =
         RefCell::new(HashMap::new());
+    static PENDING_PROBES: RefCell<HashMap<u64, PendingDownloadProbe>> =
+        RefCell::new(HashMap::new());
 }
 
-/// Cancel an active Windows WebView2 download operation by ID (must be called on the UI thread).
+/// Cancel an active download (multi-threaded or WebView2 native) by ID.
 #[cfg(target_os = "windows")]
 pub fn cancel_download(id: u64) -> bool {
+    if super::dl_accel::cancel_accel(id) {
+        return true;
+    }
     ACTIVE_DOWNLOADS.with(|map| {
         if let Some(op) = map.borrow().get(&id) {
             unsafe { op.Cancel().is_ok() }
@@ -66,9 +90,12 @@ pub fn cancel_download(id: u64) -> bool {
     })
 }
 
-/// Pause an active Windows WebView2 download operation by ID (must be called on the UI thread).
+/// Pause an active download (multi-threaded or WebView2 native) by ID.
 #[cfg(target_os = "windows")]
 pub fn pause_download(id: u64) -> bool {
+    if super::dl_accel::pause_accel(id) {
+        return true;
+    }
     ACTIVE_DOWNLOADS.with(|map| {
         if let Some(op) = map.borrow().get(&id) {
             unsafe { op.Pause().is_ok() }
@@ -78,9 +105,12 @@ pub fn pause_download(id: u64) -> bool {
     })
 }
 
-/// Resume a paused Windows WebView2 download operation by ID (must be called on the UI thread).
+/// Resume a paused download (multi-threaded or WebView2 native) by ID.
 #[cfg(target_os = "windows")]
 pub fn resume_download(id: u64) -> bool {
+    if super::dl_accel::resume_accel(id) {
+        return true;
+    }
     ACTIVE_DOWNLOADS.with(|map| {
         if let Some(op) = map.borrow().get(&id) {
             unsafe { op.Resume().is_ok() }
@@ -200,8 +230,226 @@ fn show_windows_save_dialog(
     }
 }
 
+#[cfg(target_os = "windows")]
+fn attach_webview_op_handlers(
+    op: ICoreWebView2DownloadOperation,
+    dl_id: u64,
+    display_name: String,
+    saved_path_str: String,
+    source_url: String,
+    total_u64: u64,
+    proxy: EventLoopProxy<UserEvent>,
+) {
+    ACTIVE_DOWNLOADS.with(|map| {
+        map.borrow_mut().insert(dl_id, op.clone());
+    });
+
+    let _ = proxy.send_event(UserEvent::DownloadUpdate {
+        id: dl_id,
+        name: display_name.clone(),
+        status: "downloading".to_string(),
+        bytes_received: 0,
+        total_bytes: total_u64,
+        speed_bps: 0,
+        saved_path: Some(saved_path_str.clone()),
+        url: if source_url.is_empty() {
+            None
+        } else {
+            Some(source_url.clone())
+        },
+    });
+
+    let last_tick = Arc::new(Mutex::new((Instant::now(), 0u64)));
+    let name_for_prog = display_name.clone();
+    let proxy_for_prog = proxy.clone();
+    let mut prog_tok: i64 = 0;
+    unsafe {
+        let _ = op.add_BytesReceivedChanged(
+            &BytesReceivedChangedEventHandler::create(Box::new(move |sender, _| {
+                let Some(op_ref) = sender else {
+                    return Ok(());
+                };
+                let mut recv: i64 = 0;
+                let mut total: i64 = 0;
+                let _ = op_ref.BytesReceived(&mut recv);
+                let _ = op_ref.TotalBytesToReceive(&mut total);
+                let recv_u64 = recv.max(0) as u64;
+                let total_u64 = total.max(0) as u64;
+
+                let speed_bps = {
+                    let mut guard = last_tick.lock_safe();
+                    let elapsed = guard.0.elapsed();
+                    if elapsed.as_millis() < 200 && (total_u64 == 0 || recv_u64 < total_u64) {
+                        return Ok(());
+                    }
+                    let delta_bytes = recv_u64.saturating_sub(guard.1);
+                    let secs = elapsed.as_secs_f64().max(0.05);
+                    let spd = (delta_bytes as f64 / secs).round() as u64;
+                    *guard = (Instant::now(), recv_u64);
+                    spd
+                };
+
+                let _ = proxy_for_prog.send_event(UserEvent::DownloadUpdate {
+                    id: dl_id,
+                    name: name_for_prog.clone(),
+                    status: "downloading".to_string(),
+                    bytes_received: recv_u64,
+                    total_bytes: total_u64,
+                    speed_bps,
+                    saved_path: None,
+                    url: None,
+                });
+                Ok(())
+            })),
+            &mut prog_tok,
+        );
+    }
+
+    let name_for_state = display_name;
+    let saved_for_state = saved_path_str;
+    let url_for_state = source_url;
+    let proxy_for_state = proxy;
+    let mut state_tok: i64 = 0;
+    unsafe {
+        let _ = op.add_StateChanged(
+            &StateChangedEventHandler::create(Box::new(move |sender, _| {
+                let Some(op_ref) = sender else {
+                    return Ok(());
+                };
+                let mut state = Default::default();
+                if op_ref.State(&mut state).is_err() {
+                    return Ok(());
+                }
+                let mut recv: i64 = 0;
+                let mut total: i64 = 0;
+                let _ = op_ref.BytesReceived(&mut recv);
+                let _ = op_ref.TotalBytesToReceive(&mut total);
+                let recv_u64 = recv.max(0) as u64;
+                let total_u64 = total.max(0) as u64;
+
+                if state == COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS {
+                    let _ = proxy_for_state.send_event(UserEvent::DownloadUpdate {
+                        id: dl_id,
+                        name: name_for_state.clone(),
+                        status: "downloading".to_string(),
+                        bytes_received: recv_u64,
+                        total_bytes: total_u64,
+                        speed_bps: 0,
+                        saved_path: None,
+                        url: None,
+                    });
+                } else if state == COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED {
+                    ACTIVE_DOWNLOADS.with(|map| {
+                        map.borrow_mut().remove(&dl_id);
+                    });
+                    let _ = proxy_for_state.send_event(UserEvent::DownloadUpdate {
+                        id: dl_id,
+                        name: name_for_state.clone(),
+                        status: "completed".to_string(),
+                        bytes_received: recv_u64.max(total_u64),
+                        total_bytes: total_u64.max(recv_u64),
+                        speed_bps: 0,
+                        saved_path: Some(saved_for_state.clone()),
+                        url: if url_for_state.is_empty() {
+                            None
+                        } else {
+                            Some(url_for_state.clone())
+                        },
+                    });
+                } else if state == COREWEBVIEW2_DOWNLOAD_STATE_INTERRUPTED {
+                    let mut reason = Default::default();
+                    let _ = op_ref.InterruptReason(&mut reason);
+                    if reason == COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_PAUSED {
+                        let _ = proxy_for_state.send_event(UserEvent::DownloadUpdate {
+                            id: dl_id,
+                            name: name_for_state.clone(),
+                            status: "paused".to_string(),
+                            bytes_received: recv_u64,
+                            total_bytes: total_u64,
+                            speed_bps: 0,
+                            saved_path: None,
+                            url: None,
+                        });
+                    } else {
+                        ACTIVE_DOWNLOADS.with(|map| {
+                            map.borrow_mut().remove(&dl_id);
+                        });
+                        let status_str =
+                            if reason == COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED {
+                                "cancelled"
+                            } else {
+                                "failed"
+                            };
+                        let _ = proxy_for_state.send_event(UserEvent::DownloadUpdate {
+                            id: dl_id,
+                            name: name_for_state.clone(),
+                            status: status_str.to_string(),
+                            bytes_received: recv_u64,
+                            total_bytes: total_u64,
+                            speed_bps: 0,
+                            saved_path: None,
+                            url: if url_for_state.is_empty() {
+                                None
+                            } else {
+                                Some(url_for_state.clone())
+                            },
+                        });
+                    }
+                }
+                Ok(())
+            })),
+            &mut state_tok,
+        );
+    }
+}
+
+/// Complete a deferred `DownloadStarting` Range probe on the Windows UI thread.
+#[cfg(target_os = "windows")]
+pub fn handle_download_probe_finished(
+    probe_id: u64,
+    supports_range: bool,
+    total_bytes: u64,
+    cookie_header: String,
+    proxy: EventLoopProxy<UserEvent>,
+    zh: bool,
+) {
+    let Some(p) = PENDING_PROBES.with(|map| map.borrow_mut().remove(&probe_id)) else {
+        return;
+    };
+    let dl_id = next_download_id();
+    if supports_range && total_bytes >= super::dl_accel::MIN_ACCEL_BYTES && p.threads >= 2 {
+        unsafe {
+            let _ = p.args.SetCancel(true);
+            let _ = p.deferral.Complete();
+        }
+        super::dl_accel::spawn_accelerated_download(
+            dl_id,
+            p.source_url,
+            p.dest_path,
+            total_bytes,
+            p.threads,
+            cookie_header,
+            proxy,
+            zh,
+        );
+    } else {
+        attach_webview_op_handlers(
+            p.op,
+            dl_id,
+            p.display_name,
+            p.saved_path_str,
+            p.source_url,
+            p.total_u64,
+            proxy,
+        );
+        unsafe {
+            let _ = p.deferral.Complete();
+        }
+    }
+}
+
 /// Attach Windows WebView2 `ICoreWebView2_4` download tracking with real-time progress,
-/// speed calculation, cancellation support, and optional native "Save As" dialog.
+/// multi-threaded Range acceleration, speed calculation, pause/resume/cancel, and Save As dialog.
 #[cfg(target_os = "windows")]
 pub fn attach_windows_downloads(
     webview: &wry::WebView,
@@ -212,6 +460,10 @@ pub fn attach_windows_downloads(
     let Ok(wv4) = core_wv.cast::<ICoreWebView2_4>() else {
         return;
     };
+    let cookie_mgr_opt = core_wv
+        .cast::<ICoreWebView2_2>()
+        .ok()
+        .and_then(|wv2| unsafe { wv2.CookieManager().ok() });
     let owner_hwnd: isize = {
         use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
         let raw = webview.hwnd();
@@ -230,7 +482,6 @@ pub fn attach_windows_downloads(
                 let Some(args) = args else {
                     return Ok(());
                 };
-                // Suppress WebView2's built-in Chromium download flyout so Fynexo's HUD popover owns UX
                 let _ = args.SetHandled(true);
 
                 let mut default_path_pwstr = PWSTR::null();
@@ -246,11 +497,13 @@ pub fn attach_windows_downloads(
                     .unwrap_or("download.bin")
                     .to_string();
 
-                let (custom_dir, ask_location) = {
+                let (custom_dir, ask_location, parallel_on, dl_threads) = {
                     let st = app_state.lock_safe();
                     (
                         st.config.downloads_dir.clone(),
                         st.config.ask_download_location,
+                        st.config.parallel_downloads,
+                        st.config.download_threads.clamp(1, 16),
                     )
                 };
                 let base_dir = resolved_downloads_dir(&custom_dir);
@@ -281,7 +534,6 @@ pub fn attach_windows_downloads(
                     return Ok(());
                 };
 
-                let dl_id = NEXT_DOWNLOAD_ID.fetch_add(1, Ordering::Relaxed);
                 let mut init_total: i64 = 0;
                 let _ = op.TotalBytesToReceive(&mut init_total);
                 let total_u64 = if init_total > 0 { init_total as u64 } else { 0 };
@@ -292,167 +544,107 @@ pub fn attach_windows_downloads(
                     String::new()
                 };
 
-                ACTIVE_DOWNLOADS.with(|map| {
-                    map.borrow_mut().insert(dl_id, op.clone());
-                });
+                let can_try_accel = parallel_on
+                    && dl_threads >= 2
+                    && (source_url.starts_with("http://") || source_url.starts_with("https://"))
+                    && (total_u64 == 0 || total_u64 >= super::dl_accel::MIN_ACCEL_BYTES);
 
-                let _ = proxy.send_event(UserEvent::DownloadUpdate {
-                    id: dl_id,
-                    name: display_name.clone(),
-                    status: "downloading".to_string(),
-                    bytes_received: 0,
-                    total_bytes: total_u64,
-                    speed_bps: 0,
-                    saved_path: Some(saved_path_str.clone()),
-                    url: if source_url.is_empty() {
-                        None
-                    } else {
-                        Some(source_url.clone())
-                    },
-                });
-
-                // Track progress & speed (throttled to ~200ms)
-                let last_tick = Arc::new(Mutex::new((Instant::now(), 0u64)));
-                let name_for_prog = display_name.clone();
-                let proxy_for_prog = proxy.clone();
-                let mut prog_tok: i64 = 0;
-                let _ = op.add_BytesReceivedChanged(
-                    &BytesReceivedChangedEventHandler::create(Box::new(move |sender, _| {
-                        let Some(op_ref) = sender else {
-                            return Ok(());
-                        };
-                        let mut recv: i64 = 0;
-                        let mut total: i64 = 0;
-                        let _ = op_ref.BytesReceived(&mut recv);
-                        let _ = op_ref.TotalBytesToReceive(&mut total);
-                        let recv_u64 = recv.max(0) as u64;
-                        let total_u64 = total.max(0) as u64;
-
-                        let speed_bps = {
-                            let mut guard = last_tick.lock_safe();
-                            let elapsed = guard.0.elapsed();
-                            if elapsed.as_millis() < 200 && (total_u64 == 0 || recv_u64 < total_u64) {
-                                return Ok(());
-                            }
-                            let delta_bytes = recv_u64.saturating_sub(guard.1);
-                            let secs = elapsed.as_secs_f64().max(0.05);
-                            let spd = (delta_bytes as f64 / secs).round() as u64;
-                            *guard = (Instant::now(), recv_u64);
-                            spd
-                        };
-
-                        let _ = proxy_for_prog.send_event(UserEvent::DownloadUpdate {
-                            id: dl_id,
-                            name: name_for_prog.clone(),
-                            status: "downloading".to_string(),
-                            bytes_received: recv_u64,
-                            total_bytes: total_u64,
-                            speed_bps,
-                            saved_path: None,
-                            url: None,
-                        });
-                        Ok(())
-                    })),
-                    &mut prog_tok,
-                );
-
-                // Track state transitions (InProgress / Paused / Completed / Interrupted / Cancelled)
-                let name_for_state = display_name;
-                let saved_for_state = saved_path_str;
-                let url_for_state = source_url;
-                let proxy_for_state = proxy.clone();
-                let mut state_tok: i64 = 0;
-                let _ = op.add_StateChanged(
-                    &StateChangedEventHandler::create(Box::new(move |sender, _| {
-                        let Some(op_ref) = sender else {
-                            return Ok(());
-                        };
-                        let mut state = Default::default();
-                        if op_ref.State(&mut state).is_err() {
-                            return Ok(());
-                        }
-                        let mut recv: i64 = 0;
-                        let mut total: i64 = 0;
-                        let _ = op_ref.BytesReceived(&mut recv);
-                        let _ = op_ref.TotalBytesToReceive(&mut total);
-                        let recv_u64 = recv.max(0) as u64;
-                        let total_u64 = total.max(0) as u64;
-
-                        if state == COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS {
-                            let _ = proxy_for_state.send_event(UserEvent::DownloadUpdate {
-                                id: dl_id,
-                                name: name_for_state.clone(),
-                                status: "downloading".to_string(),
-                                bytes_received: recv_u64,
-                                total_bytes: total_u64,
-                                speed_bps: 0,
-                                saved_path: None,
-                                url: None,
-                            });
-                        } else if state == COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED {
-                            ACTIVE_DOWNLOADS.with(|map| {
-                                map.borrow_mut().remove(&dl_id);
-                            });
-                            let _ = proxy_for_state.send_event(UserEvent::DownloadUpdate {
-                                id: dl_id,
-                                name: name_for_state.clone(),
-                                status: "completed".to_string(),
-                                bytes_received: recv_u64.max(total_u64),
-                                total_bytes: total_u64.max(recv_u64),
-                                speed_bps: 0,
-                                saved_path: Some(saved_for_state.clone()),
-                                url: if url_for_state.is_empty() {
-                                    None
-                                } else {
-                                    Some(url_for_state.clone())
+                if can_try_accel {
+                    if let Ok(deferral) = args.GetDeferral() {
+                        let probe_id = NEXT_PROBE_ID.fetch_add(1, Ordering::Relaxed);
+                        let url_for_probe = source_url.clone();
+                        PENDING_PROBES.with(|map| {
+                            map.borrow_mut().insert(
+                                probe_id,
+                                PendingDownloadProbe {
+                                    args: args.clone(),
+                                    deferral,
+                                    op,
+                                    dest_path: final_path,
+                                    display_name,
+                                    saved_path_str,
+                                    source_url,
+                                    total_u64,
+                                    threads: dl_threads,
                                 },
-                            });
-                        } else if state == COREWEBVIEW2_DOWNLOAD_STATE_INTERRUPTED {
-                            let mut reason = Default::default();
-                            let _ = op_ref.InterruptReason(&mut reason);
-                            if reason == COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_PAUSED {
-                                // Keep in ACTIVE_DOWNLOADS so Resume() can restart it cleanly.
-                                let _ = proxy_for_state.send_event(UserEvent::DownloadUpdate {
-                                    id: dl_id,
-                                    name: name_for_state.clone(),
-                                    status: "paused".to_string(),
-                                    bytes_received: recv_u64,
-                                    total_bytes: total_u64,
-                                    speed_bps: 0,
-                                    saved_path: None,
-                                    url: None,
-                                });
-                            } else {
-                                ACTIVE_DOWNLOADS.with(|map| {
-                                    map.borrow_mut().remove(&dl_id);
-                                });
-                                let status_str =
-                                    if reason == COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_USER_CANCELED {
-                                        "cancelled"
-                                    } else {
-                                        "failed"
-                                    };
-                                let _ = proxy_for_state.send_event(UserEvent::DownloadUpdate {
-                                    id: dl_id,
-                                    name: name_for_state.clone(),
-                                    status: status_str.to_string(),
-                                    bytes_received: recv_u64,
-                                    total_bytes: total_u64,
-                                    speed_bps: 0,
-                                    saved_path: None,
-                                    url: if url_for_state.is_empty() {
-                                        None
-                                    } else {
-                                        Some(url_for_state.clone())
+                            );
+                        });
+                        let proxy_for_probe = proxy.clone();
+                        if let Some(ref mgr) = cookie_mgr_opt {
+                            let uri_hs = HSTRING::from(url_for_probe.as_str());
+                            let handler =
+                                GetCookiesCompletedHandler::create(Box::new(move |hr, list_opt| {
+                                    let mut pairs: Vec<String> = Vec::new();
+                                    if hr.is_ok() {
+                                        if let Some(list) = list_opt {
+                                            let mut count: u32 = 0;
+                                            if list.Count(&mut count).is_ok() {
+                                                for i in 0..count.min(64) {
+                                                    if let Ok(c) = list.GetValueAtIndex(i) {
+                                                        let mut np = PWSTR::null();
+                                                        let mut vp = PWSTR::null();
+                                                        let n = if c.Name(&mut np).is_ok() {
+                                                            take_pwstr(np)
+                                                        } else {
+                                                            String::new()
+                                                        };
+                                                        let v = if c.Value(&mut vp).is_ok() {
+                                                            take_pwstr(vp)
+                                                        } else {
+                                                            String::new()
+                                                        };
+                                                        if !n.is_empty() {
+                                                            pairs.push(format!("{}={}", n, v));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    let ck_hdr = pairs.join("; ");
+                                    let u = url_for_probe.clone();
+                                    let pr = proxy_for_probe.clone();
+                                    std::thread::spawn(move || {
+                                        let total_opt =
+                                            super::dl_accel::probe_range_support(&u, &ck_hdr);
+                                        let _ = pr.send_event(UserEvent::DownloadProbeFinished {
+                                            probe_id,
+                                            supports_range: total_opt.is_some(),
+                                            total_bytes: total_opt.unwrap_or(0),
+                                            cookie_header: ck_hdr,
+                                        });
+                                    });
+                                    Ok(())
+                                }));
+                            let _ = mgr.GetCookies(&uri_hs, &handler);
+                        } else {
+                            std::thread::spawn(move || {
+                                let total_opt =
+                                    super::dl_accel::probe_range_support(&url_for_probe, "");
+                                let _ = proxy_for_probe.send_event(
+                                    UserEvent::DownloadProbeFinished {
+                                        probe_id,
+                                        supports_range: total_opt.is_some(),
+                                        total_bytes: total_opt.unwrap_or(0),
+                                        cookie_header: String::new(),
                                     },
-                                });
-                            }
+                                );
+                            });
                         }
-                        Ok(())
-                    })),
-                    &mut state_tok,
-                );
+                        return Ok(());
+                    }
+                }
 
+                let dl_id = next_download_id();
+                attach_webview_op_handlers(
+                    op,
+                    dl_id,
+                    display_name,
+                    saved_path_str,
+                    source_url,
+                    total_u64,
+                    proxy.clone(),
+                );
                 Ok(())
             })),
             &mut token,

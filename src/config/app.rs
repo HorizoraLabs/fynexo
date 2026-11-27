@@ -127,6 +127,10 @@ fn default_proxy_mode() -> String {
     "system".to_string()
 }
 
+fn default_download_threads() -> u8 {
+    8
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct BrowserModeProfile {
@@ -305,6 +309,10 @@ pub struct SiteOverride {
     pub zoom: Option<f64>,
     #[serde(default)]
     pub dark_mode: String,
+    #[serde(default)]
+    pub super_copy: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_rate: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -378,6 +386,10 @@ pub struct AppConfig {
     pub downloads_dir: String,
     #[serde(default)]
     pub ask_download_location: bool,
+    #[serde(default = "default_true")]
+    pub parallel_downloads: bool,
+    #[serde(default = "default_download_threads")]
+    pub download_threads: u8,
     #[serde(default = "default_translate_provider")]
     pub translate_provider: String,
     #[serde(default)]
@@ -396,6 +408,10 @@ pub struct AppConfig {
     pub password_autosave: bool,
     #[serde(default = "default_true")]
     pub general_autofill: bool,
+    #[serde(default = "default_true")]
+    pub clean_urls: bool,
+    #[serde(default = "default_true")]
+    pub selection_popup: bool,
     #[serde(default = "default_proxy_mode")]
     pub proxy_mode: String,
     #[serde(default)]
@@ -448,6 +464,8 @@ impl Default for AppConfig {
             window_mode: default_window_mode(),
             downloads_dir: String::new(),
             ask_download_location: false,
+            parallel_downloads: true,
+            download_threads: default_download_threads(),
             translate_provider: default_translate_provider(),
             sync_provider: String::new(),
             sync_url: String::new(),
@@ -457,6 +475,8 @@ impl Default for AppConfig {
             sync_last_at: 0,
             password_autosave: true,
             general_autofill: true,
+            clean_urls: true,
+            selection_popup: true,
             proxy_mode: default_proxy_mode(),
             proxy_server: String::new(),
             page_font_family: String::new(),

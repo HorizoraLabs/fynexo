@@ -78,9 +78,13 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                     }
                     format!("https://{}", target_url)
                 } else {
-                    let https_first = app_state.lock_safe().config.https_first;
+                    let (https_first, clean_urls) = {
+                        let st = app_state.lock_safe();
+                        (st.config.https_first, st.config.clean_urls)
+                    };
                     let norm = normalize_logical_url(target_url);
-                    apply_https_first_if_needed(&norm, https_first)
+                    let cleaned = super::super::url::sanitize_and_clean_url(&norm, clean_urls);
+                    apply_https_first_if_needed(&cleaned, https_first)
                 };
                 if !security::is_safe_navigation_target(&formatted_url) {
                     return true;
@@ -249,17 +253,19 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
             }
         }
         "NEW_TAB" => {
-            let (homepage, https_first, zh) = {
+            let (homepage, https_first, clean_urls, zh) = {
                 let st = app_state.lock_safe();
                 (
                     st.config.homepage.clone(),
                     st.config.https_first,
+                    st.config.clean_urls,
                     is_zh_lang(&st.config.language),
                 )
             };
             let raw_target = val["url"].as_str().unwrap_or(&homepage);
-            let target =
-                apply_https_first_if_needed(&normalize_logical_url(raw_target), https_first);
+            let cleaned_raw =
+                super::super::url::sanitize_and_clean_url(&normalize_logical_url(raw_target), clean_urls);
+            let target = apply_https_first_if_needed(&cleaned_raw, https_first);
             if !security::is_safe_navigation_target(&target) {
                 return true;
             }
@@ -928,11 +934,29 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
         "CAPTURE_SCREENSHOT" => {
             let _ = proxy.send_event(UserEvent::CaptureScreenshot(source_win_id));
         }
+        "CAPTURE_FULL_SCREENSHOT" => {
+            let _ = proxy.send_event(UserEvent::CaptureFullScreenshot(source_win_id));
+        }
+        "SAVE_MARKDOWN_FILE" => {
+            let title = val["title"].as_str().unwrap_or("article").trim().to_string();
+            let url = val["url"].as_str().unwrap_or("").trim().to_string();
+            let markdown = val["markdown"].as_str().unwrap_or("").to_string();
+            if !markdown.trim().is_empty() && markdown.len() <= 4 * 1024 * 1024 {
+                let _ = proxy.send_event(UserEvent::SaveMarkdownFile {
+                    title,
+                    url,
+                    markdown,
+                });
+            }
+        }
         "TRANSLATE_BATCH" => {
             let req_id = val["req_id"].as_u64().unwrap_or(0);
             let target_lang = val["target_lang"].as_str().unwrap_or("zh-CN");
             let mut items: Vec<(u32, String)> = Vec::new();
-            if let Some(arr) = val["items"].as_array() {
+            if let Some(arr) = val["items"]
+                .as_array()
+                .or_else(|| val["segments"].as_array())
+            {
                 for it in arr.iter().take(36) {
                     if let (Some(id), Some(text)) = (it["id"].as_u64(), it["text"].as_str()) {
                         items.push((id as u32, text.to_string()));

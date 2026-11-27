@@ -514,6 +514,26 @@
                     ['rect', { x: '7.8', y: '7.4', width: '4.4', height: '3.6', rx: '0.8', fill: 'currentColor' }]
                 ]);
                 break;
+            case 'qr':
+                svg = buildSvg(13.5, 13.5, '0 0 16 16', [
+                    ['rect', { x: '2.2', y: '2.2', width: '4.4', height: '4.4', rx: '0.7', stroke: 'currentColor', 'stroke-width': '1.35' }],
+                    ['rect', { x: '9.4', y: '2.2', width: '4.4', height: '4.4', rx: '0.7', stroke: 'currentColor', 'stroke-width': '1.35' }],
+                    ['rect', { x: '2.2', y: '9.4', width: '4.4', height: '4.4', rx: '0.7', stroke: 'currentColor', 'stroke-width': '1.35' }],
+                    ['path', { d: 'M9.4 9.4h1.8v1.8H9.4zM12.2 12.2H14V14h-1.8zM12.2 9.4H14v1.6h-1.8zM9.4 12.4h1.6V14H9.4z', fill: 'currentColor' }]
+                ]);
+                break;
+            case 'markdown':
+                svg = buildSvg(14, 14, '0 0 16 16', [
+                    ['rect', { x: '1.8', y: '3.2', width: '12.4', height: '9.6', rx: '1.6', stroke: 'currentColor', 'stroke-width': '1.35' }],
+                    ['path', { d: 'M4 10.2V5.8l2 2.4 2-2.4v4.4M10.8 5.8v4.2m-1.3-1.4l1.3 1.5 1.3-1.5', stroke: 'currentColor', 'stroke-width': '1.3', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]
+                ]);
+                break;
+            case 'unlock':
+                svg = buildSvg(13, 13, '0 0 16 16', [
+                    ['rect', { x: '3.2', y: '7.2', width: '9.6', height: '6.6', rx: '1.8', stroke: 'currentColor', 'stroke-width': '1.4' }],
+                    ['path', { d: 'M5.4 7.2V5.1a2.6 2.6 0 0 1 4.9-1.2', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }]
+                ]);
+                break;
             default:
                 return document.createElement('span');
         }

@@ -1,3 +1,4 @@
+pub mod dl_accel;
 pub mod downloads;
 pub mod events;
 pub mod ipc;
@@ -1129,6 +1130,46 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
+            Event::UserEvent(UserEvent::StartTurboDownload { url }) => {
+                let (dl_dir, threads, zh) = {
+                    let st = state_for_event.lock_safe();
+                    (
+                        crate::config::resolved_downloads_dir(&st.config.downloads_dir),
+                        if st.config.parallel_downloads {
+                            st.config.download_threads.clamp(1, 16)
+                        } else {
+                            1
+                        },
+                        crate::i18n::is_zh_locale(&st.config.language),
+                    )
+                };
+                let dl_id = downloads::next_download_id();
+                dl_accel::start_manual_turbo_download(
+                    dl_id,
+                    url,
+                    dl_dir,
+                    threads,
+                    event_proxy_for_run.clone(),
+                    zh,
+                );
+            }
+            #[cfg(target_os = "windows")]
+            Event::UserEvent(UserEvent::DownloadProbeFinished {
+                probe_id,
+                supports_range,
+                total_bytes,
+                cookie_header,
+            }) => {
+                let zh = crate::i18n::is_zh_locale(&state_for_event.lock_safe().config.language);
+                downloads::handle_download_probe_finished(
+                    probe_id,
+                    supports_range,
+                    total_bytes,
+                    cookie_header,
+                    event_proxy_for_run.clone(),
+                    zh,
+                );
+            }
             Event::UserEvent(UserEvent::SyncDownloads) => {
                 let downloads_json = {
                     let st = state_for_event.lock_safe();
@@ -1264,6 +1305,52 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         );
                     }
                 }
+            }
+            Event::UserEvent(UserEvent::CaptureFullScreenshot(win_id)) => {
+                let (dl_dir, zh) = {
+                    let st = state_for_event.lock_safe();
+                    (
+                        crate::config::resolved_downloads_dir(&st.config.downloads_dir),
+                        crate::i18n::is_zh_locale(&st.config.language),
+                    )
+                };
+                if let Some(bw) = windows.get(&win_id) {
+                    let page_url = bw
+                        .tab_manager
+                        .lock_safe()
+                        .url_and_scroll_for(bw.active_tab_id)
+                        .0;
+                    if let Some(fg) = bw.pool.active_or_visible_webview(bw.active_tab_id) {
+                        site_data::capture_full_page_screenshot(
+                            fg,
+                            dl_dir,
+                            page_url,
+                            event_proxy_for_run.clone(),
+                            zh,
+                        );
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::SaveMarkdownFile {
+                title,
+                url,
+                markdown,
+            }) => {
+                let (dl_dir, zh) = {
+                    let st = state_for_event.lock_safe();
+                    (
+                        crate::config::resolved_downloads_dir(&st.config.downloads_dir),
+                        crate::i18n::is_zh_locale(&st.config.language),
+                    )
+                };
+                site_data::save_markdown_file(
+                    dl_dir,
+                    title,
+                    url,
+                    markdown,
+                    event_proxy_for_run.clone(),
+                    zh,
+                );
             }
             Event::UserEvent(UserEvent::SavePagePdf(win_id)) => {
                 let (dl_dir, zh) = {

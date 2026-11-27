@@ -1070,10 +1070,53 @@
       }
    }
 
+   function cleanTrackingUrlForCopy(raw) {
+      const s = String(raw || '').trim();
+      if (config.clean_urls === false || !/^https?:\/\//i.test(s)) return s;
+      try {
+         const u = new URL(s);
+         const h = (u.hostname || '').toLowerCase();
+         const stripSet = new Set([
+            'fbclid', 'gclid', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'msclkid', 'yclid',
+            'twclid', 'ttclid', 'li_fat_id', 'epik', 'sccid', 'rdt_cid', 'sclid', 'gad_source',
+            'mc_cid', 'mc_eid', '_hsenc', '_hsmi', 'mkt_tok', 'vero_id', 'igshid', 'igsh',
+            'ref_src', 'ref_url', 'spm_id_from', 'vd_source', 'from_spmid', 'share_source',
+            'share_medium', 'share_plat', 'share_session_id', 'share_tag', 'share_times',
+            'bbid', 'is_story_h5', 'buvid', 'up_id', 'unique_k', 'spm', 'scm', 'pvid',
+            'algo_exp_id', 'algo_pvid', 'utparam', 'ali_trackid', 'isappinstalled', 'from_wecom',
+            '_ga', '_gl', '_ke', 'trk', 'sc_channel', 'sc_campaign', 'sc_medium', 'irclickid', 'cvid', 'ocid',
+         ]);
+         const delKeys = [];
+         u.searchParams.forEach((v, k) => {
+            const kl = k.toLowerCase();
+            if (
+               kl.startsWith('utm_') || kl.startsWith('hsa_') || kl.startsWith('pk_') || kl.startsWith('mtm_') ||
+               stripSet.has(kl) ||
+               ((h === 'youtube.com' || h.endsWith('.youtube.com') || h === 'youtu.be' || h === 'open.spotify.com') && (kl === 'si' || kl === 'pp')) ||
+               ((h === 'x.com' || h === 'twitter.com') && u.pathname.includes('/status/') && (kl === 's' || kl === 't'))
+            ) {
+               delKeys.push(k);
+            }
+         });
+         if (!delKeys.length) return s;
+         for (let i = 0; i < delKeys.length; i++) u.searchParams.delete(delKeys[i]);
+         return u.toString();
+      } catch (_) {
+         return s;
+      }
+   }
+
    function copyCurrentUrl() {
-      const u = canonicalCurrentUrl();
-      if (!u) return;
-      copyTextToClipboard(u, 'URL copied');
+      const raw = canonicalCurrentUrl();
+      if (!raw) return;
+      const u = cleanTrackingUrlForCopy(raw);
+      const cleaned = u !== raw;
+      copyTextToClipboard(
+         u,
+         cleaned
+            ? (isZh() ? '已复制净化后的干净链接' : 'Clean tracking-free URL copied')
+            : (isZh() ? '已复制网址' : 'URL copied'),
+      );
    }
 
    function performHardCacheBustReload() {
@@ -2220,13 +2263,19 @@
 
       const cleanFont = !isInt ? String(config.page_font_family || '').replace(/[<>{};]/g, '').trim() : '';
       const minFs = !isInt ? Number(config.min_font_size) || 0 : 0;
+      const siteOvRule = !isInt ? getCurrentSiteOverride() : null;
+      const superCopyCss =
+         siteOvRule && siteOvRule.super_copy
+            ? '*,*::before,*::after{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important;}'
+            : '';
       const customTypographyCss =
          (cleanFont
             ? `body,p,article,main,section,li,td,th,dd,dt,blockquote,h1,h2,h3,h4,h5,h6{font-family:${cleanFont}!important;}`
             : '') +
          (minFs >= 10 && minFs <= 24
             ? `html{font-size:max(100%,${minFs}px)!important;}body,p,li,td,th,dd,dt,blockquote{font-size:max(1em,${minFs}px);}`
-            : '');
+            : '') +
+         superCopyCss;
 
       const nextCss =
          highlightCss +
@@ -4669,7 +4718,15 @@
          entries.push({
             label: zh ? '复制链接地址' : 'Copy link address',
             icon: 'link',
-            onClick: () => copyTextToClipboard(linkHref, zh ? '链接已复制' : 'Link copied'),
+            onClick: () => {
+               const clean = cleanTrackingUrlForCopy(linkHref);
+               copyTextToClipboard(
+                  clean,
+                  clean !== linkHref
+                     ? (zh ? '已复制净化后的链接' : 'Clean link copied')
+                     : (zh ? '链接已复制' : 'Link copied'),
+               );
+            },
          });
          entries.push({ sep: true });
       }
@@ -4938,7 +4995,22 @@
             icon: 'camera',
             onClick: () => sendIpc({ type: 'CAPTURE_SCREENSHOT' }),
          });
+         entries.push({
+            label: zh ? '截取整页长图 (PNG)' : 'Capture full-page screenshot',
+            icon: 'camera',
+            onClick: () => sendIpc({ type: 'CAPTURE_FULL_SCREENSHOT' }),
+         });
          if (/^https?:\/\//i.test(curUrl)) {
+            entries.push({
+               label: zh ? '导出文章为 Markdown (.md)' : 'Export article as Markdown',
+               icon: 'markdown',
+               onClick: () => triggerExportMarkdown(),
+            });
+            entries.push({
+               label: zh ? '本页二维码 (离线)' : 'QR code for this page',
+               icon: 'qr',
+               onClick: () => { if (typeof openQrModalRef === 'function') openQrModalRef(); },
+            });
             entries.push({
                label: zh ? '查看网页源代码' : 'View page source',
                shortcut: 'Ctrl+U',
@@ -5483,6 +5555,10 @@
          { zh: '原地翻译当前网页', en: 'Translate Page In-Place', kw: 'translate page language 翻译 网页 双语', run: () => triggerPageTranslate() },
          { zh: '切换双栏分屏视图', en: 'Toggle Split View', kw: 'split view dual pane 分屏 双栏', run: () => sendIpc({ type: 'TOGGLE_SPLIT_VIEW' }) },
          { zh: '截取当前页面为 PNG', en: 'Capture Page Screenshot (PNG)', kw: 'screenshot capture png 截图 截屏', run: () => sendIpc({ type: 'CAPTURE_SCREENSHOT' }) },
+         { zh: '截取整页长图 (PNG)', en: 'Capture Full-Page Screenshot (PNG)', kw: 'fullshot full page screenshot scroll png 长图 整页 截图', run: () => sendIpc({ type: 'CAPTURE_FULL_SCREENSHOT' }) },
+         { zh: '导出当前文章为 Markdown (.md)', en: 'Export Article as Markdown (.md)', kw: 'markdown md export article 导出 文章 笔记', run: () => triggerExportMarkdown() },
+         { zh: '生成当前网页二维码 (离线)', en: 'Show QR Code for Current Page', kw: 'qr qrcode mobile share 二维码 手机 扫码', run: () => { if (typeof openQrModalRef === 'function') openQrModalRef(); } },
+         { zh: '切换本站解除复制限制 (SuperCopy)', en: 'Toggle SuperCopy for Current Site', kw: 'supercopy copy unlock select right click 解除 复制 限制', run: () => { if (typeof toggleCurrentSiteSuperCopyRef === 'function') toggleCurrentSiteSuperCopyRef(); } },
          { zh: '导出当前网页为 PDF (Ctrl+S)', en: 'Save Page as PDF (Ctrl+S)', kw: 'pdf save export print 保存 导出 网页', run: () => sendIpc({ type: 'SAVE_PAGE_PDF' }) },
          { zh: '视频画中画 (PiP)', en: 'Toggle Video Picture-in-Picture', kw: 'pip video picture in picture 画中画 视频', run: () => triggerPictureInPicture() },
          { zh: '按时间范围清除浏览数据', en: 'Clear Browsing Data (Ctrl+Shift+Del)', kw: 'clear browsing data history cookies cache 清除 清理 历史 缓存', run: () => { if (typeof openClearDataModalRef === 'function') openClearDataModalRef(); } },
@@ -6845,6 +6921,15 @@
    let openModalHudRef = null;
    let openClearDataModalRef = null;
    let isClearDataOpenRef = null;
+   let openQrModalRef = null;
+   let isQrOpenRef = null;
+   let closeQrModalRef = null;
+   let toggleCurrentSiteSuperCopyRef = null;
+   let selLocalTrReqId = 0;
+   let selLocalResEl = null;
+   let selLocalRenderResRef = null;
+   let isSelLocalOpenRef = null;
+   let hideSelLocalRef = null;
    let closeClearDataModalRef = null;
 
    function triggerPictureInPicture(explicitVideo) {
@@ -7021,7 +7106,7 @@
                __fnxAndroidTranslateBatch(rid, lang, __fnxJsonStringify(batch), __FNX_BRIDGE_TOKEN);
             } catch (_) {}
          } else {
-            sendIpc({ type: 'TRANSLATE_BATCH', req_id: rid, target_lang: lang, segments: batch });
+            sendIpc({ type: 'TRANSLATE_BATCH', req_id: rid, target_lang: lang, items: batch });
          }
       }
    }
@@ -7054,7 +7139,23 @@
    });
 
    exposeBridge('__fynexo_on_translate_result__', function (payload) {
-      if (!trLocalActive || !payload || !trLocalReqIds.has(Number(payload.req_id))) return;
+      if (!payload) return;
+      if (selLocalTrReqId && Number(payload.req_id) === selLocalTrReqId) {
+         selLocalTrReqId = 0;
+         if (typeof selLocalRenderResRef === 'function') {
+            if (payload.error) {
+               selLocalRenderResRef((isZh() ? '翻译失败：' : 'Error: ') + String(payload.error), true);
+            } else {
+               const it = Array.isArray(payload.items) && payload.items[0];
+               selLocalRenderResRef(
+                  (it && it.text) ? String(it.text) : (isZh() ? '无译文' : 'No translation'),
+                  !(it && it.text),
+               );
+            }
+         }
+         return;
+      }
+      if (!trLocalActive || !trLocalReqIds.has(Number(payload.req_id))) return;
       trLocalReqIds.delete(Number(payload.req_id));
       if (payload.error) {
          if (trLocalStatusEl) trLocalStatusEl.textContent = isZh() ? '翻译失败' : 'Failed';
@@ -7102,6 +7203,86 @@
       else startLocalTranslate(targetLang);
    }
 
+   function localNodeToMarkdown(node) {
+      if (!node) return '';
+      if (node.nodeType === 3) return String(node.nodeValue || '').replace(/\s+/g, ' ');
+      if (node.nodeType !== 1) return '';
+      const tag = String(node.tagName || '').toUpperCase();
+      if (/^(SCRIPT|STYLE|NOSCRIPT|SVG|IFRAME|NAV|FOOTER|ASIDE|FORM|BUTTON|INPUT|SELECT)$/.test(tag)) return '';
+      if (node.id === '__fynexo_host__') return '';
+      const inner = () => Array.from(node.childNodes || []).map(localNodeToMarkdown).join('');
+      if (/^H[1-6]$/.test(tag)) {
+         const t = inner().trim();
+         return t ? '\n\n' + '#'.repeat(Number(tag[1])) + ' ' + t + '\n\n' : '';
+      }
+      if (tag === 'P') {
+         const t = inner().trim();
+         return t ? '\n\n' + t + '\n\n' : '';
+      }
+      if (tag === 'BR') return '  \n';
+      if (tag === 'HR') return '\n\n---\n\n';
+      if (tag === 'STRONG' || tag === 'B') { const t = inner().trim(); return t ? '**' + t + '**' : ''; }
+      if (tag === 'EM' || tag === 'I') { const t = inner().trim(); return t ? '*' + t + '*' : ''; }
+      if (tag === 'CODE') {
+         if (node.parentElement && node.parentElement.tagName === 'PRE') return node.textContent || '';
+         const t = String(node.textContent || '').trim();
+         return t ? '`' + t.replace(/`/g, '\\`') + '`' : '';
+      }
+      if (tag === 'PRE') {
+         const codeEl = node.querySelector('code');
+         const cls = String((codeEl && codeEl.className) || '');
+         const m = cls.match(/language-([a-z0-9_+-]+)/i);
+         const raw = String((codeEl || node).textContent || '').replace(/\n+$/, '');
+         return raw ? '\n\n```' + (m ? m[1] : '') + '\n' + raw + '\n```\n\n' : '';
+      }
+      if (tag === 'BLOCKQUOTE') {
+         const t = inner().trim();
+         return t ? '\n\n' + t.split('\n').map((l) => '> ' + l).join('\n') + '\n\n' : '';
+      }
+      if (tag === 'A') {
+         const href = String(node.getAttribute('href') || '').trim();
+         const t = inner().trim();
+         return t ? (/^https?:\/\//i.test(href) ? '[' + t + '](' + href + ')' : t) : '';
+      }
+      if (tag === 'IMG') {
+         const src = String(node.currentSrc || node.getAttribute('src') || '').trim();
+         const alt = String(node.getAttribute('alt') || '').trim();
+         return /^https?:\/\//i.test(src) ? '![' + alt + '](' + src + ')' : '';
+      }
+      if (tag === 'UL' || tag === 'OL') {
+         const items = Array.from(node.children || []).filter((c) => c.tagName === 'LI');
+         if (!items.length) return '';
+         return '\n\n' + items.map((li, idx) => (tag === 'OL' ? idx + 1 + '. ' : '- ') + localNodeToMarkdown(li).trim().replace(/\n+/g, ' ')).join('\n') + '\n\n';
+      }
+      if (tag === 'LI') return inner();
+      return inner();
+   }
+
+   function triggerExportMarkdown() {
+      const cur = canonicalCurrentUrl();
+      if (!cur || isInternalAny(cur) || !/^https?:\/\//i.test(cur)) {
+         showHudToast(isZh() ? '仅支持将外网文章导出为 Markdown' : 'Markdown export is available for web pages only');
+         return;
+      }
+      if (IS_HUD_SHELL) {
+         sendIpc({ type: 'CONTENT_ACTION', action: 'export_markdown', payload: {} });
+         return;
+      }
+      const root = document.querySelector('article, main, [role="main"]') || document.body;
+      const title = String((document.querySelector('h1') && document.querySelector('h1').textContent) || document.title || 'Article').trim();
+      const bodyMd = localNodeToMarkdown(root).replace(/\n{3,}/g, '\n\n').trim();
+      if (!bodyMd) {
+         showHudToast(isZh() ? '当前页面无可导出的文章正文' : 'No article content found');
+         return;
+      }
+      sendIpc({
+         type: 'SAVE_MARKDOWN_FILE',
+         title,
+         url: cur,
+         markdown: '# ' + title + '\n\n> Source: ' + cur + '\n\n' + bodyMd + '\n',
+      });
+   }
+
    exposeBridge('__fynexo_restore_scroll__', function (targetY) {
       const y = Number(targetY) || 0;
       if (y <= 24 || isInternalAny()) return;
@@ -7127,6 +7308,18 @@
    exposeReadOnly('__fynexo_handle_back__', function () {
       if (isLongPressSheetOpenRef && isLongPressSheetOpenRef()) {
          if (closeLongPressSheetRef) closeLongPressSheetRef();
+         return true;
+      }
+      if (isQrOpenRef && isQrOpenRef()) {
+         if (closeQrModalRef) closeQrModalRef();
+         return true;
+      }
+      if (isClearDataOpenRef && isClearDataOpenRef()) {
+         if (closeClearDataModalRef) closeClearDataModalRef();
+         return true;
+      }
+      if (isSelLocalOpenRef && isSelLocalOpenRef()) {
+         if (hideSelLocalRef) hideSelLocalRef();
          return true;
       }
       if (isPromptOpenRef && isPromptOpenRef()) {
@@ -9044,6 +9237,40 @@
          );
          screenshotMenuItem.classList.add('fnx-desktop-only-row');
 
+         // Capture Full-Page Scrolling Screenshot (Desktop CDP)
+         const fullShotMenuItem = addMenuItem(
+            'camera',
+            'Full-page scrolling screenshot',
+            '',
+            () => {
+               sendIpc({ type: 'CAPTURE_FULL_SCREENSHOT' });
+            },
+            '截取整页长图 (PNG)',
+         );
+         fullShotMenuItem.classList.add('fnx-desktop-only-row');
+
+         // Export Article as Markdown (.md)
+         addMenuItem(
+            'markdown',
+            'Export article as Markdown',
+            '',
+            () => {
+               triggerExportMarkdown();
+            },
+            '导出文章为 Markdown (.md)',
+         );
+
+         // Local Zero-Network QR Code
+         addMenuItem(
+            'qr',
+            'QR code for this page',
+            '',
+            () => {
+               if (typeof openQrModalRef === 'function') openQrModalRef();
+            },
+            '本页二维码 (离线生成)',
+         );
+
          // Save Page as PDF (Ctrl+S)
          const savePdfMenuItem = addMenuItem(
             'fileText',
@@ -9250,6 +9477,27 @@
             } catch (_) {
                return null;
             }
+         }
+
+         let mediaPlaybackRate = 1.0;
+
+         function applyMediaRate(val) {
+            const rate = Math.max(0.25, Math.min(4.0, Math.round((Number(val) || 1.0) * 100) / 100));
+            mediaPlaybackRate = rate;
+            if (IS_HUD_SHELL) {
+               remotePageMeta.media_rate = rate;
+               sendIpc({
+                  type: 'CONTENT_ACTION',
+                  action: 'media_rate',
+                  payload: { rate },
+               });
+               return;
+            }
+            try {
+               document.querySelectorAll('video, audio').forEach((m) => {
+                  if (Math.abs((m.playbackRate || 1) - rate) > 0.005) m.playbackRate = rate;
+               });
+            } catch (_) {}
          }
 
          function applyMediaVolume(val) {
@@ -9478,6 +9726,45 @@
          volSection.appendChild(presetsRow);
          mediaPopoverEl.appendChild(volSection);
 
+         // Universal Video/Audio Playback Speed Controller (0.5x - 4.0x)
+         const speedSection = document.createElement('div');
+         speedSection.className = 'fnx-pop-section';
+         const speedHeader = document.createElement('div');
+         speedHeader.className = 'fnx-pop-row';
+         speedHeader.style.minHeight = '18px';
+         const speedTextSpan = document.createElement('span');
+         speedTextSpan.className = 'fnx-pop-sub';
+         speedTextSpan.style.fontSize = '11.5px';
+         speedTextSpan.textContent = 'Playback Speed';
+         const speedValueLabel = document.createElement('span');
+         speedValueLabel.style.cssText = 'font-weight: 600; color: var(--fnx-fg); font-size: 11.5px;';
+         speedValueLabel.textContent = '1.0x';
+         speedHeader.appendChild(speedTextSpan);
+         speedHeader.appendChild(speedValueLabel);
+         speedSection.appendChild(speedHeader);
+
+         const speedRow = document.createElement('div');
+         speedRow.className = 'fnx-pop-seg';
+         speedRow.style.gridTemplateColumns = 'repeat(7, 1fr)';
+         const speedPresetBtns = [0.5, 1, 1.25, 1.5, 2, 3, 4].map((r) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.dataset.rate = String(r);
+            btn.className = 'fnx-pop-seg-btn';
+            btn.style.padding = '0 2px';
+            btn.style.fontSize = '10.5px';
+            btn.textContent = r + 'x';
+            btn.onclick = (e) => {
+               e.stopPropagation();
+               applyMediaRate(r);
+               syncMediaPopoverUI();
+            };
+            speedRow.appendChild(btn);
+            return btn;
+         });
+         speedSection.appendChild(speedRow);
+         mediaPopoverEl.appendChild(speedSection);
+
          function syncMediaPopoverUI() {
             const zh = isZh();
             mediaHeaderTxt.textContent = zh ? '媒体控制与音量' : 'Media Control';
@@ -9537,6 +9824,15 @@
                   'active',
                   !mediaIsMuted && v === Number(mediaGainValue),
                );
+            }
+
+            speedTextSpan.textContent = zh ? '视频全局倍速' : 'Playback Speed';
+            const curRate = Number(mediaPlaybackRate) || 1.0;
+            speedValueLabel.textContent = curRate.toFixed(curRate % 1 === 0 ? 1 : 2).replace(/0$/, '') + 'x';
+            speedValueLabel.style.color = Math.abs(curRate - 1.0) > 0.01 ? 'var(--fnx-accent)' : 'var(--fnx-fg)';
+            for (let i = 0; i < speedPresetBtns.length; i++) {
+               const sb = speedPresetBtns[i];
+               sb.classList.toggle('active', Math.abs(Number(sb.dataset.rate) - curRate) < 0.02);
             }
 
             if (IS_HUD_SHELL) {
@@ -9962,9 +10258,14 @@
                   );
                }
             }
+            if (Object.prototype.hasOwnProperty.call(patch, 'super_copy')) {
+               cur.super_copy = !!patch.super_copy;
+            }
             if (
                (cur.zoom === undefined || cur.zoom === null) &&
-               (!cur.dark_mode || cur.dark_mode === 'auto')
+               (!cur.dark_mode || cur.dark_mode === 'auto') &&
+               !cur.super_copy &&
+               (cur.media_rate === undefined || cur.media_rate === null)
             ) {
                delete config.site_overrides[host];
             } else {
@@ -9972,11 +10273,27 @@
             }
             applyPageRules();
             syncShieldPopoverUI();
+            if (typeof syncSiteInfoPopoverUI === 'function') syncSiteInfoPopoverUI();
             sendIpc({
                type: 'PATCH_HUD_PREFS',
                site_override: Object.assign({ domain: host }, patch),
             });
          }
+         toggleCurrentSiteSuperCopyRef = () => {
+            const host = resolveSiteOverrideKey();
+            if (!host) {
+               showHudToast(isZh() ? '仅支持在外网网页启用解除复制限制' : 'SuperCopy is available for web pages only');
+               return;
+            }
+            const ov = getCurrentSiteOverride();
+            const next = !(ov && ov.super_copy);
+            applySiteOverridePatch({ super_copy: next });
+            showHudToast(
+               next
+                  ? (isZh() ? '已为本站开启解除复制限制 (SuperCopy)' : 'SuperCopy enabled for this site')
+                  : (isZh() ? '已关闭本站解除复制限制' : 'SuperCopy disabled for this site'),
+            );
+         };
 
          const dmRow = document.createElement('div');
          dmRow.className = 'fnx-pop-row';
@@ -10057,6 +10374,37 @@
          zmRow.appendChild(zmLabel);
          zmRow.appendChild(zmSeg);
          siteOvSection.appendChild(zmRow);
+
+         // One-Click SuperCopy (Unlock copy / selection / right-click restrictions per-site)
+         const scRow = document.createElement('div');
+         scRow.className = 'fnx-pop-row';
+         const scLabel = document.createElement('span');
+         scLabel.className = 'fnx-pop-label';
+         scLabel.textContent = 'SuperCopy';
+         const scSeg = document.createElement('div');
+         scSeg.className = 'fnx-pop-seg';
+         scSeg.style.gridTemplateColumns = 'repeat(2, 1fr)';
+         const scBtns = ['off', 'on'].map((state) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'fnx-pop-seg-btn';
+            b.dataset.sc = state;
+            b.textContent = state === 'on' ? 'On' : 'Off';
+            b.onclick = (e) => {
+               e.stopPropagation();
+               applySiteOverridePatch({ super_copy: state === 'on' });
+               showHudToast(
+                  state === 'on'
+                     ? (isZh() ? '已解除本站复制/选中/右键限制' : 'SuperCopy unlocked for this site')
+                     : (isZh() ? '已恢复本站默认复制行为' : 'SuperCopy disabled for this site'),
+               );
+            };
+            scSeg.appendChild(b);
+            return b;
+         });
+         scRow.appendChild(scLabel);
+         scRow.appendChild(scSeg);
+         siteOvSection.appendChild(scRow);
 
          // Per-Site Permissions Inspector (Camera, Microphone, Location, Notifications, Clipboard)
          const sitePermsWrap = document.createElement('div');
@@ -10390,6 +10738,7 @@
 
             dmLabel.textContent = zh ? '本页夜间' : 'Site dark';
             zmLabel.textContent = zh ? '本页缩放' : 'Site zoom';
+            scLabel.textContent = zh ? '解除复制限制' : 'SuperCopy';
             sitePermsLinkLabel.textContent = zh ? '管理所有网站权限' : 'All site permissions';
 
             const siteHost = resolveSiteOverrideKey();
@@ -10418,6 +10767,12 @@
                   ? Math.round(ov.zoom * 100) + '%'
                   : (zh ? '自动' : 'Auto');
                btnSiteZoomReset.classList.toggle('active', !hasZoom);
+               const scOn = !!(ov && ov.super_copy);
+               for (let j = 0; j < scBtns.length; j++) {
+                  const isOnBtn = scBtns[j].dataset.sc === 'on';
+                  scBtns[j].textContent = zh ? (isOnBtn ? '开启' : '关闭') : (isOnBtn ? 'On' : 'Off');
+                  scBtns[j].classList.toggle('active', isOnBtn === scOn);
+               }
                setBtnIconAndText(
                   btnClearSiteData,
                   'broom',
@@ -13099,7 +13454,13 @@
                   'copy',
                   zh ? '复制链接地址' : 'Copy link address',
                   () => {
-                     copyTextToClipboard(linkUrl, zh ? '已复制链接地址' : 'Link copied');
+                     const clean = cleanTrackingUrlForCopy(linkUrl);
+                     copyTextToClipboard(
+                        clean,
+                        clean !== linkUrl
+                           ? (zh ? '已复制净化后的链接' : 'Clean link copied')
+                           : (zh ? '已复制链接地址' : 'Link copied'),
+                     );
                   },
                );
                if (__fnxAndroidShareUrl || (navigator.share && typeof navigator.share === 'function')) {
@@ -16871,6 +17232,18 @@
                      sendIpc({ type: 'HUD_ACTION', action: 'dismiss_overlays' });
                      return;
                   }
+                  if (isQrOpenRef && isQrOpenRef()) {
+                     if (closeQrModalRef) closeQrModalRef();
+                     return;
+                  }
+                  if (isClearDataOpenRef && isClearDataOpenRef()) {
+                     if (closeClearDataModalRef) closeClearDataModalRef();
+                     return;
+                  }
+                  if (isSelLocalOpenRef && isSelLocalOpenRef()) {
+                     if (hideSelLocalRef) hideSelLocalRef();
+                     return;
+                  }
                   if (isPromptOpenRef && isPromptOpenRef()) {
                      if (closePromptModalRef) closePromptModalRef();
                      return;
@@ -18465,6 +18838,7 @@
                   '__fynexo_history_card__',
                   '__fynexo_prompt_card__',
                   '__fynexo_clear_data_card__',
+                  '__fynexo_qr_card__',
                ];
                for (let i = 0; i < modalCardIds.length; i++) {
                   const cr = measureVisibleRect(modalCardIds[i], 0, -1, false);
@@ -18499,7 +18873,8 @@
                   isModalActive ||
                   (typeof isHistoryOpenRef === 'function' && isHistoryOpenRef()) ||
                   (typeof isPromptOpenRef === 'function' && isPromptOpenRef()) ||
-                  (typeof isClearDataOpenRef === 'function' && isClearDataOpenRef())
+                  (typeof isClearDataOpenRef === 'function' && isClearDataOpenRef()) ||
+                  (typeof isQrOpenRef === 'function' && isQrOpenRef())
                ) {
                   has_overlay = true;
                }
@@ -18683,6 +19058,15 @@
                   case 'copy_url':
                      copyCurrentUrl();
                      break;
+                  case 'capture_full_screenshot':
+                     sendIpc({ type: 'CAPTURE_FULL_SCREENSHOT' });
+                     break;
+                  case 'export_markdown':
+                     triggerExportMarkdown();
+                     break;
+                  case 'open_qr':
+                     if (typeof openQrModalRef === 'function') openQrModalRef();
+                     break;
                   case 'toggle_preferences':
                      closeAnyOmnibox();
                      togglePreferences();
@@ -18732,6 +19116,9 @@
                      if (isClearDataOpenRef && isClearDataOpenRef() && closeClearDataModalRef) {
                         closeClearDataModalRef();
                      }
+                     if (isQrOpenRef && isQrOpenRef() && closeQrModalRef) {
+                        closeQrModalRef();
+                     }
                      scheduleSyncHudLayout();
                      break;
                }
@@ -18745,6 +19132,9 @@
                }
                if (typeof m.media_gain === 'number' && Number.isFinite(m.media_gain)) {
                   mediaGainValue = Math.max(0, Math.min(300, m.media_gain));
+               }
+               if (typeof m.media_rate === 'number' && Number.isFinite(m.media_rate)) {
+                  mediaPlaybackRate = Math.max(0.25, Math.min(4.0, m.media_rate));
                }
                refreshReaderableState();
                updateMediaButtonState();
@@ -19077,6 +19467,457 @@
                };
                isClearDataOpenRef = () => cdRoot.style.display === 'flex';
                closeClearDataModalRef = closeCd;
+
+               // Pure-JS Local Zero-Network ISO/IEC 18004 QR Code Encoder (Byte mode, ECC-L, v1-v10)
+               function buildLocalQrMatrix(text) {
+                  const bytes = Array.from(new TextEncoder().encode(String(text || '')));
+                  const SPECS = [
+                     null,
+                     { v: 1, dc: 19, ec: 7, blks: [[1, 19]], align: [] },
+                     { v: 2, dc: 34, ec: 10, blks: [[1, 34]], align: [6, 18] },
+                     { v: 3, dc: 55, ec: 15, blks: [[1, 55]], align: [6, 22] },
+                     { v: 4, dc: 80, ec: 20, blks: [[1, 80]], align: [6, 26] },
+                     { v: 5, dc: 108, ec: 26, blks: [[1, 108]], align: [6, 30] },
+                     { v: 6, dc: 136, ec: 18, blks: [[2, 68]], align: [6, 34] },
+                     { v: 7, dc: 156, ec: 20, blks: [[2, 78]], align: [6, 22, 38] },
+                     { v: 8, dc: 194, ec: 24, blks: [[2, 97]], align: [6, 24, 42] },
+                     { v: 9, dc: 232, ec: 30, blks: [[2, 116]], align: [6, 26, 46] },
+                     { v: 10, dc: 274, ec: 18, blks: [[2, 68], [2, 69]], align: [6, 28, 50] },
+                  ];
+                  let spec = null;
+                  for (let v = 1; v <= 10; v++) {
+                     const ccBits = v < 10 ? 8 : 16;
+                     if (4 + ccBits + bytes.length * 8 <= SPECS[v].dc * 8) {
+                        spec = SPECS[v];
+                        break;
+                     }
+                  }
+                  if (!spec) return null;
+
+                  // GF(256) tables & Reed-Solomon
+                  const EXP = new Uint8Array(512);
+                  const LOG = new Uint8Array(256);
+                  let x = 1;
+                  for (let i = 0; i < 255; i++) {
+                     EXP[i] = x;
+                     LOG[x] = i;
+                     x <<= 1;
+                     if (x & 0x100) x ^= 0x11d;
+                  }
+                  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+                  const gfMul = (a, b) => (a && b ? EXP[LOG[a] + LOG[b]] : 0);
+                  function rsCompute(data, ecLen) {
+                     let gen = [1];
+                     for (let i = 0; i < ecLen; i++) {
+                        const nxt = new Array(gen.length + 1).fill(0);
+                        for (let j = 0; j < gen.length; j++) {
+                           nxt[j] ^= gen[j];
+                           nxt[j + 1] ^= gfMul(gen[j], EXP[i]);
+                        }
+                        gen = nxt;
+                     }
+                     const rem = new Uint8Array(ecLen);
+                     for (let i = 0; i < data.length; i++) {
+                        const factor = data[i] ^ rem[0];
+                        for (let j = 0; j < ecLen - 1; j++) rem[j] = rem[j + 1] ^ gfMul(gen[j + 1], factor);
+                        rem[ecLen - 1] = gfMul(gen[ecLen], factor);
+                     }
+                     return rem;
+                  }
+
+                  // Bitstream: Mode 0100 + count + bytes + terminator + pad
+                  const bits = [];
+                  const pushBits = (val, len) => {
+                     for (let i = len - 1; i >= 0; i--) bits.push((val >> i) & 1);
+                  };
+                  pushBits(4, 4);
+                  pushBits(bytes.length, spec.v < 10 ? 8 : 16);
+                  for (let i = 0; i < bytes.length; i++) pushBits(bytes[i], 8);
+                  const maxBits = spec.dc * 8;
+                  for (let i = 0; i < 4 && bits.length < maxBits; i++) bits.push(0);
+                  while (bits.length % 8 !== 0) bits.push(0);
+                  const dcBytes = [];
+                  for (let i = 0; i < bits.length; i += 8) {
+                     let b = 0;
+                     for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j];
+                     dcBytes.push(b);
+                  }
+                  let padToggle = 0;
+                  while (dcBytes.length < spec.dc) {
+                     dcBytes.push(padToggle ? 0x11 : 0xec);
+                     padToggle ^= 1;
+                  }
+
+                  // Split blocks & compute RS EC
+                  const dataBlocks = [];
+                  const ecBlocks = [];
+                  let off = 0;
+                  for (let g = 0; g < spec.blks.length; g++) {
+                     const [cnt, sz] = spec.blks[g];
+                     for (let k = 0; k < cnt; k++) {
+                        const blk = dcBytes.slice(off, off + sz);
+                        off += sz;
+                        dataBlocks.push(blk);
+                        ecBlocks.push(rsCompute(blk, spec.ec));
+                     }
+                  }
+                  const codewords = [];
+                  const maxBlkLen = Math.max(...dataBlocks.map((b) => b.length));
+                  for (let i = 0; i < maxBlkLen; i++) {
+                     for (let b = 0; b < dataBlocks.length; b++) {
+                        if (i < dataBlocks[b].length) codewords.push(dataBlocks[b][i]);
+                     }
+                  }
+                  for (let i = 0; i < spec.ec; i++) {
+                     for (let b = 0; b < ecBlocks.length; b++) codewords.push(ecBlocks[b][i]);
+                  }
+
+                  const n = 17 + 4 * spec.v;
+                  const mat = Array.from({ length: n }, () => new Uint8Array(n));
+                  const fn = Array.from({ length: n }, () => new Uint8Array(n));
+                  const setFn = (r, c, v) => {
+                     if (r >= 0 && r < n && c >= 0 && c < n) {
+                        mat[r][c] = v ? 1 : 0;
+                        fn[r][c] = 1;
+                     }
+                  };
+                  // Finder patterns + separators
+                  const drawFinder = (tr, tc) => {
+                     for (let dr = -1; dr <= 7; dr++) {
+                        for (let dc = -1; dc <= 7; dc++) {
+                           const dark =
+                              dr >= 0 && dr <= 6 && dc >= 0 && dc <= 6 &&
+                              (dr === 0 || dr === 6 || dc === 0 || dc === 6 || (dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4));
+                           setFn(tr + dr, tc + dc, dark ? 1 : 0);
+                        }
+                     }
+                  };
+                  drawFinder(0, 0);
+                  drawFinder(0, n - 7);
+                  drawFinder(n - 7, 0);
+                  // Timing patterns
+                  for (let i = 8; i < n - 8; i++) {
+                     setFn(6, i, i % 2 === 0 ? 1 : 0);
+                     setFn(i, 6, i % 2 === 0 ? 1 : 0);
+                  }
+                  // Alignment patterns
+                  const ap = spec.align;
+                  for (let i = 0; i < ap.length; i++) {
+                     for (let j = 0; j < ap.length; j++) {
+                        const r = ap[i];
+                        const c = ap[j];
+                        if (fn[r][c]) continue;
+                        for (let dr = -2; dr <= 2; dr++) {
+                           for (let dc = -2; dc <= 2; dc++) {
+                              const dark = Math.max(Math.abs(dr), Math.abs(dc)) !== 1;
+                              setFn(r + dr, c + dc, dark ? 1 : 0);
+                           }
+                        }
+                     }
+                  }
+                  // Reserve format areas + dark module
+                  for (let i = 0; i <= 8; i++) {
+                     if (i !== 6) {
+                        if (!fn[8][i]) setFn(8, i, 0);
+                        if (!fn[i][8]) setFn(i, 8, 0);
+                     }
+                  }
+                  for (let i = 0; i < 8; i++) {
+                     setFn(8, n - 1 - i, 0);
+                     setFn(n - 1 - i, 8, 0);
+                  }
+                  setFn(n - 8, 8, 1);
+                  // Version info (v7..v10)
+                  if (spec.v >= 7) {
+                     let vr = spec.v << 12;
+                     for (let i = 5; i >= 0; i--) if ((vr >> (i + 12)) & 1) vr ^= 0x1f25 << i;
+                     const vbits = (spec.v << 12) | vr;
+                     for (let i = 0; i < 18; i++) {
+                        const bit = (vbits >> i) & 1;
+                        const a = Math.floor(i / 3);
+                        const b = n - 11 + (i % 3);
+                        setFn(a, b, bit);
+                        setFn(b, a, bit);
+                     }
+                  }
+                  // Place data bits (zigzag) + Mask 0: (r + c) % 2 === 0
+                  let bitIdx = 0;
+                  const totalDataBits = codewords.length * 8;
+                  for (let right = n - 1; right >= 1; right -= 2) {
+                     if (right === 6) right = 5;
+                     const upward = (((n - 1 - right) >> 1) & 1) === 0;
+                     for (let vert = 0; vert < n; vert++) {
+                        const r = upward ? n - 1 - vert : vert;
+                        for (let dx = 0; dx < 2; dx++) {
+                           const c = right - dx;
+                           if (fn[r][c]) continue;
+                           let bit = 0;
+                           if (bitIdx < totalDataBits) {
+                              bit = (codewords[bitIdx >> 3] >> (7 - (bitIdx & 7))) & 1;
+                              bitIdx++;
+                           }
+                           if ((r + c) % 2 === 0) bit ^= 1;
+                           mat[r][c] = bit;
+                        }
+                     }
+                  }
+                  // Write Format Info for ECC-L (01), Mask 0 (000) -> 0x77C4
+                  const fmt = 0x77c4;
+                  const fmtCoords1 = [
+                     [8, 0], [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 7], [8, 8],
+                     [7, 8], [5, 8], [4, 8], [3, 8], [2, 8], [1, 8], [0, 8],
+                  ];
+                  for (let i = 0; i < 15; i++) {
+                     const bit = (fmt >> (14 - i)) & 1;
+                     mat[fmtCoords1[i][0]][fmtCoords1[i][1]] = bit;
+                     if (i < 8) mat[n - 1 - i][8] = bit;
+                     else mat[8][n - 15 + i] = bit;
+                  }
+                  return mat;
+               }
+
+               const qrRoot = document.createElement('div');
+               qrRoot.id = '__fynexo_qr_root__';
+               const qrCard = document.createElement('div');
+               qrCard.id = '__fynexo_qr_card__';
+               const qrHead = document.createElement('div');
+               qrHead.className = 'fnx-qr-head';
+               const qrTitle = document.createElement('span');
+               qrTitle.className = 'fnx-cd-title';
+               const qrCloseBtn = document.createElement('button');
+               qrCloseBtn.type = 'button';
+               qrCloseBtn.className = 'fnx-icon-btn';
+               qrCloseBtn.style.cssText = 'width:26px;height:26px;';
+               qrCloseBtn.appendChild(createIcon('closeSmall'));
+               qrHead.append(qrTitle, qrCloseBtn);
+               const qrBox = document.createElement('div');
+               qrBox.className = 'fnx-qr-box';
+               const qrUrlEl = document.createElement('div');
+               qrUrlEl.className = 'fnx-qr-url';
+               const qrNoteEl = document.createElement('div');
+               qrNoteEl.className = 'fnx-qr-note';
+               const qrActs = document.createElement('div');
+               qrActs.className = 'fnx-cd-actions';
+               qrActs.style.width = '100%';
+               const qrCopyBtn = document.createElement('button');
+               qrCopyBtn.type = 'button';
+               qrCopyBtn.className = 'fnx-cd-btn primary';
+               const qrDoneBtn = document.createElement('button');
+               qrDoneBtn.type = 'button';
+               qrDoneBtn.className = 'fnx-cd-btn';
+               qrActs.append(qrCopyBtn, qrDoneBtn);
+               qrCard.append(qrHead, qrBox, qrUrlEl, qrNoteEl, qrActs);
+               qrRoot.appendChild(qrCard);
+               shell.appendChild(qrRoot);
+
+               const closeQr = () => {
+                  qrRoot.style.display = 'none';
+                  if (typeof syncHudLayoutRef === 'function') syncHudLayoutRef();
+               };
+               qrCloseBtn.onclick = closeQr;
+               qrDoneBtn.onclick = closeQr;
+               qrRoot.addEventListener('click', (e) => {
+                  if (e.target === qrRoot) closeQr();
+               });
+               let qrCurrentUrl = '';
+               qrCopyBtn.onclick = () => {
+                  if (!qrCurrentUrl) return;
+                  copyTextToClipboard(qrCurrentUrl, isZh() ? '已复制链接' : 'URL copied');
+               };
+
+               openQrModalRef = () => {
+                  const zh = isZh();
+                  const raw = canonicalCurrentUrl();
+                  const clean = cleanTrackingUrlForCopy(raw);
+                  if (!clean || !/^https?:\/\//i.test(clean)) {
+                     showHudToast(zh ? '当前内部页面无需生成二维码' : 'QR code is available for web URLs only');
+                     return;
+                  }
+                  const mat = buildLocalQrMatrix(clean);
+                  if (!mat) {
+                     showHudToast(zh ? '网址过长（超过 270 字节），暂无法生成二维码' : 'URL is too long for local QR code (>270 bytes)');
+                     return;
+                  }
+                  closeAllNavPopovers();
+                  qrCurrentUrl = clean;
+                  qrTitle.textContent = zh ? '手机扫码打开本页' : 'Scan QR Code';
+                  qrUrlEl.textContent = clean;
+                  qrUrlEl.title = clean;
+                  qrNoteEl.textContent = zh ? '本地离线生成 · 零网络请求 · 已净化追踪参数' : 'Generated locally offline · Zero network calls';
+                  qrCopyBtn.textContent = zh ? '复制链接' : 'Copy URL';
+                  qrDoneBtn.textContent = zh ? '关闭' : 'Close';
+                  const n = mat.length;
+                  const qz = 4;
+                  const total = n + qz * 2;
+                  const parts = [];
+                  for (let r = 0; r < n; r++) {
+                     for (let c = 0; c < n; c++) {
+                        if (mat[r][c]) parts.push('M' + (c + qz) + ',' + (r + qz) + 'h1v1h-1z');
+                     }
+                  }
+                  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                  svg.setAttribute('viewBox', '0 0 ' + total + ' ' + total);
+                  svg.setAttribute('aria-label', 'QR Code');
+                  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                  bg.setAttribute('width', String(total));
+                  bg.setAttribute('height', String(total));
+                  bg.setAttribute('fill', '#ffffff');
+                  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                  path.setAttribute('d', parts.join(''));
+                  path.setAttribute('fill', '#0f172a');
+                  svg.append(bg, path);
+                  qrBox.textContent = '';
+                  qrBox.appendChild(svg);
+                  qrRoot.style.display = 'flex';
+                  if (typeof syncHudLayoutRef === 'function') syncHudLayoutRef();
+               };
+               isQrOpenRef = () => qrRoot.style.display === 'flex';
+               closeQrModalRef = closeQr;
+            }
+
+            if (!IS_HUD_SHELL && !isInternalAny()) {
+               // SuperCopy capture-phase event unlocker (single-WebView / Android)
+               ['copy', 'cut', 'selectstart', 'contextmenu', 'dragstart'].forEach((evName) => {
+                  window.addEventListener(
+                     evName,
+                     (e) => {
+                        const ov = getCurrentSiteOverride();
+                        if (!ov || !ov.super_copy) return;
+                        e.stopImmediatePropagation();
+                     },
+                     true,
+                  );
+               });
+
+               // Selection Floating Bubble (single-WebView / Android)
+               const selBox = document.createElement('div');
+               selBox.id = '__fynexo_sel_pop__';
+               const selRow = document.createElement('div');
+               selRow.className = 'fnx-sel-row';
+               const bTr = document.createElement('button');
+               bTr.type = 'button';
+               bTr.className = 'fnx-sel-btn';
+               const bSr = document.createElement('button');
+               bSr.type = 'button';
+               bSr.className = 'fnx-sel-btn';
+               const bCp = document.createElement('button');
+               bCp.type = 'button';
+               bCp.className = 'fnx-sel-btn';
+               const selRes = document.createElement('div');
+               selRes.className = 'fnx-sel-res';
+               selRow.append(bTr, bSr, bCp);
+               selBox.append(selRow, selRes);
+               shell.appendChild(selBox);
+               selLocalResEl = selRes;
+
+               let selLocalTxt = '';
+               const hideSel = () => {
+                  selBox.style.display = 'none';
+                  selRes.style.display = 'none';
+                  selRes.textContent = '';
+                  selLocalTrReqId = 0;
+               };
+               isSelLocalOpenRef = () => selBox.style.display === 'flex';
+               hideSelLocalRef = hideSel;
+               selLocalRenderResRef = (text, isErr) => {
+                  selRes.textContent = '';
+                  const d = document.createElement('div');
+                  d.textContent = text;
+                  selRes.appendChild(d);
+                  if (!isErr && text) {
+                     const cp = document.createElement('button');
+                     cp.type = 'button';
+                     cp.className = 'fnx-sel-btn';
+                     cp.style.cssText = 'margin-top:6px;height:22px;font-size:11px;padding:0 8px;';
+                     cp.textContent = isZh() ? '复制译文' : 'Copy translation';
+                     cp.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+                     cp.onclick = (e) => {
+                        e.stopPropagation();
+                        copyTextToClipboard(text, isZh() ? '已复制译文' : 'Translation copied');
+                        hideSel();
+                     };
+                     selRes.appendChild(cp);
+                  }
+                  requestAnimationFrame(() => {
+                     try {
+                        const r = selBox.getBoundingClientRect();
+                        const vw = window.innerWidth || 1024;
+                        const vh = window.innerHeight || 720;
+                        if (r.right > vw - 10) selBox.style.left = Math.max(8, vw - r.width - 10) + 'px';
+                        if (r.bottom > vh - 10) selBox.style.top = Math.max(8, vh - r.height - 10) + 'px';
+                     } catch (_) {}
+                  });
+               };
+               [bTr, bSr, bCp].forEach((b) => {
+                  b.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+               });
+               bTr.onclick = (e) => {
+                  e.stopPropagation();
+                  if (!selLocalTxt) return;
+                  const targetLang = /[\u4e00-\u9fff]/.test(selLocalTxt) ? 'en' : 'zh-CN';
+                  const rid = trLocalReqSeq++;
+                  selLocalTrReqId = rid;
+                  selRes.textContent = isZh() ? '翻译中…' : 'Translating...';
+                  selRes.style.display = 'block';
+                  const batch = [{ id: 1, text: selLocalTxt }];
+                  if (__fnxAndroidTranslateBatch) {
+                     try { __fnxAndroidTranslateBatch(rid, targetLang, __fnxJsonStringify(batch), __FNX_BRIDGE_TOKEN); } catch (_) {}
+                  } else {
+                     sendIpc({ type: 'TRANSLATE_BATCH', req_id: rid, target_lang: targetLang, items: batch });
+                  }
+               };
+               bSr.onclick = (e) => {
+                  e.stopPropagation();
+                  if (!selLocalTxt) return;
+                  const engines = Array.isArray(config.search_engines) ? config.search_engines : [];
+                  const activeId = String(config.search_engine || 'google');
+                  const eng = engines.find((x) => x && x.id === activeId) || engines[0];
+                  const tpl = (eng && eng.url) || 'https://www.google.com/search?q={query}';
+                  const q = encodeURIComponent(selLocalTxt);
+                  const url = tpl.includes('{query}') ? tpl.replace('{query}', q) : tpl.replace('%s', q);
+                  sendIpc({ type: 'NEW_TAB', url });
+                  hideSel();
+               };
+               bCp.onclick = (e) => {
+                  e.stopPropagation();
+                  if (!selLocalTxt) return;
+                  copyTextToClipboard(selLocalTxt, isZh() ? '已复制选中文本' : 'Selection copied');
+                  hideSel();
+               };
+               document.addEventListener('mouseup', (e) => {
+                  if (config.selection_popup === false) return;
+                  if (e && e.target && e.target.closest && e.target.closest('#__fynexo_host__')) return;
+                  if (isEditableTarget(e && e.target)) { hideSel(); return; }
+                  setTimeout(() => {
+                     try {
+                        const sel = window.getSelection ? window.getSelection() : null;
+                        const txt = sel ? String(sel.toString() || '').trim() : '';
+                        if (!sel || sel.isCollapsed || txt.length < 2 || txt.length > 600) { hideSel(); return; }
+                        const rect = sel.rangeCount > 0 ? sel.getRangeAt(0).getBoundingClientRect() : null;
+                        if (!rect || (rect.width === 0 && rect.height === 0)) { hideSel(); return; }
+                        selLocalTxt = txt;
+                        const zh = isZh();
+                        bTr.textContent = zh ? '翻译' : 'Translate';
+                        bSr.textContent = zh ? '搜索' : 'Search';
+                        bCp.textContent = zh ? '复制' : 'Copy';
+                        selRes.style.display = 'none';
+                        selRes.textContent = '';
+                        const vw = window.innerWidth || 1024;
+                        const left = Math.max(10, Math.min(vw - 210, Math.round(rect.left + rect.width / 2 - 86)));
+                        const top = rect.top > 56 ? Math.round(rect.top - 44) : Math.round(rect.bottom + 10);
+                        selBox.style.left = left + 'px';
+                        selBox.style.top = Math.max(8, top) + 'px';
+                        selBox.style.display = 'flex';
+                     } catch (_) {}
+                  }, 25);
+               }, true);
+               document.addEventListener('mousedown', (e) => {
+                  if (selBox.style.display === 'none') return;
+                  const path = e && typeof e.composedPath === 'function' ? e.composedPath() : [];
+                  if (path.includes(selBox)) return;
+                  hideSel();
+               }, true);
+               window.addEventListener('scroll', hideSel, { passive: true });
             }
 
             if (!IS_HUD_SHELL && !isInternalAny() && !isMobilePlatform()) {

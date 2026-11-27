@@ -470,6 +470,187 @@ pub fn print_page_to_pdf(
     }));
 }
 
+/// Capture a full-page scrolling PNG screenshot via WebView2 CDP `Page.captureScreenshot`.
+#[cfg(target_os = "windows")]
+pub fn capture_full_page_screenshot(
+    webview: &wry::WebView,
+    downloads_dir: std::path::PathBuf,
+    page_url: String,
+    proxy: EventLoopProxy<UserEvent>,
+    zh: bool,
+) {
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use windows::core::{w, HSTRING};
+    use wry::WebViewExtWindows;
+
+    let core = webview.webview();
+    let params = HSTRING::from(r#"{"format":"png","captureBeyondViewport":true}"#);
+    let _ = proxy.send_event(UserEvent::Toast(if zh {
+        "正在生成整页长截图…".to_string()
+    } else {
+        "Capturing full-page screenshot...".to_string()
+    }));
+
+    let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |hr, json_str| {
+        if hr.is_err() || json_str.is_empty() {
+            let _ = proxy.send_event(UserEvent::Toast(if zh {
+                "整页截图失败".to_string()
+            } else {
+                "Full-page screenshot failed".to_string()
+            }));
+            return Ok(());
+        }
+        let dl_dir = downloads_dir.clone();
+        let url_clone = page_url.clone();
+        let proxy_bg = proxy.clone();
+        std::thread::spawn(move || {
+            let decoded = serde_json::from_str::<serde_json::Value>(&json_str)
+                .ok()
+                .and_then(|v| v["data"].as_str().and_then(decode_base64_bytes));
+            let Some(bytes) = decoded.filter(|b| !b.is_empty()) else {
+                let _ = proxy_bg.send_event(UserEvent::Toast(if zh {
+                    "解析整页截图数据失败".to_string()
+                } else {
+                    "Failed to decode full-page screenshot".to_string()
+                }));
+                return;
+            };
+            let suggested = format!("fynexo-fullpage-{}.png", crate::config::now_unix_secs());
+            let dest = crate::config::unique_download_path_in(&dl_dir, &suggested);
+            let fname = dest
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("fullpage.png")
+                .to_string();
+            match std::fs::write(&dest, &bytes) {
+                Ok(()) => {
+                    let sz = bytes.len() as u64;
+                    let _ = proxy_bg.send_event(UserEvent::DownloadUpdate {
+                        id: 0,
+                        name: fname.clone(),
+                        status: "completed".to_string(),
+                        bytes_received: sz,
+                        total_bytes: sz,
+                        speed_bps: 0,
+                        saved_path: Some(dest.to_string_lossy().to_string()),
+                        url: Some(url_clone),
+                    });
+                    let _ = proxy_bg.send_event(UserEvent::Toast(if zh {
+                        format!("已保存整页长图：{}", fname)
+                    } else {
+                        format!("Saved full-page screenshot: {}", fname)
+                    }));
+                }
+                Err(e) => {
+                    let _ = proxy_bg.send_event(UserEvent::Toast(if zh {
+                        format!("保存整页长图失败：{}", e)
+                    } else {
+                        format!("Failed to save full-page screenshot: {}", e)
+                    }));
+                }
+            }
+        });
+        Ok(())
+    }));
+
+    unsafe {
+        let _ = core.CallDevToolsProtocolMethod(w!("Page.captureScreenshot"), &params, &handler);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn capture_full_page_screenshot(
+    _webview: &wry::WebView,
+    _downloads_dir: std::path::PathBuf,
+    _page_url: String,
+    proxy: EventLoopProxy<UserEvent>,
+    zh: bool,
+) {
+    let _ = proxy.send_event(UserEvent::Toast(if zh {
+        "整页长截图暂仅支持 Windows 桌面端".to_string()
+    } else {
+        "Full-page screenshot is currently Windows-only".to_string()
+    }));
+}
+
+pub fn sanitize_markdown_filename(title: &str) -> String {
+    let cleaned: String = title
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_control()
+                || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+            {
+                '-'
+            } else {
+                c
+            }
+        })
+        .take(64)
+        .collect();
+    let trimmed = cleaned.trim().trim_matches(['.', '-', ' ']);
+    if trimmed.is_empty() {
+        format!("fynexo-article-{}.md", crate::config::now_unix_secs())
+    } else {
+        format!("{}.md", trimmed)
+    }
+}
+
+/// Save extracted article Markdown (`.md`) into `downloads_dir` and record it in Downloads.
+pub fn save_markdown_file(
+    downloads_dir: std::path::PathBuf,
+    title: String,
+    page_url: String,
+    markdown: String,
+    proxy: EventLoopProxy<UserEvent>,
+    zh: bool,
+) {
+    if markdown.trim().is_empty() || markdown.len() > 4 * 1024 * 1024 {
+        let _ = proxy.send_event(UserEvent::Toast(if zh {
+            "无可导出的正文内容".to_string()
+        } else {
+            "No article content to export".to_string()
+        }));
+        return;
+    }
+    std::thread::spawn(move || {
+        let suggested = sanitize_markdown_filename(&title);
+        let dest = crate::config::unique_download_path_in(&downloads_dir, &suggested);
+        let fname = dest
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("article.md")
+            .to_string();
+        match std::fs::write(&dest, markdown.as_bytes()) {
+            Ok(()) => {
+                let sz = markdown.len() as u64;
+                let _ = proxy.send_event(UserEvent::DownloadUpdate {
+                    id: 0,
+                    name: fname.clone(),
+                    status: "completed".to_string(),
+                    bytes_received: sz,
+                    total_bytes: sz,
+                    speed_bps: 0,
+                    saved_path: Some(dest.to_string_lossy().to_string()),
+                    url: Some(page_url),
+                });
+                let _ = proxy.send_event(UserEvent::Toast(if zh {
+                    format!("已导出 Markdown：{}", fname)
+                } else {
+                    format!("Exported Markdown: {}", fname)
+                }));
+            }
+            Err(e) => {
+                let _ = proxy.send_event(UserEvent::Toast(if zh {
+                    format!("导出 Markdown 失败：{}", e)
+                } else {
+                    format!("Failed to export Markdown: {}", e)
+                }));
+            }
+        }
+    });
+}
+
 fn decode_base64_bytes(input: &str) -> Option<Vec<u8>> {
     fn val(b: u8) -> Option<u8> {
         match b {
@@ -819,6 +1000,15 @@ mod tests {
     fn sanitize_pdf_filename_strips_invalid_chars() {
         assert_eq!(sanitize_pdf_filename("Rust: Book / Ch?1"), "Rust_ Book _ Ch_1.pdf");
         assert!(sanitize_pdf_filename("   ").starts_with("fynexo-page-"));
+    }
+
+    #[test]
+    fn sanitize_markdown_filename_strips_invalid_chars() {
+        assert_eq!(
+            sanitize_markdown_filename("Guide: Async/Await? *2026*"),
+            "Guide- Async-Await- -2026.md"
+        );
+        assert!(sanitize_markdown_filename("   ").starts_with("fynexo-article-"));
     }
 
     #[test]

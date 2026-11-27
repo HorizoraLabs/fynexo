@@ -3106,3 +3106,129 @@
                     border-color: #dc2626;
                     color: #ffffff;
                 }
+                .fnx-cd-btn.primary {
+                    background: var(--fnx-accent);
+                    border-color: var(--fnx-accent);
+                    color: #ffffff;
+                }
+
+                /* Local Zero-Network QR Code Modal */
+                #__fynexo_qr_root__ {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 2147483646;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    background: rgba(0, 0, 0, 0.45);
+                    pointer-events: auto;
+                }
+                #__fynexo_shell__.fnx-role-hud #__fynexo_qr_root__ {
+                    background: transparent !important;
+                }
+                #__fynexo_qr_card__ {
+                    width: min(320px, calc(100vw - 28px));
+                    background: var(--fnx-panel);
+                    border: 1px solid var(--fnx-border-hover);
+                    border-radius: 14px;
+                    padding: 16px 18px;
+                    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.52);
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 11px;
+                    color: var(--fnx-fg);
+                }
+                .fnx-qr-head {
+                    width: 100%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 8px;
+                }
+                .fnx-qr-box {
+                    background: #ffffff;
+                    padding: 12px;
+                    border-radius: 12px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+                }
+                .fnx-qr-box svg {
+                    display: block;
+                    width: 204px;
+                    height: 204px;
+                    shape-rendering: crispEdges;
+                }
+                .fnx-qr-url {
+                    width: 100%;
+                    font-size: 11.5px;
+                    color: var(--fnx-secondary);
+                    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+                    text-align: center;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    padding: 5px 8px;
+                    border-radius: 7px;
+                    background: var(--fnx-surface);
+                    border: 1px solid var(--fnx-border);
+                }
+                .fnx-qr-note {
+                    font-size: 11px;
+                    color: var(--fnx-muted);
+                    text-align: center;
+                }
+
+                /* Selection Floating Bubble (Translate / Search / Copy) */
+                #__fynexo_sel_pop__ {
+                    position: fixed;
+                    z-index: 2147483645;
+                    display: none;
+                    flex-direction: column;
+                    gap: 6px;
+                    max-width: min(340px, calc(100vw - 24px));
+                    padding: 5px;
+                    border-radius: 10px;
+                    background: var(--fnx-panel);
+                    border: 1px solid var(--fnx-border-hover);
+                    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42);
+                    color: var(--fnx-fg);
+                    font-family: system-ui, -apple-system, sans-serif;
+                    pointer-events: auto;
+                }
+                .fnx-sel-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                }
+                .fnx-sel-btn {
+                    height: 26px;
+                    padding: 0 9px;
+                    border-radius: 7px;
+                    border: 1px solid var(--fnx-border);
+                    background: var(--fnx-surface);
+                    color: var(--fnx-fg);
+                    font-size: 12px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    white-space: nowrap;
+                }
+                .fnx-sel-btn:hover {
+                    border-color: var(--fnx-accent);
+                }
+                .fnx-sel-res {
+                    display: none;
+                    padding: 7px 9px;
+                    border-radius: 7px;
+                    background: var(--fnx-surface);
+                    border: 1px solid var(--fnx-border);
+                    font-size: 12.5px;
+                    line-height: 1.5;
+                    color: var(--fnx-fg);
+                    max-height: 180px;
+                    overflow-y: auto;
+                    word-break: break-word;
+                    user-select: text;
+                }

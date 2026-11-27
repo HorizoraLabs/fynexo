@@ -810,6 +810,15 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                 }
             }
         }
+        "START_TURBO_DOWNLOAD" => {
+            if let Some(url) = val["url"].as_str() {
+                if super::super::security::is_safe_external_http_url(url) {
+                    let _ = proxy.send_event(UserEvent::StartTurboDownload {
+                        url: url.trim().to_string(),
+                    });
+                }
+            }
+        }
         "DELETE_DOWNLOAD_ENTRY" => {
             let id = val["id"].as_u64().unwrap_or(0);
             let name = val["name"].as_str().unwrap_or("");
@@ -1021,6 +1030,18 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                         config_dirty = true;
                     }
                 }
+                if let Some(v) = val["clean_urls"].as_bool() {
+                    if locked.config.clean_urls != v {
+                        locked.config.clean_urls = v;
+                        config_dirty = true;
+                    }
+                }
+                if let Some(v) = val["selection_popup"].as_bool() {
+                    if locked.config.selection_popup != v {
+                        locked.config.selection_popup = v;
+                        config_dirty = true;
+                    }
+                }
                 if let Some(v) = val["ask_download_location"].as_bool() {
                     if locked.config.ask_download_location != v {
                         locked.config.ask_download_location = v;
@@ -1136,9 +1157,28 @@ pub(super) fn try_handle(cmd: &str, val: &serde_json::Value, ctx: &IpcCtx<'_>) -
                                     norm_dm.to_string()
                                 };
                             }
+                            if let Some(sc) = ov_obj.get("super_copy").and_then(|v| v.as_bool()) {
+                                entry.super_copy = sc;
+                            }
+                            if let Some(rate_val) = ov_obj.get("media_rate") {
+                                if rate_val.is_null() {
+                                    entry.media_rate = None;
+                                } else if let Some(r) = rate_val.as_f64() {
+                                    if !r.is_finite() || (r - 1.0).abs() < 0.01 {
+                                        entry.media_rate = None;
+                                    } else {
+                                        entry.media_rate =
+                                            Some((r.clamp(0.25, 4.0) * 100.0).round() / 100.0);
+                                    }
+                                }
+                            }
                             let empty_dark =
                                 entry.dark_mode.is_empty() || entry.dark_mode == "auto";
-                            if entry.zoom.is_none() && empty_dark {
+                            if entry.zoom.is_none()
+                                && empty_dark
+                                && !entry.super_copy
+                                && entry.media_rate.is_none()
+                            {
                                 if locked.config.site_overrides.remove(&domain).is_some() {
                                     config_dirty = true;
                                 }
@@ -1701,6 +1741,7 @@ fn sanitize_saved_config(cfg: &mut AppConfig) {
     } else {
         cfg.min_font_size.clamp(10, 24)
     };
+    cfg.download_threads = cfg.download_threads.clamp(1, 16);
 }
 
 #[cfg(test)]

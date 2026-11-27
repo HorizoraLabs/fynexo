@@ -248,6 +248,22 @@
             padding: 18px 20px 64px;
         }
 
+        .dl-turbo-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+            padding: 10px 12px;
+            border-radius: var(--r-lg);
+            background: var(--dl-panel);
+            border: 1px solid var(--dl-border);
+        }
+
+        .dl-turbo-bar .dl-search-input {
+            flex: 1;
+            min-width: 0;
+        }
+
         .dl-list {
             display: flex;
             flex-direction: column;

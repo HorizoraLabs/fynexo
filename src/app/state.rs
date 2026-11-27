@@ -25,6 +25,7 @@ pub struct AppState {
     pub boot_chrome_ext_enabled: bool,
     pub boot_proxy_mode: String,
     pub boot_proxy_server: String,
+    pub boot_parallel_downloads: bool,
     pub recent_downloads: Vec<DownloadEntry>,
     pub config_mtime: Option<SystemTime>,
     pub styles_mtime: Option<SystemTime>,
@@ -57,6 +58,7 @@ impl AppState {
             cfg!(target_os = "windows") && config.chrome_extensions_enabled;
         let boot_proxy_mode = AppConfig::normalize_proxy_mode(&config.proxy_mode).to_string();
         let boot_proxy_server = AppConfig::sanitize_proxy_server(&config.proxy_server);
+        let boot_parallel_downloads = config.parallel_downloads;
         let recent_downloads = UserData::load_downloads();
 
         Self {
@@ -75,6 +77,7 @@ impl AppState {
             boot_chrome_ext_enabled,
             boot_proxy_mode,
             boot_proxy_server,
+            boot_parallel_downloads,
             recent_downloads,
             config_mtime: AppConfig::mtime(),
             styles_mtime: ComponentStyles::mtime(),

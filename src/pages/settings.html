@@ -217,6 +217,16 @@ __FNX_SETTINGS_CSS__
                         </div>
                     </div>
 
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label" id="lblSelectionPopup">Selection floating toolbar</div>
+                            <div class="set-hint" id="hintSelectionPopup">Show an instant Translate / Search / Copy floating pill when selecting text on web pages.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnSelectionPopupToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Selection floating toolbar"></button>
+                        </div>
+                    </div>
+
                     <div class="set-row align-top">
                         <div class="set-meta">
                             <div class="set-label" id="lblPageFont">Web page font &amp; minimum size</div>
@@ -278,6 +288,22 @@ __FNX_SETTINGS_CSS__
                         </div>
                         <div class="set-ctrl">
                             <button type="button" id="btnAskDownloadToggle" class="fnx-switch" role="switch" aria-checked="false" aria-label="Ask where to save each file"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row desktop-only-sec">
+                        <div class="set-meta">
+                            <div class="set-label" id="lblParallelDl">Multi-threaded download accelerator</div>
+                            <div class="set-hint" id="hintParallelDl">Splits 2MB+ HTTP(S) files into parallel Range segments (IDM-style) plus enables Chromium ParallelDownloading.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <select id="selDownloadThreads" class="select-input" style="width: 112px;" aria-label="Download threads">
+                                <option value="4">4 threads</option>
+                                <option value="8">8 threads</option>
+                                <option value="12">12 threads</option>
+                                <option value="16">16 threads</option>
+                            </select>
+                            <button type="button" id="btnParallelDlToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Multi-threaded downloads"></button>
                         </div>
                     </div>
 
@@ -733,6 +759,16 @@ __FNX_SETTINGS_CSS__
                         </div>
                         <div class="set-ctrl">
                             <button type="button" id="btnHttpsFirstToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="HTTPS-First"></button>
+                        </div>
+                    </div>
+
+                    <div class="set-row">
+                        <div class="set-meta">
+                            <div class="set-label" id="lblCleanUrls">Strip tracking parameters &amp; skip redirect pages</div>
+                            <div class="set-hint" id="hintCleanUrls">Automatically removes utm_*, fbclid, spm_id_from, si, etc. and unwraps Zhihu/CSDN/Juejin/QQ/Google outbound redirect pages.</div>
+                        </div>
+                        <div class="set-ctrl">
+                            <button type="button" id="btnCleanUrlsToggle" class="fnx-switch on" role="switch" aria-checked="true" aria-label="Clean tracking URLs"></button>
                         </div>
                     </div>
 

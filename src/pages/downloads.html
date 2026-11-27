@@ -47,6 +47,11 @@ __FNX_DOWNLOADS_CSS__
         </div>
 
         <main class="dl-main">
+            <div class="dl-turbo-bar" id="dlTurboBar">
+                <input type="text" id="dlTurboInput" class="dl-search-input" style="padding-left: 12px;" placeholder="Paste direct http(s):// file URL for multi-threaded turbo download..." autocomplete="off" spellcheck="false">
+                <span class="dl-count-badge" id="dlTurboThreadsBadge">8x</span>
+                <button type="button" class="dl-btn primary" id="btnTurboDownload">Turbo Download</button>
+            </div>
             <div class="dl-list" id="dlList"></div>
             <div class="dl-empty" id="dlEmpty" style="display: none;">
                 <svg width="32" height="32" viewBox="0 0 16 16" fill="none" aria-hidden="true">

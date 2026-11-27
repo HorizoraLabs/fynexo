@@ -71,6 +71,16 @@ pub enum UserEvent {
         win_id: usize,
         url: String,
     },
+    StartTurboDownload {
+        url: String,
+    },
+    #[cfg(target_os = "windows")]
+    DownloadProbeFinished {
+        probe_id: u64,
+        supports_range: bool,
+        total_bytes: u64,
+        cookie_header: String,
+    },
     SyncDownloads,
     TranslateResult {
         win_id: usize,
@@ -103,7 +113,13 @@ pub enum UserEvent {
         uri: String,
     },
     CaptureScreenshot(usize),
+    CaptureFullScreenshot(usize),
     SavePagePdf(usize),
+    SaveMarkdownFile {
+        title: String,
+        url: String,
+        markdown: String,
+    },
     SaveImageUrl {
         win_id: usize,
         url: String,

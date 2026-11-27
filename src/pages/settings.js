@@ -3187,6 +3187,23 @@
             }
             if (btnResetDlDir) btnResetDlDir.textContent = zh ? '恢复默认' : 'Default';
             setSwitchState('btnAskDownloadToggle', !!config.ask_download_location);
+            setSwitchState('btnParallelDlToggle', config.parallel_downloads !== false);
+            setPlainRowI18n(document.getElementById('lblParallelDl'), '多线程分片下载加速 (IDM 模式)', 'Multi-threaded download accelerator');
+            setPlainRowI18n(
+                document.getElementById('hintParallelDl'),
+                '对支持 Range 断点的 2MB 以上大文件自动拆分多线程并行拉取，同时开启 Chromium 并行下载；不支持分片的链接自动无感回落原生下载。',
+                'Splits 2MB+ HTTP(S) files into parallel Range segments (IDM-style) plus enables Chromium ParallelDownloading.'
+            );
+            const selDlThreads = document.getElementById('selDownloadThreads');
+            if (selDlThreads) {
+                const opts = selDlThreads.options;
+                [4, 8, 12, 16].forEach((n, idx) => {
+                    if (opts[idx]) opts[idx].textContent = zh ? `${n} 线程` : `${n} threads`;
+                });
+                const curTh = Number(config.download_threads) || 8;
+                selDlThreads.value = String([4, 8, 12, 16].includes(curTh) ? curTh : 8);
+                selDlThreads.disabled = config.parallel_downloads === false;
+            }
             const selTrans = document.getElementById('selTranslateProvider');
             if (selTrans) {
                 selTrans.value = ['google', 'bing', 'youdao'].includes(String(config.translate_provider || '').toLowerCase())
@@ -3236,8 +3253,14 @@
 
             setSwitchState('btnIncognitoToggle', !!config.incognito);
             setSwitchState('btnHttpsFirstToggle', config.https_first !== false);
+            setSwitchState('btnCleanUrlsToggle', config.clean_urls !== false);
+            setSwitchState('btnSelectionPopupToggle', config.selection_popup !== false);
             setSwitchState('btnPwAutosaveToggle', config.password_autosave !== false);
             setSwitchState('btnGenAutofillToggle', config.general_autofill !== false);
+            setPlainRowI18n(document.getElementById('lblSelectionPopup'), '网页划词快捷浮窗（翻译 / 搜索 / 复制）', 'Selection floating toolbar (Translate / Search / Copy)');
+            setPlainRowI18n(document.getElementById('hintSelectionPopup'), '在外网网页选中任意文本时，就地弹出轻量浮窗，支持一键划词翻译、搜索与复制。', 'Show an instant Translate / Search / Copy floating pill when selecting text on web pages.');
+            setPlainRowI18n(document.getElementById('lblCleanUrls'), '净化链接追踪参数与跳过外链中转页', 'Strip tracking parameters & skip redirect pages');
+            setPlainRowI18n(document.getElementById('hintCleanUrls'), '自动移除 utm_*、fbclid、spm_id_from、si 等追踪参数，并直接跳过知乎/CSDN/掘金/QQ/Google 外链确认页。', 'Automatically removes utm_*, fbclid, spm_id_from, si, etc. and unwraps Zhihu/CSDN/Juejin/QQ/Google outbound redirect pages.');
             setPlainRowI18n(document.getElementById('lblPwAutosave'), '自动记住登录密码', 'Offer to save passwords');
             setPlainRowI18n(document.getElementById('hintPwAutosave'), '开启 WebView2 原生密码保存与登录自动填充（无痕模式下始终自动禁用）。', 'Use WebView2 native password autosave when signing into websites (always disabled in Private mode).');
             setPlainRowI18n(document.getElementById('lblGenAutofill'), '表单与地址自动填充', 'Form & address autofill');
@@ -3655,6 +3678,26 @@
                 ? (isZh() ? '已开启 HTTPS 优先加密连接' : 'HTTPS-First enabled')
                 : (isZh() ? '已关闭 HTTPS 优先自动升级' : 'HTTPS-First disabled'));
         };
+        const btnCleanUrlsToggle = document.getElementById('btnCleanUrlsToggle');
+        if (btnCleanUrlsToggle) {
+            btnCleanUrlsToggle.onclick = () => {
+                config.clean_urls = !(config.clean_urls !== false);
+                syncFormControls();
+                saveConfig(config.clean_urls
+                    ? (isZh() ? '已开启链接追踪净化与外链直达' : 'Clean URLs & redirect skipper enabled')
+                    : (isZh() ? '已关闭链接追踪净化' : 'Clean URLs disabled'));
+            };
+        }
+        const btnSelectionPopupToggle = document.getElementById('btnSelectionPopupToggle');
+        if (btnSelectionPopupToggle) {
+            btnSelectionPopupToggle.onclick = () => {
+                config.selection_popup = !(config.selection_popup !== false);
+                syncFormControls();
+                saveConfig(config.selection_popup
+                    ? (isZh() ? '已开启网页划词快捷浮窗' : 'Selection floating toolbar enabled')
+                    : (isZh() ? '已关闭网页划词快捷浮窗' : 'Selection floating toolbar disabled'));
+            };
+        }
         const PERF_PRESET_DEFS = {
             ultra_low: {
                 titleZh: '极低', titleEn: 'Ultra Low',
@@ -4399,6 +4442,23 @@
             selMinFsEl.onchange = () => {
                 config.min_font_size = Number(selMinFsEl.value) || 0;
                 saveConfig(isZh() ? '已更新网页最小字号' : 'Updated minimum font size');
+            };
+        }
+        const btnParDlEl = document.getElementById('btnParallelDlToggle');
+        if (btnParDlEl) {
+            btnParDlEl.onclick = () => {
+                config.parallel_downloads = !(config.parallel_downloads !== false);
+                syncFormControls();
+                saveConfig(config.parallel_downloads
+                    ? (isZh() ? '已开启多线程分片下载加速' : 'Multi-threaded download accelerator enabled')
+                    : (isZh() ? '已关闭多线程下载加速' : 'Multi-threaded download accelerator disabled'));
+            };
+        }
+        const selDlThEl = document.getElementById('selDownloadThreads');
+        if (selDlThEl) {
+            selDlThEl.onchange = () => {
+                config.download_threads = Number(selDlThEl.value) || 8;
+                saveConfig(isZh() ? `已设置下载并发为 ${config.download_threads} 线程` : `Download concurrency set to ${config.download_threads} threads`);
             };
         }
 

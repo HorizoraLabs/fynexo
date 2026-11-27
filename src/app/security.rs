@@ -171,6 +171,9 @@ pub fn is_allowed_hud_action(action: &str) -> bool {
             | "toggle_side_panel"
             | "toggle_split_view"
             | "capture_screenshot"
+            | "capture_full_screenshot"
+            | "export_markdown"
+            | "open_qr"
             | "toggle_translate"
             | "toggle_bookmark"
             | "copy_url"
@@ -215,6 +218,7 @@ fn is_content_tab_allowed_command(cmd: &str) -> bool {
             | "TRANSLATE_BATCH"
             | "SAVE_PAGE_PDF"
             | "SAVE_IMAGE_URL"
+            | "SAVE_MARKDOWN_FILE"
     )
 }
 
@@ -269,6 +273,7 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
             | "RESUME_DOWNLOAD"
             | "CANCEL_DOWNLOAD"
             | "RETRY_DOWNLOAD"
+            | "START_TURBO_DOWNLOAD"
             | "DELETE_DOWNLOAD_ENTRY"
             | "CLEAR_DOWNLOADS_HISTORY"
             | "CREATE_TAB_GROUP"
@@ -283,7 +288,9 @@ fn is_hud_allowed_command(cmd: &str) -> bool {
             | "SWAP_SPLIT_PANES"
             | "CLOSE_SPLIT_VIEW"
             | "CAPTURE_SCREENSHOT"
+            | "CAPTURE_FULL_SCREENSHOT"
             | "SAVE_PAGE_PDF"
+            | "SAVE_MARKDOWN_FILE"
             | "SAVE_IMAGE_URL"
             | "CLEAR_BROWSING_DATA"
             | "TRANSLATE_BATCH"

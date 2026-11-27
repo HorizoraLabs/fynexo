@@ -97,6 +97,8 @@
       ext_media_booster: false,
       ext_userscript_engine: true,
       ext_mouse_gestures: true,
+      clean_urls: true,
+      selection_popup: true,
       active_mode: 'auto',
       mode_profiles: [],
       site_overrides: {},
@@ -725,8 +727,28 @@
             'html{font-size:max(100%,' + minFs + 'px)!important;}body,p,li,td,th,dd,dt,blockquote{font-size:max(1em,' + minFs + 'px);}',
          );
       }
+      if (siteOv && siteOv.super_copy) {
+         chunks.push(
+            '*,*::before,*::after{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important;}',
+         );
+      }
       const next = chunks.join('\n');
       if (pageRulesEl.textContent !== next) pageRulesEl.textContent = next;
+   }
+
+   // SuperCopy capture-phase event unlocker (per-site opt-in via Site Info Popover)
+   if (!isInternalAny()) {
+      ['copy', 'cut', 'selectstart', 'contextmenu', 'dragstart'].forEach((evName) => {
+         window.addEventListener(
+            evName,
+            (e) => {
+               const ov = getCurrentSiteOverride();
+               if (!ov || !ov.super_copy) return;
+               e.stopImmediatePropagation();
+            },
+            true,
+         );
+      });
    }
 
    function applySiteRules() {
@@ -844,11 +866,31 @@
       if (siteRulesEl.textContent !== combinedCss) siteRulesEl.textContent = combinedCss;
    }
 
-   // Media Detection & Volume Boost
+   // Media Detection, Volume Boost & Universal Playback Speed (0.25x - 4.0x)
    let currentMediaEl = null;
    let mediaGainValue = 100;
    let mediaIsMuted = false;
+   let mediaPlaybackRate = 1.0;
    let audioCtx = null;
+
+   function applyMediaRate(rate) {
+      const r = Math.max(0.25, Math.min(4.0, Math.round((Number(rate) || 1.0) * 100) / 100));
+      mediaPlaybackRate = r;
+      try {
+         document.querySelectorAll('video, audio').forEach((m) => {
+            if (Math.abs((m.playbackRate || 1) - r) > 0.005) m.playbackRate = r;
+         });
+      } catch (_) {}
+   }
+
+   function syncSiteMediaRate() {
+      const ov = getCurrentSiteOverride();
+      if (ov && typeof ov.media_rate === 'number' && ov.media_rate >= 0.25 && ov.media_rate <= 4.0) {
+         applyMediaRate(ov.media_rate);
+      } else if (mediaPlaybackRate !== 1.0) {
+         applyMediaRate(mediaPlaybackRate);
+      }
+   }
 
    function isControllableMedia(el) {
       return !!(el && el.isConnected && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO'));
@@ -1495,6 +1537,7 @@
          media_title: mediaTitle,
          media_muted: !!mediaIsMuted,
          media_gain: Number(mediaGainValue) || 100,
+         media_rate: Number(mediaPlaybackRate) || 1.0,
          blocked_ads: !internal ? getDetectedAdCount() : 0,
          script_count: Number(activePageScriptCount) || 0,
          sf_commands:
@@ -1576,6 +1619,7 @@
       const m = findActiveMedia();
       const playing = !!(m && !m.paused && !m.ended);
       if (playing) currentMediaEl = m;
+      if (mediaPlaybackRate !== 1.0) applyMediaRate(mediaPlaybackRate);
       if (playing !== lastMediaPlaying) {
          lastMediaPlaying = playing;
          sendIpc({ type: 'UPDATE_TAB_MEDIA_STATE', playing });
@@ -1583,6 +1627,9 @@
       reportContentPageMetaRef(false);
    }
    document.addEventListener('play', checkMediaPlaybackState, true);
+   document.addEventListener('loadedmetadata', () => {
+      if (mediaPlaybackRate !== 1.0) applyMediaRate(mediaPlaybackRate);
+   }, true);
    document.addEventListener('pause', checkMediaPlaybackState, true);
    document.addEventListener('ended', checkMediaPlaybackState, true);
 
@@ -1621,6 +1668,10 @@
       'keydown',
       (e) => {
          if (e.key === 'Escape') {
+            if (selPopEl && selPopEl.style.display === 'flex') {
+               hideSelectionBubble();
+               return;
+            }
             if (pickerActive) {
                stopVisualElementPicker();
                return;
@@ -1933,6 +1984,7 @@
       syncShadowThemeVars();
       applyPageRules();
       applySiteRules();
+      syncSiteMediaRate();
       syncExtensions();
       if (isInternalAny() && typeof window.__fynexo_on_settings_runtime__ === 'function') {
          window.__fynexo_on_settings_runtime__(rtPayload);
@@ -2185,13 +2237,324 @@
             type: 'TRANSLATE_BATCH',
             req_id: rid,
             target_lang: lang,
-            segments: idMap.slice(i, i + chunkSize),
+            items: idMap.slice(i, i + chunkSize),
          });
       }
    }
 
+   // Selection Floating Bubble (Translate / Search / Copy)
+   let selPopEl = null;
+   let selResEl = null;
+   let selTextCache = '';
+   let selTrReqId = 0;
+
+   function hideSelectionBubble() {
+      if (selPopEl) selPopEl.style.display = 'none';
+      if (selResEl) {
+         selResEl.style.display = 'none';
+         selResEl.textContent = '';
+      }
+      selTrReqId = 0;
+   }
+
+   function ensureSelectionBubble() {
+      const sr = ensureShadowHost();
+      if (!sr || !shellEl) return null;
+      if (selPopEl && selPopEl.isConnected) return selPopEl;
+      const box = document.createElement('div');
+      box.id = '__fynexo_sel_pop__';
+      box.style.cssText =
+         'position:fixed;z-index:2147483645;display:none;flex-direction:column;gap:6px;max-width:min(340px,calc(100vw - 24px));padding:5px;border-radius:10px;background:var(--fnx-panel);border:1px solid var(--fnx-border-hover);box-shadow:0 12px 30px rgba(0,0,0,0.42);color:var(--fnx-fg);font-family:system-ui,-apple-system,sans-serif;pointer-events:auto;';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:4px;';
+      const btnCss =
+         'height:26px;padding:0 9px;border-radius:7px;border:1px solid var(--fnx-border);background:var(--fnx-surface);color:var(--fnx-fg);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;';
+      const bTr = document.createElement('button');
+      bTr.type = 'button';
+      bTr.style.cssText = btnCss;
+      const bSr = document.createElement('button');
+      bSr.type = 'button';
+      bSr.style.cssText = btnCss;
+      const bCp = document.createElement('button');
+      bCp.type = 'button';
+      bCp.style.cssText = btnCss;
+      const res = document.createElement('div');
+      res.style.cssText =
+         'display:none;padding:7px 9px;border-radius:7px;background:var(--fnx-surface);border:1px solid var(--fnx-border);font-size:12.5px;line-height:1.5;color:var(--fnx-fg);max-height:180px;overflow-y:auto;word-break:break-word;user-select:text;';
+
+      bTr.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+      bSr.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+      bCp.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+
+      bTr.onclick = (e) => {
+         e.stopPropagation();
+         if (!selTextCache) return;
+         const hasCjk = /[\u4e00-\u9fff]/.test(selTextCache);
+         const targetLang = hasCjk ? 'en' : 'zh-CN';
+         const rid = trReqSeq++;
+         selTrReqId = rid;
+         res.textContent = isZh() ? '翻译中…' : 'Translating...';
+         res.style.display = 'block';
+         sendIpc({
+            type: 'TRANSLATE_BATCH',
+            req_id: rid,
+            target_lang: targetLang,
+            items: [{ id: 1, text: selTextCache }],
+         });
+      };
+      bSr.onclick = (e) => {
+         e.stopPropagation();
+         if (!selTextCache) return;
+         const engines = Array.isArray(config.search_engines) ? config.search_engines : [];
+         const activeId = String(config.search_engine || 'google');
+         const eng = engines.find((x) => x && x.id === activeId) || engines[0];
+         const tpl = (eng && eng.url) || 'https://www.google.com/search?q={query}';
+         const q = encodeURIComponent(selTextCache);
+         const url = tpl.includes('{query}') ? tpl.replace('{query}', q) : tpl.replace('%s', q);
+         sendIpc({ type: 'NEW_TAB', url });
+         hideSelectionBubble();
+      };
+      bCp.onclick = (e) => {
+         e.stopPropagation();
+         if (!selTextCache) return;
+         copyTextToClipboard(selTextCache, isZh() ? '已复制选中文本' : 'Selection copied');
+         hideSelectionBubble();
+      };
+
+      row.append(bTr, bSr, bCp);
+      box.append(row, res);
+      shellEl.appendChild(box);
+      box._bTr = bTr;
+      box._bSr = bSr;
+      box._bCp = bCp;
+      selPopEl = box;
+      selResEl = res;
+      return box;
+   }
+
+   if (!isInternalAny()) {
+      document.addEventListener(
+         'mouseup',
+         (e) => {
+            if (config.selection_popup === false) return;
+            if (e && e.target && e.target.closest && e.target.closest('#__fynexo_host__')) return;
+            if (isEditableTarget(e && e.target)) {
+               hideSelectionBubble();
+               return;
+            }
+            setTimeout(() => {
+               try {
+                  const sel = window.getSelection ? window.getSelection() : null;
+                  const txt = sel ? String(sel.toString() || '').trim() : '';
+                  if (!sel || sel.isCollapsed || txt.length < 2 || txt.length > 600) {
+                     hideSelectionBubble();
+                     return;
+                  }
+                  const rect = sel.rangeCount > 0 ? sel.getRangeAt(0).getBoundingClientRect() : null;
+                  if (!rect || (rect.width === 0 && rect.height === 0)) {
+                     hideSelectionBubble();
+                     return;
+                  }
+                  const box = ensureSelectionBubble();
+                  if (!box) return;
+                  selTextCache = txt;
+                  const zh = isZh();
+                  box._bTr.textContent = zh ? '翻译' : 'Translate';
+                  box._bSr.textContent = zh ? '搜索' : 'Search';
+                  box._bCp.textContent = zh ? '复制' : 'Copy';
+                  if (selResEl) {
+                     selResEl.style.display = 'none';
+                     selResEl.textContent = '';
+                  }
+                  const vw = window.innerWidth || 1024;
+                  const left = Math.max(10, Math.min(vw - 210, Math.round(rect.left + rect.width / 2 - 86)));
+                  const top = rect.top > 56 ? Math.round(rect.top - 44) : Math.round(rect.bottom + 10);
+                  box.style.left = left + 'px';
+                  box.style.top = Math.max(8, top) + 'px';
+                  box.style.display = 'flex';
+               } catch (_) {}
+            }, 25);
+         },
+         true,
+      );
+      document.addEventListener(
+         'mousedown',
+         (e) => {
+            if (!selPopEl || selPopEl.style.display === 'none') return;
+            const path = e && typeof e.composedPath === 'function' ? e.composedPath() : [];
+            if (path.includes(selPopEl)) return;
+            hideSelectionBubble();
+         },
+         true,
+      );
+      window.addEventListener('scroll', hideSelectionBubble, { passive: true });
+   }
+
+   // Lightweight Article-to-Markdown Exporter (.md)
+   function nodeToMarkdown(node) {
+      if (!node) return '';
+      if (node.nodeType === 3) return String(node.nodeValue || '').replace(/\s+/g, ' ');
+      if (node.nodeType !== 1) return '';
+      const tag = String(node.tagName || '').toUpperCase();
+      if (/^(SCRIPT|STYLE|NOSCRIPT|SVG|IFRAME|NAV|FOOTER|ASIDE|FORM|BUTTON|INPUT|SELECT)$/.test(tag)) return '';
+      if (node.id === '__fynexo_host__') return '';
+      const inner = () => Array.from(node.childNodes || []).map(nodeToMarkdown).join('');
+      if (/^H[1-6]$/.test(tag)) {
+         const t = inner().trim();
+         return t ? '\n\n' + '#'.repeat(Number(tag[1])) + ' ' + t + '\n\n' : '';
+      }
+      if (tag === 'P') {
+         const t = inner().trim();
+         return t ? '\n\n' + t + '\n\n' : '';
+      }
+      if (tag === 'BR') return '  \n';
+      if (tag === 'HR') return '\n\n---\n\n';
+      if (tag === 'STRONG' || tag === 'B') {
+         const t = inner().trim();
+         return t ? '**' + t + '**' : '';
+      }
+      if (tag === 'EM' || tag === 'I') {
+         const t = inner().trim();
+         return t ? '*' + t + '*' : '';
+      }
+      if (tag === 'CODE') {
+         if (node.parentElement && node.parentElement.tagName === 'PRE') return node.textContent || '';
+         const t = String(node.textContent || '').trim();
+         return t ? '`' + t.replace(/`/g, '\\`') + '`' : '';
+      }
+      if (tag === 'PRE') {
+         const codeEl = node.querySelector('code');
+         const cls = String((codeEl && codeEl.className) || '');
+         const langMatch = cls.match(/language-([a-z0-9_+-]+)/i);
+         const lang = langMatch ? langMatch[1] : '';
+         const raw = String((codeEl || node).textContent || '').replace(/\n+$/, '');
+         return raw ? '\n\n```' + lang + '\n' + raw + '\n```\n\n' : '';
+      }
+      if (tag === 'BLOCKQUOTE') {
+         const t = inner().trim();
+         return t ? '\n\n' + t.split('\n').map((l) => '> ' + l).join('\n') + '\n\n' : '';
+      }
+      if (tag === 'A') {
+         const href = String(node.getAttribute('href') || '').trim();
+         const t = inner().trim();
+         if (!t) return '';
+         if (/^https?:\/\//i.test(href)) return '[' + t + '](' + href + ')';
+         return t;
+      }
+      if (tag === 'IMG') {
+         const src = String(node.currentSrc || node.getAttribute('src') || '').trim();
+         const alt = String(node.getAttribute('alt') || '').trim();
+         return /^https?:\/\//i.test(src) ? '![' + alt + '](' + src + ')' : '';
+      }
+      if (tag === 'UL' || tag === 'OL') {
+         const items = Array.from(node.children || []).filter((c) => c.tagName === 'LI');
+         if (!items.length) return '';
+         return (
+            '\n\n' +
+            items
+               .map((li, idx) => (tag === 'OL' ? idx + 1 + '. ' : '- ') + nodeToMarkdown(li).trim().replace(/\n+/g, ' '))
+               .join('\n') +
+            '\n\n'
+         );
+      }
+      if (tag === 'LI') return inner();
+      if (tag === 'TABLE') {
+         const rows = Array.from(node.querySelectorAll('tr')).slice(0, 60);
+         if (!rows.length) return '';
+         const lines = rows.map((tr) =>
+            '| ' +
+            Array.from(tr.children || [])
+               .map((c) => String(c.textContent || '').replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim())
+               .join(' | ') +
+            ' |',
+         );
+         if (lines.length >= 1) {
+            const cols = Math.max(1, (rows[0].children || []).length);
+            lines.splice(1, 0, '| ' + Array(cols).fill('---').join(' | ') + ' |');
+         }
+         return '\n\n' + lines.join('\n') + '\n\n';
+      }
+      return inner();
+   }
+
+   function exportCurrentPageAsMarkdown() {
+      if (isInternalAny()) return;
+      const root = document.querySelector('article, main, [role="main"]') || document.body;
+      const title = String((document.querySelector('h1') && document.querySelector('h1').textContent) || document.title || 'Article').trim();
+      const url = canonicalCurrentUrl();
+      const bodyMd = nodeToMarkdown(root)
+         .replace(/\n{3,}/g, '\n\n')
+         .trim();
+      if (!bodyMd) {
+         showHudToast(isZh() ? '当前页面无可导出的文章正文' : 'No article content found');
+         return;
+      }
+      const header = '# ' + title + '\n\n> Source: ' + url + '\n\n';
+      sendIpc({
+         type: 'SAVE_MARKDOWN_FILE',
+         title,
+         url,
+         markdown: header + bodyMd + '\n',
+      });
+   }
+
+   function clampSelectionBubbleInViewport() {
+      if (!selPopEl || selPopEl.style.display === 'none') return;
+      requestAnimationFrame(() => {
+         try {
+            const r = selPopEl.getBoundingClientRect();
+            const vw = window.innerWidth || 1024;
+            const vh = window.innerHeight || 720;
+            if (r.right > vw - 10) {
+               selPopEl.style.left = Math.max(8, vw - r.width - 10) + 'px';
+            }
+            if (r.bottom > vh - 10) {
+               selPopEl.style.top = Math.max(8, vh - r.height - 10) + 'px';
+            }
+         } catch (_) {}
+      });
+   }
+
+   function renderSelectionTranslationResult(text, isErr) {
+      if (!selResEl) return;
+      selResEl.textContent = '';
+      const txtEl = document.createElement('div');
+      txtEl.textContent = text;
+      selResEl.appendChild(txtEl);
+      if (!isErr && text) {
+         const cpBtn = document.createElement('button');
+         cpBtn.type = 'button';
+         cpBtn.style.cssText =
+            'margin-top:6px;height:22px;padding:0 8px;border-radius:6px;border:1px solid var(--fnx-border);background:var(--fnx-panel);color:var(--fnx-secondary);font-size:11px;cursor:pointer;';
+         cpBtn.textContent = isZh() ? '复制译文' : 'Copy translation';
+         cpBtn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+         cpBtn.onclick = (e) => {
+            e.stopPropagation();
+            copyTextToClipboard(text, isZh() ? '已复制译文' : 'Translation copied');
+            hideSelectionBubble();
+         };
+         selResEl.appendChild(cpBtn);
+      }
+      clampSelectionBubbleInViewport();
+   }
+
    function handleTranslateResult(payload) {
-      if (!trActive || !payload || !trActiveReqIds.has(Number(payload.req_id))) return;
+      if (!payload) return;
+      if (selTrReqId && Number(payload.req_id) === selTrReqId) {
+         selTrReqId = 0;
+         if (!selResEl) return;
+         if (payload.error) {
+            renderSelectionTranslationResult((isZh() ? '翻译失败：' : 'Error: ') + String(payload.error), true);
+            return;
+         }
+         const it = Array.isArray(payload.items) && payload.items[0];
+         renderSelectionTranslationResult(
+            (it && it.text) ? String(it.text) : (isZh() ? '无译文' : 'No translation'),
+            !(it && it.text),
+         );
+         return;
+      }
+      if (!trActive || !trActiveReqIds.has(Number(payload.req_id))) return;
       trActiveReqIds.delete(Number(payload.req_id));
       trPendingBatches = Math.max(0, trPendingBatches - 1);
       if (payload.error) {
@@ -2349,6 +2712,13 @@
             applyMediaVolume(data.gain !== undefined ? data.gain : mediaGainValue);
             reportContentPageMetaRef(true);
             break;
+         case 'media_rate':
+            applyMediaRate(data.rate !== undefined ? data.rate : 1.0);
+            reportContentPageMetaRef(true);
+            break;
+         case 'export_markdown':
+            exportCurrentPageAsMarkdown();
+            break;
          case 'run_sf_command':
             if (Array.isArray(scriptForgeMenuCommands)) {
                const cmd = scriptForgeMenuCommands.find((c) => c && c.id === data.id);
@@ -2433,6 +2803,7 @@
       domReadyForPaint = true;
       applyPageRules();
       applySiteRules();
+      syncSiteMediaRate();
       syncExtensions();
       cachedReaderable = detectReaderable();
       reportTitleAndUrl(true);
